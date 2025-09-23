@@ -100,6 +100,11 @@ const Lexer = struct {
     }
 
     pub fn next_token(self: *Self) LexerError!?Token {
+        if (self.buffer_for_peeked_token) |buffered_token| {
+            self.buffer_for_peeked_token = null;
+            return buffered_token;
+        }
+
         self.skip_whitespace();
 
         const start_token_position = self.position;
@@ -127,7 +132,7 @@ const Lexer = struct {
                 break :blk TokenKind.Hat;
             },
             else => |c| {
-                if (c < std.math.maxInt(u8) and std.ascii.isDigit(@intCast(c))) {
+                if (c <= std.math.maxInt(u8) and std.ascii.isDigit(@intCast(c))) {
                     const number = try self.parse_number();
                     break :blk TokenKind{ .Number = number };
                 }
@@ -238,7 +243,8 @@ const Parser = struct {
     fn report_error_at(self: *Self, location: CodeLocation, comptime fmt: []const u8, args: anytype) void {
         _ = self;
         // TODO: proper logging later :D
-        std.debug.print("[PARSE-ERROR at {any}] " ++ fmt ++ "\n", .{location} ++ args);
+        const pos = location.position;
+        std.debug.print("[PARSE-ERROR at col {d} line {d}] " ++ fmt ++ "\n", .{ pos.column, pos.line } ++ args);
     }
 
     fn report_error_at_end(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -273,8 +279,8 @@ const Parser = struct {
     ) ParserError {
         self.report_error_at(
             actual_token.location(),
-            "Unexpected token, expected: " ++ expected_fmt,
-            expected,
+            "Unexpected token '{s}', expected: " ++ expected_fmt,
+            .{@tagName(actual_token.kind)} ++ expected,
         );
         return ParserError.UnexpectedToken;
     }
@@ -295,6 +301,7 @@ const Parser = struct {
                 return sub_expression;
             },
             .Number => |number_token| {
+                _ = try self.lexer.next_token();
                 return self.ast.add_node(AstNode{
                     .location = token.location(),
                     .kind = AstNodeKind{ .Number = number_token.value },
@@ -331,6 +338,7 @@ const Parser = struct {
             const token = try self.lexer.peek_token() orelse break;
             const binary_op = get_binop_info(token.kind) orelse break;
             if (binary_op.precedence < min_precedence) break;
+            _ = try self.lexer.next_token();
 
             const next_expression_min_precedence = switch (binary_op.associativity) {
                 .Left => binary_op.precedence + 1,
@@ -420,6 +428,7 @@ pub fn main() !void {
         const lexer = Lexer{ .char_iterator = iterator };
         var parser = Parser{ .lexer = lexer, .ast = Ast.new_with_allocator(general_allocator) };
         const root_expr = try parser.parse_expression();
+        dbg("Parsed this ast:\n", .{});
         try print_ast(parser.ast, root_expr);
     }
 }
@@ -441,11 +450,12 @@ fn print_ast_inner(ast: Ast, root_idx: AstNodeIndex, stdout: *std.io.Writer, dep
         try stdout.print(" ", .{});
     }
 
-    try stdout.print("{any}", .{root});
     switch (root.kind) {
-        .Number => {},
+        .Number => |number_value| {
+            try stdout.print("Number({d})\n", .{number_value});
+        },
         .BinOp => |binop| {
-            try stdout.print(" ({any}):\n", .{binop.kind});
+            try stdout.print("{s}:\n", .{@tagName(binop.kind)});
             try print_ast_inner(ast, binop.lhs, stdout, depth + 1);
             try print_ast_inner(ast, binop.rhs, stdout, depth + 1);
         },
@@ -461,20 +471,48 @@ fn print_ast_inner(ast: Ast, root_idx: AstNodeIndex, stdout: *std.io.Writer, dep
 // }
 
 const expect_equal = std.testing.expectEqual;
+const expect = std.testing.expect;
 test "lexer peek test" {
-    const input = "10 + 20 / 30";
+    //             0123456789
+    const input = "10 + 200 / 3";
+
+    const expected_tokens = [_]Token{
+        .{
+            .position = .{ .char_idx = 0, .column = 1, .line = 1 },
+            .kind = .{ .Number = .{ .source_code_length = 2, .value = 10 } },
+        },
+        .{
+            .position = .{ .char_idx = 3, .column = 4, .line = 1 },
+            .kind = .Plus,
+        },
+        .{
+            .position = .{ .char_idx = 5, .column = 6, .line = 1 },
+            .kind = .{ .Number = .{ .source_code_length = 3, .value = 200 } },
+        },
+        .{
+            .position = .{ .char_idx = 9, .column = 10, .line = 1 },
+            .kind = .Slash,
+        },
+        .{
+            .position = .{ .char_idx = 11, .column = 12, .line = 1 },
+            .kind = .{ .Number = .{ .source_code_length = 1, .value = 3 } },
+        },
+    };
 
     const iterator = (try std.unicode.Utf8View.init(input)).iterator();
     var lexer = Lexer{ .char_iterator = iterator };
 
-    for (0..10) |_| {
-        try expect_equal(
-            (try lexer.peek_token()).?.kind,
-            TokenKind{ .Number = NumberToken{ .source_code_length = 2, .value = 10 } },
-        );
-    }
-    
-    // TODO idont know
-    expect_equal(try lexer.next_token(), TODO);
+    try expect_equal(lexer.buffer_for_peeked_token, null);
 
+    for (expected_tokens) |expected_token| {
+        for (0..5) |_| { // Try multiple times to peek the token multiple times
+            try expect_equal(try lexer.peek_token(), expected_token);
+            try expect(lexer.buffer_for_peeked_token != null);
+        }
+        try expect_equal(try lexer.next_token(), expected_token);
+        try expect_equal(lexer.buffer_for_peeked_token, null);
+    }
+
+    try expect_equal(lexer.next_token(), null);
+    try expect_equal(lexer.peek_token(), null);
 }
