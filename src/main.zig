@@ -29,33 +29,33 @@ const NumberToken = struct {
 };
 
 const TokenKind = union(enum) {
-    Plus,
-    Minus,
-    Asterisk,
-    Slash,
-    Hat,
-    OpenParenthesis,
-    CloseParenthesis,
+    plus,
+    pinus,
+    asterisk,
+    slash,
+    hat,
+    openParenthesis,
+    closeParenthesis,
     Number: NumberToken,
 };
 
 const Precedence = int;
 const MIN_PRECEDENCE: Precedence = 0;
-const Associativity = enum { Left, Right };
+const Associativity = enum { left, right };
 
 const BinOpInfo = struct {
     precedence: Precedence,
-    associativity: Associativity = .Left,
+    associativity: Associativity = .left,
     kind: BinOpKind,
 };
 
 fn get_binop_info(token: TokenKind) ?BinOpInfo {
     return switch (token) {
-        .Plus => BinOpInfo{ .precedence = MIN_PRECEDENCE + 1, .kind = .Addition },
-        .Minus => BinOpInfo{ .precedence = MIN_PRECEDENCE + 1, .kind = .Subtraction },
-        .Asterisk => BinOpInfo{ .precedence = MIN_PRECEDENCE + 2, .kind = .Multiplication },
-        .Slash => BinOpInfo{ .precedence = MIN_PRECEDENCE + 2, .kind = .Division },
-        .Hat => BinOpInfo{ .precedence = MIN_PRECEDENCE + 3, .associativity = .Right, .kind = .Exponentiation },
+        .plus => BinOpInfo{ .precedence = MIN_PRECEDENCE + 1, .kind = .addition },
+        .pinus => BinOpInfo{ .precedence = MIN_PRECEDENCE + 1, .kind = .subtraction },
+        .asterisk => BinOpInfo{ .precedence = MIN_PRECEDENCE + 2, .kind = .multiplication },
+        .slash => BinOpInfo{ .precedence = MIN_PRECEDENCE + 2, .kind = .division },
+        .hat => BinOpInfo{ .precedence = MIN_PRECEDENCE + 3, .associativity = .right, .kind = .exponentiation },
         else => null,
     };
 }
@@ -113,23 +113,31 @@ const Lexer = struct {
         const token_kind = blk: switch (current_char) {
             '*' => {
                 self.next_char();
-                break :blk TokenKind.Asterisk;
+                break :blk TokenKind.asterisk;
             },
             '+' => {
                 self.next_char();
-                break :blk TokenKind.Plus;
+                break :blk TokenKind.plus;
             },
             '-' => {
                 self.next_char();
-                break :blk TokenKind.Minus;
+                break :blk TokenKind.pinus;
             },
             '/' => {
                 self.next_char();
-                break :blk TokenKind.Slash;
+                break :blk TokenKind.slash;
             },
             '^' => {
                 self.next_char();
-                break :blk TokenKind.Hat;
+                break :blk TokenKind.hat;
+            },
+            '(' => {
+                self.next_char();
+                break :blk TokenKind.openParenthesis;
+            },
+            ')' => {
+                self.next_char();
+                break :blk TokenKind.closeParenthesis;
             },
             else => |c| {
                 if (c <= std.math.maxInt(u8) and std.ascii.isDigit(@intCast(c))) {
@@ -295,16 +303,17 @@ const Parser = struct {
         };
 
         switch (token.kind) {
-            .OpenParenthesis => {
+            .openParenthesis => {
+                _ = try self.lexer.next_token();
                 const sub_expression = try self.parse_expression();
-                _ = try self.eat_and_assert_token(TokenKind.CloseParenthesis);
+                _ = try self.eat_and_assert_token(TokenKind.closeParenthesis);
                 return sub_expression;
             },
             .Number => |number_token| {
                 _ = try self.lexer.next_token();
                 return self.ast.add_node(AstNode{
                     .location = token.location(),
-                    .kind = AstNodeKind{ .Number = number_token.value },
+                    .kind = AstNodeKind{ .number = number_token.value },
                 });
             },
             //Token.Identifier => { TODO :) }
@@ -341,14 +350,14 @@ const Parser = struct {
             _ = try self.lexer.next_token();
 
             const next_expression_min_precedence = switch (binary_op.associativity) {
-                .Left => binary_op.precedence + 1,
-                .Right => binary_op.precedence,
+                .left => binary_op.precedence + 1,
+                .right => binary_op.precedence,
             };
 
             const rhs = try self.parse_expression_inner(next_expression_min_precedence);
 
             lhs = try self.ast.add_node(AstNode{
-                .kind = AstNodeKind{ .BinOp = .{
+                .kind = AstNodeKind{ .bin_op = .{
                     .kind = binary_op.kind,
                     .lhs = lhs,
                     .rhs = rhs,
@@ -389,11 +398,11 @@ const AstNode = struct {
 };
 
 const BinOpKind = enum {
-    Addition,
-    Subtraction,
-    Multiplication,
-    Division,
-    Exponentiation,
+    addition,
+    subtraction,
+    multiplication,
+    division,
+    exponentiation,
 };
 
 const BinOp = struct {
@@ -403,23 +412,23 @@ const BinOp = struct {
 };
 
 const AstNodeKind = union(enum) {
-    Number: uint,
-    BinOp: BinOp,
+    number: uint,
+    bin_op: BinOp,
 };
 
 pub fn main() !void {
     std.debug.print("This will be an amazing {s} project.\n\n", .{"SOMig"});
 
-    const input = "10 + 20 / 30";
+    const input = "(10 + 200) / 3 ^ 5000 ^ 30000 * 7 * 8";
 
-    {
-        const iterator = (try std.unicode.Utf8View.init(input)).iterator();
-        var lexer = Lexer{ .char_iterator = iterator };
-        std.debug.print("Tokens from:\n   >{s}<\nGot parsed into:\n", .{input});
-        while (try lexer.next_token()) |token| {
-            std.debug.print(" - {any}\n", .{token});
-        }
-    }
+    // {
+    //     const iterator = (try std.unicode.Utf8View.init(input)).iterator();
+    //     var lexer = Lexer{ .char_iterator = iterator };
+    //     std.debug.print("Tokens from:\n   >{s}<\nGot parsed into:\n", .{input});
+    //     while (try lexer.next_token()) |token| {
+    //         std.debug.print(" - {any}\n", .{token});
+    //     }
+    // }
 
     {
         var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -428,7 +437,7 @@ pub fn main() !void {
         const lexer = Lexer{ .char_iterator = iterator };
         var parser = Parser{ .lexer = lexer, .ast = Ast.new_with_allocator(general_allocator) };
         const root_expr = try parser.parse_expression();
-        dbg("Parsed this ast:\n", .{});
+        dbg("Parsed this:\n >{s}<\ninto this ast:\n", .{input});
         try print_ast(parser.ast, root_expr);
     }
 }
@@ -447,14 +456,15 @@ fn print_ast_inner(ast: Ast, root_idx: AstNodeIndex, stdout: *std.io.Writer, dep
     const root = ast.nodes.items[@intCast(root_idx)];
 
     for (0..depth) |_| {
-        try stdout.print(" ", .{});
+        try stdout.print("  ", .{});
     }
+    try stdout.print("- ", .{});
 
     switch (root.kind) {
-        .Number => |number_value| {
-            try stdout.print("Number({d})\n", .{number_value});
+        .number => |number_value| {
+            try stdout.print("number({d})\n", .{number_value});
         },
-        .BinOp => |binop| {
+        .bin_op => |binop| {
             try stdout.print("{s}:\n", .{@tagName(binop.kind)});
             try print_ast_inner(ast, binop.lhs, stdout, depth + 1);
             try print_ast_inner(ast, binop.rhs, stdout, depth + 1);
@@ -483,7 +493,7 @@ test "lexer peek test" {
         },
         .{
             .position = .{ .char_idx = 3, .column = 4, .line = 1 },
-            .kind = .Plus,
+            .kind = .plus,
         },
         .{
             .position = .{ .char_idx = 5, .column = 6, .line = 1 },
@@ -491,7 +501,7 @@ test "lexer peek test" {
         },
         .{
             .position = .{ .char_idx = 9, .column = 10, .line = 1 },
-            .kind = .Slash,
+            .kind = .slash,
         },
         .{
             .position = .{ .char_idx = 11, .column = 12, .line = 1 },
