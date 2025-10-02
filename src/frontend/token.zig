@@ -1,0 +1,97 @@
+// Grammar src
+// https://github.com/SOM-st/SOM/blob/a721b4ff6ecb1ade54e0afe0bd15a8e80e41af17/specification/SOM.g4
+
+const std = @import("std");
+const int = i64;
+const uint = u64;
+
+
+// And              &
+// At               @
+// Comma            ,
+// Div              /
+// Equal            =
+// Less             <
+// Minus            -
+// Mod              \\
+// More             >
+// Not              ~
+// Or               |
+// Per              %
+// Plus             +
+// Star             *
+
+
+
+// &@,/=<-\>~|%+*
+
+
+
+
+const CodePosition = struct {
+    const Self = @This();
+    start_idx: uint,
+    length: uint,
+
+    fn at(start_index: usize) CodePosition {
+        return CodePosition{
+            .start_idx = start_index,
+            .length = 1,
+        };
+    }
+
+    fn from_start_and_end(start_index: usize, end_index_inclusive: usize) CodePosition {
+        std.debug.assert(start_index <= end_index_inclusive);
+        return CodePosition{
+            .start_idx = start_index,
+            .length = end_index_inclusive - start_index + 1,
+        };
+    }
+
+    fn end_idx_inclusive(self: *Self) uint {
+        return self.start_idx + self.length - 1;
+    }
+};
+
+const IntegerRepresentation = i64;
+
+const TokenKind = union(enum) {
+    /// The `^` character
+    exit,
+
+    /// Line `------`
+    separator,
+
+    pipe,
+    dot,
+
+    /// The symbol `:=`
+    assign,
+
+    open_parenthesis,
+    close_parenthesis,
+
+    open_bracket,
+    close_bracket,
+
+    integer: IntegerRepresentation,
+
+    /// Identifier consisting of: `+, -, *, /, &, =, <, >, —, @`
+    binary_message: []u8,
+
+    /// String in the form of `someIdentifier:`
+    /// The colon `:` at the end is also stored
+    keyword_message: []u8,
+
+    identifier: []u8,
+
+    /// String in the form of `:someIdentifier`
+    /// The colon `:` at the beginning is also stored
+    block_param: []u8,
+};
+
+const Token = struct {
+    const Self = @This();
+    kind: TokenKind,
+    pos: CodePosition,
+};
