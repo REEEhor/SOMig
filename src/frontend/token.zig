@@ -79,17 +79,16 @@ pub const TokenKind = union(enum) {
     float: FloatRepresentation,
 
     /// Identifier consisting of: `&@,/=<-\>~|%+*`
-    binary_message: []const u8,
+    binary_message,
 
     /// String in the form of `someIdentifier:`
-    /// The colon `:` at the end is also stored
-    keyword_message: []const u8,
+    keyword_message,
 
-    identifier: []const u8,
+    /// Identifiers in SOM consist of 'a'...'z', 'A'...'Z', '0'...'9' (<- not at the start), '_'
+    identifier,
 
     /// String in the form of `:someIdentifier`
-    /// The colon `:` at the beginning is also stored
-    block_param: []const u8,
+    block_param,
 };
 
 pub const Token = struct {

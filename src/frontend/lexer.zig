@@ -9,13 +9,22 @@ const TokenKind: type = token.TokenKind;
 const CodePosition: type = token.CodePosition;
 const IntegerRepr: type = token.IntegerRepresentation;
 const FloatRepr: type = token.FloatRepresentation;
+const eof = 0;
 
 pub const LexerError = error{
     unexpected_character,
     alone_colon,
+    colon_at_both_identifier_ends,
     non_ascii_byte,
     number_literal_too_big,
     unclosed_comment,
+};
+
+const State = enum {
+    start,
+    inside_comment,
+    lexing_identifier,
+    saw_colon,
 };
 
 pub const Lexer = struct {
@@ -50,126 +59,143 @@ pub const Lexer = struct {
             self.buffer_peeked_token = null;
             return t;
         }
-        try self.skip_whitespace_and_comments();
+        var token_start_idx = self.current_char_idx;
 
-        const token_start_idx = self.current_char_idx;
-        const peeked_char: u8 = try self.current_char() orelse return null;
-
-        switch (peeked_char) {
-            ':' => {
-                self.current_char_idx += 1;
-                switch (try self.current_char() orelse 0) {
-                    '=' => {
-                        self.current_char_idx += 1;
-                        return Token{ .pos = CodePosition.at(token_start_idx), .kind = .assign };
-                    },
-                    'a'...'z', 'A'...'Z', '_' => {
-                        const token_end_idx = try self.lex_identifier(false);
-                        const identifier = self.text[token_start_idx..token_end_idx];
-                        return Token{
-                            .pos = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
-                            .kind = .{ .block_param = identifier },
-                        };
-                    },
-                    else => {
-                        self.reporter.report_error(
-                            .{ .pos = CodePosition.at(token_start_idx) },
-                            "Found the ':' character on its own. Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?",
-                            .{},
-                        );
-                        return LexerError.alone_colon;
-                    },
-                }
-            },
-            'a'...'z', 'A'...'Z', '_' => {
-                const token_end_idx = try self.lex_identifier(true);
-                const identifier = self.text[token_start_idx..token_end_idx];
-
-                var kind: TokenKind = undefined;
-                if (identifier[identifier.len - 1] == ':') {
-                    kind = .{ .keyword_message = identifier };
+        loop: switch (State.start) {
+            .start => switch (try self.eat_char()) {
+                eof => return null,
+                '^' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .exit },
+                '.' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .dot },
+                '(' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_parenthesis },
+                ')' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_parenthesis },
+                '[' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_bracket },
+                ']' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_bracket },
+                'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
+                ':' => continue :loop .saw_colon,
+                '"' => continue :loop .inside_comment,
+                else => |chr| if (std.ascii.isWhitespace(chr)) {
+                    token_start_idx = self.current_char_idx;
+                    continue :loop .start;
                 } else {
-                    kind = .{ .identifier = identifier };
-                }
-                return Token{
-                    .pos = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
-                    .kind = kind,
-                };
+                    self.reporter.report_error(
+                        .{ .pos = CodePosition.at(token_start_idx) },
+                        "Unexpected character: '{c}'",
+                        .{chr},
+                    );
+                    return LexerError.unexpected_character;
+                },
             },
-            '^' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .exit };
+            .saw_colon => switch (try self.eat_char()) {
+                'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
+                else => {
+                    self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) },
+                        \\Found the ':' character on its own.
+                        \\ Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?
+                    , .{});
+                    return LexerError.alone_colon;
+                },
             },
-            '.' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .dot };
-            },
-            '(' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_parenthesis };
-            },
-            ')' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_parenthesis };
-            },
-            '[' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_bracket };
-            },
-            ']' => {
-                self.current_char_idx += 1;
-                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_bracket };
-            },
-            '0'...'9' => {
-                const number: Token = try self.lex_number(false, token_start_idx);
-                return number;
-            },
-            else => |chr| if (is_binary_message_char(chr)) {
-                const token_end_idx = try self.lex_binary_message();
-                const identifier = self.text[token_start_idx..token_end_idx];
-                const token_position = CodePosition.from_start_and_end(
-                    token_start_idx,
-                    token_start_idx - 1,
-                );
+            .lexing_identifier => switch (try self.current_char()) {
+                'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                    self.current_char_idx += 1;
+                    continue :loop .lexing_identifier;
+                },
+                ':' => {
+                    self.current_char_idx += 1;
+                    if (self.text[token_start_idx] == ':') {
+                        const error_pos = CodePosition.from_start_and_end(
+                            token_start_idx,
+                            self.current_char_idx - 1,
+                        );
+                        if (error_pos.length == 2) {
+                            self.reporter.report_error(
+                                .{ .pos = error_pos },
+                                "Found two colons \"::\" after each other. This does not mean anything in SOM.",
+                                .{},
+                            );
+                            return LexerError.colon_at_both_identifier_ends;
+                        }
 
-                // Check if the lex'ed identifier could be the 'pipe' token
-                if (identifier.len == 1 and identifier[0] == '|') {
-                    return Token{ .pos = token_position, .kind = .pipe };
-                }
+                        const identifier = self.text[token_start_idx..self.current_char_idx];
+                        self.reporter.report_error(
+                            .{ .pos = error_pos },
+                            "Found an identifier \"{s}\", which is surrounded by colon ':' on both sides. This syntax does not mean anytning in SOM.",
+                            .{identifier},
+                        );
+                        // @nice-to-have: Move this note into the parser, so it actually can infer, whether the user probably
+                        //                wanted `keywordMessage:` or `:blockParameter`.
+                        self.reporter.add_note(
+                            .no_location,
+                            "You might have wanted to do either a keyword message," ++
+                                " which would be \"{s}\" or a parameter of a block, which would be \"{s}\" :)",
+                            .{ self.text[token_start_idx + 1 .. self.current_char_idx], self.text[token_start_idx .. self.current_char_idx - 1] },
+                        );
+                        return LexerError.colon_at_both_identifier_ends;
+                    } else {
+                        return Token{
+                            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
+                            .kind = .keyword_message,
+                        };
+                    }
+                },
+                else => {
+                    const first_char = self.text[token_start_idx];
+                    const token_position = CodePosition.from_start_and_end(
+                        token_start_idx,
+                        self.current_char_idx - 1,
+                    );
+                    self.current_char_idx += 1;
 
-                // Check if the lex'ed identifier could be a negative sign in front of a number
-                const current_char_is_digit = blk: {
-                    const c = try self.current_char() orelse break :blk false;
-                    break :blk std.ascii.isDigit(c);
-                };
-                if (identifier.len == 1 and identifier[0] == '-' and current_char_is_digit) {
-                    return try self.lex_number(true, token_start_idx);
-                }
-
-                // Check if the lex'ed identifier could be the 'separator' token
-                const consists_only_of_dashes: bool = std.mem.allEqual(u8, identifier, '-');
-                if (identifier.len >= separator_minimum_length and consists_only_of_dashes) {
-                    return Token{ .pos = token_position, .kind = .separator };
-                }
-
-                return Token{
-                    .pos = token_position,
-                    .kind = .{ .binary_message = identifier },
-                };
-            } else {
-                self.reporter.report_error(
-                    .{ .pos = CodePosition.at(token_start_idx) },
-                    "Unexpected character: '{c}'",
-                    .{chr},
-                );
-                return LexerError.unexpected_character;
+                    if (first_char == ':' and token_position.length == 1) {
+                        // @nice-to-have: Add the second line as a note via `self.reporter.add_note(...)`
+                        self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) },
+                            \\Found the ':' character on its own.
+                            \\ Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?
+                        , .{});
+                        return LexerError.alone_colon;
+                    }
+                    if (first_char == ':') {
+                        return Token{ .pos = token_position, .kind = .block_param };
+                    }
+                    return Token{ .pos = token_position, .kind = .identifier };
+                },
+            },
+            .inside_comment => switch (self.eat_unchecked_byte()) {
+                '"' => {
+                    token_start_idx = self.current_char_idx;
+                    continue :loop .start;
+                },
+                eof => {
+                    self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) },
+                        \\The comment that starts here does not have a closing '"' character
+                        \\ - so the comment goes until the end of the file, which is probably not something you want :D
+                    , .{});
+                    return LexerError.unclosed_comment;
+                },
+                else => continue :loop .inside_comment,
             },
         }
+        unreachable;
     }
 
-    fn current_char(self: *Self) LexerError!?u8 {
+    fn eat_unchecked_byte(self: *Self) u8 {
         if (self.current_char_idx >= self.text.len) {
-            return null;
+            return 0;
+        }
+        const chr = self.text[self.current_char_idx];
+        self.current_char_idx += 1;
+        return chr;
+    }
+
+    fn eat_char(self: *Self) LexerError!u8 {
+        const chr = try self.current_char();
+        self.current_char_idx += 1;
+        return chr;
+    }
+
+    fn current_char(self: *Self) LexerError!u8 {
+        if (self.current_char_idx >= self.text.len) {
+            return 0;
         }
 
         const peeked_char = self.text[self.current_char_idx];
@@ -224,58 +250,6 @@ pub const Lexer = struct {
             .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx),
             .kind = .{ .float = float_literal },
         };
-    }
-
-    fn skip_whitespace_and_comments(self: *Self) LexerError!void {
-        // Keep going while we are...
-        while (true) {
-            var should_continue = false;
-            while (blk: {
-                const chr = try self.current_char() orelse break :blk false;
-                break :blk chr == '"';
-            }) {
-                try self.skip_single_comment();
-                should_continue = true; // ... skipping comments.
-            }
-
-            should_continue |= try self.skip_whitespace(); // ... or skipping whitespace.
-            if (!should_continue) return;
-        }
-    }
-
-    fn skip_whitespace(self: *Self) LexerError!bool {
-        var actually_skipped = false;
-        while (true) {
-            const current_chr = try self.current_char() orelse return actually_skipped;
-            if (!std.ascii.isWhitespace(current_chr)) return actually_skipped;
-            self.current_char_idx += 1;
-            actually_skipped = true;
-        }
-    }
-
-    /// Expected to be called when `self.text[self.current_char_idx] == '"'`
-    fn skip_single_comment(self: *Self) LexerError!void {
-        std.debug.assert((try self.current_char()).? == '"');
-        const comment_start_idx = self.current_char_idx;
-
-        self.current_char_idx += 1;
-        while (true) {
-            if (self.current_char_idx >= self.text.len) {
-                // TODO: user actually cares the start of the comment, so the
-                // method `report_unexpected_eof` should be replaced with `report_error`.
-                self.reporter.report_unexpected_eof(
-                    "Expected to see the character '\"' at some point which would close a comment.",
-                    .{},
-                );
-                self.reporter.add_note(.{ .pos = CodePosition.at(comment_start_idx) }, "The comment starts here.", .{});
-                return LexerError.unclosed_comment;
-            }
-
-            // Direct access since we want to ignore any (even non ASCII) characters in the comments.
-            const chr = self.text[self.current_char_idx];
-            self.current_char_idx += 1;
-            if (chr == '"') return;
-        }
     }
 
     fn lex_decimal_part_of_float(self: *Self, whole_part: IntegerRepr) LexerError!FloatRepr {
@@ -448,6 +422,16 @@ test "lex simple characters" {
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
+fn assert_same_token(expected_pos: CodePosition, expected_kind: TokenKind, actual_maybe: ?Token) !void {
+    try std.testing.expect(actual_maybe != null);
+    const actual: Token = actual_maybe.?;
+
+    try std.testing.expectEqual(expected_pos.start_idx, actual.pos.start_idx);
+    try std.testing.expectEqual(expected_pos.length, actual.pos.length);
+
+    try std.testing.expectEqual(expected_kind, actual.kind);
+}
+
 test "lex text with comments" {
     const input: []const u8 =
         // Indexes into the input string:
@@ -457,59 +441,24 @@ test "lex text with comments" {
     ;
     var lexer = Lexer.create(input, ErrorReporter{});
 
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(0),
-        .kind = .dot,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(24),
-        .kind = .exit,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(42),
-        .kind = .open_parenthesis,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(64),
-        .kind = .close_parenthesis,
-    }, try lexer.next_token());
+    try assert_same_token(CodePosition.at(0), .dot, try lexer.next_token());
+    try assert_same_token(CodePosition.at(24), .exit, try lexer.next_token());
+    try assert_same_token(CodePosition.at(42), .open_parenthesis, try lexer.next_token());
+    try assert_same_token(CodePosition.at(64), .close_parenthesis, try lexer.next_token());
 }
 
 test "lex text with whitespace and comments" {
     // Indexes into the input string:
-    //                                       10         20        30          40         50        60
-    //                         012 3 4 5678 90 12345678901234567890123456 789 012 345678901234567890123 45
+    //                                       10         20        30         40         50        60
+    //                         012 3 4 5678 90 12345678901234567890123  7 89 012 345678901234567890123 456
     const input: []const u8 = " .\n\"\"^^[\t \" Hi! this is a comment Ř \"  \n  \" Double comment! :D \" ] \" Also a comment at the end :)\"";
     var lexer = Lexer.create(input, ErrorReporter{});
 
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(1),
-        .kind = .dot,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(5),
-        .kind = .exit,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(6),
-        .kind = .exit,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(7),
-        .kind = .open_bracket,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(65), // TODO: this does not pass, the value is `66` for some reason
-        .kind = .close_bracket,
-    }, try lexer.next_token());
-
+    try assert_same_token(CodePosition.at(1), .dot, try lexer.next_token());
+    try assert_same_token(CodePosition.at(5), .exit, try lexer.next_token());
+    try assert_same_token(CodePosition.at(6), .exit, try lexer.next_token());
+    try assert_same_token(CodePosition.at(7), .open_bracket, try lexer.next_token());
+    try assert_same_token(CodePosition.at(66), .close_bracket, try lexer.next_token());
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
@@ -534,37 +483,36 @@ test "lex identifiers" {
     const input: []const u8 = "Hello hoW_:  are :you _som9 :wrong: ";
     var lexer = Lexer.create(input, .{});
 
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.from_start_and_end(0, 4),
-        .kind = .{ .identifier = input[0..5] },
-    }, try lexer.next_token());
+    try assert_same_token(
+        CodePosition.from_start_and_end(0, 4),
+        .identifier,
+        try lexer.next_token(),
+    );
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.from_start_and_end(6, 10),
-        .kind = .{ .keyword_message = input[6..11] },
+        .kind = .keyword_message,
     }, try lexer.next_token());
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.from_start_and_end(13, 15),
-        .kind = .{ .identifier = input[13..16] },
+        .kind = .identifier,
     }, try lexer.next_token());
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.from_start_and_end(17, 20),
-        .kind = .{ .block_param = input[17..21] },
+        .kind = .block_param,
     }, try lexer.next_token());
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.from_start_and_end(22, 26),
-        .kind = .{ .identifier = input[22..27] },
+        .kind = .identifier,
     }, try lexer.next_token());
 
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.from_start_and_end(28, 33),
-        .kind = .{ .block_param = input[28..34] },
-    }, try lexer.next_token());
-
-    try std.testing.expectError(LexerError.alone_colon, lexer.next_token());
+    try std.testing.expectError(
+        LexerError.colon_at_both_identifier_ends,
+        lexer.next_token(),
+    );
 }
 
 // TODO: test lexing of binary messages
