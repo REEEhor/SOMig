@@ -15,6 +15,7 @@ pub const LexerError = error{
     alone_colon,
     non_ascii_byte,
     number_literal_too_big,
+    unclosed_comment,
 };
 
 pub const Lexer = struct {
@@ -49,7 +50,7 @@ pub const Lexer = struct {
             self.buffer_peeked_token = null;
             return t;
         }
-        try self.skip_whitespace();
+        try self.skip_whitespace_and_comments();
 
         const token_start_idx = self.current_char_idx;
         const peeked_char: u8 = try self.current_char() orelse return null;
@@ -225,11 +226,55 @@ pub const Lexer = struct {
         };
     }
 
-    fn skip_whitespace(self: *Self) LexerError!void {
+    fn skip_whitespace_and_comments(self: *Self) LexerError!void {
+        // Keep going while we are...
         while (true) {
-            const current_chr = try self.current_char() orelse return;
-            if (!std.ascii.isWhitespace(current_chr)) return;
+            var should_continue = false;
+            while (blk: {
+                const chr = try self.current_char() orelse break :blk false;
+                break :blk chr == '"';
+            }) {
+                try self.skip_single_comment();
+                should_continue = true; // ... skipping comments.
+            }
+
+            should_continue |= try self.skip_whitespace(); // ... or skipping whitespace.
+            if (!should_continue) return;
+        }
+    }
+
+    fn skip_whitespace(self: *Self) LexerError!bool {
+        var actually_skipped = false;
+        while (true) {
+            const current_chr = try self.current_char() orelse return actually_skipped;
+            if (!std.ascii.isWhitespace(current_chr)) return actually_skipped;
             self.current_char_idx += 1;
+            actually_skipped = true;
+        }
+    }
+
+    /// Expected to be called when `self.text[self.current_char_idx] == '"'`
+    fn skip_single_comment(self: *Self) LexerError!void {
+        std.debug.assert((try self.current_char()).? == '"');
+        const comment_start_idx = self.current_char_idx;
+
+        self.current_char_idx += 1;
+        while (true) {
+            if (self.current_char_idx >= self.text.len) {
+                // TODO: user actually cares the start of the comment, so the
+                // method `report_unexpected_eof` should be replaced with `report_error`.
+                self.reporter.report_unexpected_eof(
+                    "Expected to see the character '\"' at some point which would close a comment.",
+                    .{},
+                );
+                self.reporter.add_note(.{ .pos = CodePosition.at(comment_start_idx) }, "The comment starts here.", .{});
+                return LexerError.unclosed_comment;
+            }
+
+            // Direct access since we want to ignore any (even non ASCII) characters in the comments.
+            const chr = self.text[self.current_char_idx];
+            self.current_char_idx += 1;
+            if (chr == '"') return;
         }
     }
 
@@ -357,6 +402,7 @@ const identifier_chars = identifier_start_chars ++ digits;
 const separator_minimum_length = 4;
 
 test "lex simple characters" {
+    // Indexes into the input string:
     //                           012345
     const input = ".^()[]";
     var lexer = Lexer.create(input, ErrorReporter{});
@@ -402,19 +448,46 @@ test "lex simple characters" {
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
-test "lex text with whitespace" {
-    //                         012 34567 89
-    const input: []const u8 = " .\n ^^[\t  ] ";
+test "lex text with comments" {
+    const input: []const u8 =
+        // Indexes into the input string:
+        //          10        20        30        40        50        60
+        //01234567890123456789012345678901234567890123456789012345678901234
+        \\." This is some comment"^"Another comment"("""""""Final comment")
+    ;
+    var lexer = Lexer.create(input, ErrorReporter{});
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(0),
+        .kind = .dot,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(24),
+        .kind = .exit,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(42),
+        .kind = .open_parenthesis,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(64),
+        .kind = .close_parenthesis,
+    }, try lexer.next_token());
+}
+
+test "lex text with whitespace and comments" {
+    // Indexes into the input string:
+    //                                       10         20        30          40         50        60
+    //                         012 3 4 5678 90 12345678901234567890123456 789 012 345678901234567890123 45
+    const input: []const u8 = " .\n\"\"^^[\t \" Hi! this is a comment Ř \"  \n  \" Double comment! :D \" ] \" Also a comment at the end :)\"";
     var lexer = Lexer.create(input, ErrorReporter{});
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.at(1),
         .kind = .dot,
-    }, try lexer.next_token());
-
-    try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(4),
-        .kind = .exit,
     }, try lexer.next_token());
 
     try std.testing.expectEqual(Token{
@@ -424,11 +497,16 @@ test "lex text with whitespace" {
 
     try std.testing.expectEqual(Token{
         .pos = CodePosition.at(6),
+        .kind = .exit,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(7),
         .kind = .open_bracket,
     }, try lexer.next_token());
 
     try std.testing.expectEqual(Token{
-        .pos = CodePosition.at(10),
+        .pos = CodePosition.at(65), // TODO: this does not pass, the value is `66` for some reason
         .kind = .close_bracket,
     }, try lexer.next_token());
 
@@ -450,6 +528,7 @@ test "should error on non-ascii character" {
 }
 
 test "lex identifiers" {
+    // Indexes into the input string:
     //                                   10        20        30
     //                         01234567890123456789012345678901234
     const input: []const u8 = "Hello hoW_:  are :you _som9 :wrong: ";
