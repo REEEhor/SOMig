@@ -3,29 +3,38 @@ const std = @import("std");
 const error_reporter = @import("reporter.zig");
 const ErrorReporter: type = error_reporter.ErrorReporter;
 
-const token = @import("token.zig");
+pub const token = @import("token.zig");
 const Token: type = token.Token;
+const TokenKind: type = token.TokenKind;
 const CodePosition: type = token.CodePosition;
-const CodeSpan: type = token.CodeSpan;
-const IntegerType: type = token.IntegerRepresentation;
+const IntegerRepr: type = token.IntegerRepresentation;
+const FloatRepr: type = token.FloatRepresentation;
 
-const LexerError = error{
+pub const LexerError = error{
     unexpected_character,
     alone_colon,
     non_ascii_byte,
-    invalid_lexer_state_encountered,
     number_literal_too_big,
 };
 
-const Lexer = struct {
+pub const Lexer = struct {
     const Self = @This();
-    current_char_idx: usize = 0,
-    text: []u8,
+    current_char_idx: usize,
+    text: []const u8,
     buffer_peeked_token: ?Token,
     reporter: ErrorReporter,
 
+    pub fn create(input: []const u8, reporter: ErrorReporter) Self {
+        return Lexer{
+            .current_char_idx = 0,
+            .text = input,
+            .buffer_peeked_token = null,
+            .reporter = reporter,
+        };
+    }
+
     /// Returning `null` means eof.
-    fn peek_token(self: *Self) LexerError!?Token {
+    pub fn peek_token(self: *Self) LexerError!?Token {
         if (self.buffer_peeked_token) |t| {
             return t;
         }
@@ -35,89 +44,87 @@ const Lexer = struct {
     }
 
     /// Returning `null` means eof.
-    fn next_token(self: *Self) LexerError!?Token {
+    pub fn next_token(self: *Self) LexerError!?Token {
         if (self.buffer_peeked_token) |t| {
             self.buffer_peeked_token = null;
             return t;
         }
+        try self.skip_whitespace();
 
         const token_start_idx = self.current_char_idx;
-        const peeked_char = try self.current_char() orelse return null;
+        const peeked_char: u8 = try self.current_char() orelse return null;
 
         switch (peeked_char) {
             ':' => {
                 self.current_char_idx += 1;
-                switch (self.current_char()) {
+                switch (try self.current_char() orelse 0) {
                     '=' => {
-                        self.char_iterator.eat_char();
-                        return Token{
-                            .position = CodePosition.at(token_start_idx),
-                            .kind = .{.assign},
-                        };
+                        self.current_char_idx += 1;
+                        return Token{ .pos = CodePosition.at(token_start_idx), .kind = .assign };
                     },
-                    for (identifier_start_chars) |c| c => {
+                    'a'...'z', 'A'...'Z', '_' => {
                         const token_end_idx = try self.lex_identifier(false);
                         const identifier = self.text[token_start_idx..token_end_idx];
                         return Token{
-                            .position = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
+                            .pos = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
                             .kind = .{ .block_param = identifier },
                         };
                     },
                     else => {
                         self.reporter.report_error(
                             .{ .pos = CodePosition.at(token_start_idx) },
-                            "Found the ':' character on its own. Maybe it should be a part of some identifier?",
+                            "Found the ':' character on its own. Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?",
                             .{},
                         );
                         return LexerError.alone_colon;
                     },
                 }
             },
-            for (identifier_start_chars) |c| c => {
+            'a'...'z', 'A'...'Z', '_' => {
                 const token_end_idx = try self.lex_identifier(true);
                 const identifier = self.text[token_start_idx..token_end_idx];
 
-                var kind = undefined;
+                var kind: TokenKind = undefined;
                 if (identifier[identifier.len - 1] == ':') {
                     kind = .{ .keyword_message = identifier };
                 } else {
                     kind = .{ .identifier = identifier };
                 }
                 return Token{
-                    .position = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
+                    .pos = CodePosition.from_start_and_end(token_start_idx, token_end_idx - 1),
                     .kind = kind,
                 };
             },
             '^' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.exit} };
-            },
-            '|' => {
-                self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.pipe} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .exit };
             },
             '.' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.dot} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .dot };
             },
             '(' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.open_parenthesis} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_parenthesis };
             },
             ')' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.close_parenthesis} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_parenthesis };
             },
             '[' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.open_bracket} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_bracket };
             },
             ']' => {
                 self.current_char_idx += 1;
-                return Token{ .position = CodePosition.at(token_start_idx), .kind = .{.close_bracket} };
+                return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_bracket };
             },
-            for (binary_message_chars) |c| c => {
-                const token_end_idx = self.lex_binary_message();
+            '0'...'9' => {
+                const number: Token = try self.lex_number(false, token_start_idx);
+                return number;
+            },
+            else => |chr| if (is_binary_message_char(chr)) {
+                const token_end_idx = try self.lex_binary_message();
                 const identifier = self.text[token_start_idx..token_end_idx];
                 const token_position = CodePosition.from_start_and_end(
                     token_start_idx,
@@ -126,39 +133,33 @@ const Lexer = struct {
 
                 // Check if the lex'ed identifier could be the 'pipe' token
                 if (identifier.len == 1 and identifier[0] == '|') {
-                    return Token{ .pos = token_position, .kind = .{.pipe} };
+                    return Token{ .pos = token_position, .kind = .pipe };
                 }
 
                 // Check if the lex'ed identifier could be a negative sign in front of a number
                 const current_char_is_digit = blk: {
-                    const chr = try self.current_char() orelse break :blk false;
-                    break :blk std.ascii.isDigit(chr);
+                    const c = try self.current_char() orelse break :blk false;
+                    break :blk std.ascii.isDigit(c);
                 };
                 if (identifier.len == 1 and identifier[0] == '-' and current_char_is_digit) {
-                    //self.lex_number();
-                    @panic("TODO: lex negative numbers :)");
+                    return try self.lex_number(true, token_start_idx);
                 }
 
                 // Check if the lex'ed identifier could be the 'separator' token
                 const consists_only_of_dashes: bool = std.mem.allEqual(u8, identifier, '-');
                 if (identifier.len >= separator_minimum_length and consists_only_of_dashes) {
-                    return Token{ .pos = token_position, .kind = .{.separator} };
+                    return Token{ .pos = token_position, .kind = .separator };
                 }
 
                 return Token{
                     .pos = token_position,
                     .kind = .{ .binary_message = identifier },
                 };
-            },
-            for (digits) |d| d => {
-                // TODO
-                @panic("TODO: lexing of numbers is not implemented yet :)");
-            },
-            else => |chr| {
+            } else {
                 self.reporter.report_error(
                     .{ .pos = CodePosition.at(token_start_idx) },
                     "Unexpected character: '{c}'",
-                    chr,
+                    .{chr},
                 );
                 return LexerError.unexpected_character;
             },
@@ -182,37 +183,112 @@ const Lexer = struct {
         return peeked_char;
     }
 
-    // TODO: lex_decimal_part_of_floating_point_number (what a horrible name xd)
+    fn lex_number(self: *Self, had_minus: bool, token_start_idx: usize) LexerError!Token {
+        const whole_part = self.lex_integer(had_minus) catch |err| {
+            if (err == LexerError.number_literal_too_big) {
+                self.reporter.report_error(
+                    .{ .pos = CodePosition.from_start_and_end(
+                        token_start_idx,
+                        self.current_char_idx,
+                    ) },
+                    "This number literal is too big to fit into the internal representation for an integer.",
+                    .{},
+                );
+            }
+            return err;
+        };
+        const integer_token = Token{
+            .kind = .{ .integer = whole_part },
+            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx),
+        };
+
+        // Now we do a bit of backtracking because of the strange SOM grammar (using dots to separate expressions)
+        // .. because we need to check whether the current token is or is not a float literal.
+        const current_chr = try self.current_char();
+        const is_at_the_end = self.current_char_idx + 1 >= self.text.len;
+        if (current_chr != '.' or is_at_the_end) {
+            // We know the token does not continue with a decimal part.
+            return integer_token;
+        }
+
+        const next_chr = self.text[self.current_char_idx + 1];
+        if (!std.ascii.isDigit(next_chr)) {
+            // We know the token does not continue with a decimal part.
+            return integer_token;
+        }
+        // Ok.. now we know it is a double floating point number literal.
+        self.current_char_idx += 1;
+        const float_literal = try self.lex_decimal_part_of_float(whole_part);
+        return Token{
+            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx),
+            .kind = .{ .float = float_literal },
+        };
+    }
+
+    fn skip_whitespace(self: *Self) LexerError!void {
+        while (true) {
+            const current_chr = try self.current_char() orelse return;
+            if (!std.ascii.isWhitespace(current_chr)) return;
+            self.current_char_idx += 1;
+        }
+    }
+
+    fn lex_decimal_part_of_float(self: *Self, whole_part: IntegerRepr) LexerError!FloatRepr {
+        const start_char = (try self.current_char()).?;
+        std.debug.assert(std.mem.indexOfScalar(u8, digits, start_char) != null);
+
+        var result: FloatRepr = @floatFromInt(whole_part);
+        var power_of_10: FloatRepr = 10;
+
+        loop: switch (try self.current_char() orelse 0) {
+            '0'...'9' => |c| {
+                const digit: FloatRepr = @floatFromInt(c - '0');
+                result += digit / power_of_10;
+
+                self.current_char_idx += 1;
+                power_of_10 *= 10;
+                continue :loop try self.current_char() orelse 0;
+            },
+            else => {
+                return result;
+            },
+        }
+        unreachable;
+    }
+
     fn lex_integer(self: *Self, had_minus: bool) LexerError!i64 {
         const start_char = (try self.current_char()).?;
         std.debug.assert(std.mem.indexOfScalar(u8, digits, start_char) != null);
-        var whole_part = start_char - '0';
-        var did_overflow = false;
+        var integer: IntegerRepr = start_char - '0';
+        const sign: IntegerRepr = if (had_minus) -1 else 1;
+        integer *= sign;
 
         self.current_char_idx += 1;
 
-        loop: switch (try self.current_char()) {
-            for (digits) |c| c => |c| {
+        var did_overflow = false;
+
+        loop: switch (try self.current_char() orelse 0) {
+            '0'...'9' => |chr| {
                 if (!did_overflow) {
-                    const digit = c.? - '0';
-                    whole_part = std.math.mul(IntegerType, whole_part, 10) catch blk: {
+                    const digit = chr - '0';
+                    integer = std.math.mul(IntegerRepr, integer, 10) catch blk: {
                         did_overflow = true;
                         break :blk 0;
                     };
-                    whole_part = std.math.add(IntegerType, whole_part, digit) catch blk: {
+                    integer = std.math.add(IntegerRepr, integer, digit * sign) catch blk: {
                         did_overflow = true;
                         break :blk 0;
                     };
                 }
 
                 self.current_char_idx += 1;
-                continue :loop try self.current_char();
+                continue :loop try self.current_char() orelse 0;
             },
             else => {
                 if (did_overflow) {
                     return LexerError.number_literal_too_big;
                 } else {
-                    return whole_part;
+                    return integer;
                 }
             },
         }
@@ -225,18 +301,17 @@ const Lexer = struct {
     /// Returns the end character index of the identifier (excluding end index) - which is the new `current_char_idx`
     /// of the lexer.
     fn lex_binary_message(self: *Self) LexerError!usize {
-        std.debug.assert(std.mem.indexOfScalar(u8, binary_message_chars, (try self.current_char()).?) != null);
+        std.debug.assert(is_binary_message_char((try self.current_char()).?));
         self.current_char_idx += 1;
 
-        loop: switch (try self.current_char()) {
-            for (binary_message_chars) |c| c => {
-                self.current_char_idx += 1;
-                continue :loop try self.current_char();
-            },
-            else => {
-                return self.current_char_idx;
-            },
+        while (true) {
+            const current_chr = try self.current_char() orelse break;
+            if (!is_binary_message_char(current_chr)) {
+                break;
+            }
+            self.current_char_idx += 1;
         }
+        return self.current_char_idx;
     }
 
     /// Advances the lexer until it is no longer at a position that is part of an identifier.
@@ -248,10 +323,10 @@ const Lexer = struct {
         std.debug.assert(std.mem.indexOfScalar(u8, identifier_start_chars, (try self.current_char()).?) != null);
         self.current_char_idx += 1;
 
-        loop: switch (try self.current_char()) {
-            for (identifier_chars) |c| c => {
+        loop: switch (try self.current_char() orelse 0) {
+            'a'...'z', 'A'...'Z', '_', '0'...'9' => {
                 self.current_char_idx += 1;
-                continue :loop try self.current_char();
+                continue :loop try self.current_char() orelse 0;
             },
             else => |chr| {
                 if (chr == ':' and can_have_colon_at_the_end) {
@@ -260,19 +335,157 @@ const Lexer = struct {
                 return self.current_char_idx;
             },
         }
+        unreachable;
     }
 };
-
 const digits = "0123456789";
+
+fn is_binary_message_char(chr: u8) bool {
+    return std.mem.indexOfScalar(u8, binary_message_chars, chr) != null;
+}
 
 const binary_message_chars =
     \\&@,/=<-\>~|%+*
 ;
 
 /// Valid identifier starting characters
-const identifier_start_chars = std.ascii.letters + "_";
+const identifier_start_chars = std.ascii.letters ++ "_";
 
 /// Valid characters in an identifier (not at the beginning of the identifier)
 const identifier_chars = identifier_start_chars ++ digits;
 
 const separator_minimum_length = 4;
+
+test "lex simple characters" {
+    //                           012345
+    const input = ".^()[]";
+    var lexer = Lexer.create(input, ErrorReporter{});
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(0),
+        .kind = .dot,
+    }, lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(1),
+        .kind = .exit,
+    }, lexer.next_token());
+
+    const next_expected_token = Token{
+        .pos = CodePosition.at(2),
+        .kind = .open_parenthesis,
+    };
+    for (0..4) |_| {
+        try std.testing.expectEqual(next_expected_token, lexer.peek_token());
+    }
+
+    try std.testing.expectEqual(next_expected_token, lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(3),
+        .kind = .close_parenthesis,
+    }, lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(4),
+        .kind = .open_bracket,
+    }, lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(5),
+        .kind = .close_bracket,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(null, try lexer.next_token());
+    try std.testing.expectEqual(null, try lexer.next_token());
+    try std.testing.expectEqual(null, try lexer.peek_token());
+    try std.testing.expectEqual(null, try lexer.next_token());
+}
+
+test "lex text with whitespace" {
+    //                         012 34567 89
+    const input: []const u8 = " .\n ^^[\t  ] ";
+    var lexer = Lexer.create(input, ErrorReporter{});
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(1),
+        .kind = .dot,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(4),
+        .kind = .exit,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(5),
+        .kind = .exit,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(6),
+        .kind = .open_bracket,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(10),
+        .kind = .close_bracket,
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(null, try lexer.next_token());
+}
+
+test "should error on non-ascii character" {
+    const input = "^^" ++ .{ 130, 150 };
+    var lexer = Lexer.create(input, .{});
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(0),
+        .kind = .exit,
+    }, try lexer.next_token());
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.at(1),
+        .kind = .exit,
+    }, try lexer.next_token());
+    try std.testing.expectError(LexerError.non_ascii_byte, lexer.next_token());
+}
+
+test "lex identifiers" {
+    //                                   10        20        30
+    //                         01234567890123456789012345678901234
+    const input: []const u8 = "Hello hoW_:  are :you _som9 :wrong: ";
+    var lexer = Lexer.create(input, .{});
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(0, 4),
+        .kind = .{ .identifier = input[0..5] },
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(6, 10),
+        .kind = .{ .keyword_message = input[6..11] },
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(13, 15),
+        .kind = .{ .identifier = input[13..16] },
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(17, 20),
+        .kind = .{ .block_param = input[17..21] },
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(22, 26),
+        .kind = .{ .identifier = input[22..27] },
+    }, try lexer.next_token());
+
+    try std.testing.expectEqual(Token{
+        .pos = CodePosition.from_start_and_end(28, 33),
+        .kind = .{ .block_param = input[28..34] },
+    }, try lexer.next_token());
+
+    try std.testing.expectError(LexerError.alone_colon, lexer.next_token());
+}
+
+// TODO: test lexing of binary messages

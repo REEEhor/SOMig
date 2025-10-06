@@ -1,2 +1,2 @@
-const int = i64;
-const uint = u64;
+pub const int = i64;
+pub const uint = u64;

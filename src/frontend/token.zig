@@ -28,19 +28,19 @@ const uint = u64;
 
 
 
-const CodePosition = struct {
+pub const CodePosition = struct {
     const Self = @This();
     start_idx: uint,
     length: uint,
 
-    fn at(start_index: usize) CodePosition {
+    pub fn at(start_index: usize) CodePosition {
         return CodePosition{
             .start_idx = start_index,
             .length = 1,
         };
     }
 
-    fn from_start_and_end(start_index: usize, end_index_inclusive: usize) CodePosition {
+    pub fn from_start_and_end(start_index: usize, end_index_inclusive: usize) CodePosition {
         std.debug.assert(start_index <= end_index_inclusive);
         return CodePosition{
             .start_idx = start_index,
@@ -48,14 +48,15 @@ const CodePosition = struct {
         };
     }
 
-    fn end_idx_inclusive(self: *Self) uint {
+    pub fn end_idx_inclusive(self: *Self) uint {
         return self.start_idx + self.length - 1;
     }
 };
 
-const IntegerRepresentation = i64;
+pub const IntegerRepresentation = i64;
+pub const FloatRepresentation = f64;
 
-const TokenKind = union(enum) {
+pub const TokenKind = union(enum) {
     /// The `^` character
     exit,
 
@@ -75,22 +76,23 @@ const TokenKind = union(enum) {
     close_bracket,
 
     integer: IntegerRepresentation,
+    float: FloatRepresentation,
 
-    /// Identifier consisting of: `+, -, *, /, &, =, <, >, —, @`
-    binary_message: []u8,
+    /// Identifier consisting of: `&@,/=<-\>~|%+*`
+    binary_message: []const u8,
 
     /// String in the form of `someIdentifier:`
     /// The colon `:` at the end is also stored
-    keyword_message: []u8,
+    keyword_message: []const u8,
 
-    identifier: []u8,
+    identifier: []const u8,
 
     /// String in the form of `:someIdentifier`
     /// The colon `:` at the beginning is also stored
-    block_param: []u8,
+    block_param: []const u8,
 };
 
-const Token = struct {
+pub const Token = struct {
     const Self = @This();
     kind: TokenKind,
     pos: CodePosition,
