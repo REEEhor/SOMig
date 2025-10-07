@@ -71,6 +71,11 @@ pub const Lexer = struct {
                 '[' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .open_bracket },
                 ']' => return Token{ .pos = CodePosition.at(token_start_idx), .kind = .close_bracket },
                 'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
+                '0'...'9' => {
+                    self.current_char_idx -= 1; // un-peek character
+                    const number_token = try self.lex_number(false, token_start_idx);
+                    return number_token;
+                },
                 ':' => continue :loop .saw_colon,
                 '"' => continue :loop .inside_comment,
                 else => |chr| if (std.ascii.isWhitespace(chr)) {
@@ -195,7 +200,7 @@ pub const Lexer = struct {
 
     fn current_char(self: *Self) LexerError!u8 {
         if (self.current_char_idx >= self.text.len) {
-            return 0;
+            return eof;
         }
 
         const peeked_char = self.text[self.current_char_idx];
@@ -226,7 +231,7 @@ pub const Lexer = struct {
         };
         const integer_token = Token{
             .kind = .{ .integer = whole_part },
-            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx),
+            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
         };
 
         // Now we do a bit of backtracking because of the strange SOM grammar (using dots to separate expressions)
@@ -247,26 +252,26 @@ pub const Lexer = struct {
         self.current_char_idx += 1;
         const float_literal = try self.lex_decimal_part_of_float(whole_part);
         return Token{
-            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx),
+            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
             .kind = .{ .float = float_literal },
         };
     }
 
     fn lex_decimal_part_of_float(self: *Self, whole_part: IntegerRepr) LexerError!FloatRepr {
-        const start_char = (try self.current_char()).?;
-        std.debug.assert(std.mem.indexOfScalar(u8, digits, start_char) != null);
+        const start_char = try self.current_char();
+        std.debug.assert(std.ascii.isDigit(start_char));
 
         var result: FloatRepr = @floatFromInt(whole_part);
         var power_of_10: FloatRepr = 10;
 
-        loop: switch (try self.current_char() orelse 0) {
+        loop: switch (try self.current_char()) {
             '0'...'9' => |c| {
                 const digit: FloatRepr = @floatFromInt(c - '0');
                 result += digit / power_of_10;
 
                 self.current_char_idx += 1;
                 power_of_10 *= 10;
-                continue :loop try self.current_char() orelse 0;
+                continue :loop try self.current_char();
             },
             else => {
                 return result;
@@ -276,8 +281,8 @@ pub const Lexer = struct {
     }
 
     fn lex_integer(self: *Self, had_minus: bool) LexerError!i64 {
-        const start_char = (try self.current_char()).?;
-        std.debug.assert(std.mem.indexOfScalar(u8, digits, start_char) != null);
+        const start_char = try self.current_char();
+        std.debug.assert(std.ascii.isDigit(start_char));
         var integer: IntegerRepr = start_char - '0';
         const sign: IntegerRepr = if (had_minus) -1 else 1;
         integer *= sign;
@@ -286,7 +291,7 @@ pub const Lexer = struct {
 
         var did_overflow = false;
 
-        loop: switch (try self.current_char() orelse 0) {
+        loop: switch (try self.current_char()) {
             '0'...'9' => |chr| {
                 if (!did_overflow) {
                     const digit = chr - '0';
@@ -301,7 +306,7 @@ pub const Lexer = struct {
                 }
 
                 self.current_char_idx += 1;
-                continue :loop try self.current_char() orelse 0;
+                continue :loop try self.current_char();
             },
             else => {
                 if (did_overflow) {
@@ -332,31 +337,8 @@ pub const Lexer = struct {
         }
         return self.current_char_idx;
     }
-
-    /// Advances the lexer until it is no longer at a position that is part of an identifier.
-    /// Crashes (via `unreachable`) if the starting position of the lexer is not at the beginning of an identifier.
-    ///
-    /// Returns the end character index of the identifier (excluding end index) - which is the new `current_char_idx`
-    /// of the lexer.
-    fn lex_identifier(self: *Self, can_have_colon_at_the_end: bool) LexerError!usize {
-        std.debug.assert(std.mem.indexOfScalar(u8, identifier_start_chars, (try self.current_char()).?) != null);
-        self.current_char_idx += 1;
-
-        loop: switch (try self.current_char() orelse 0) {
-            'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                self.current_char_idx += 1;
-                continue :loop try self.current_char() orelse 0;
-            },
-            else => |chr| {
-                if (chr == ':' and can_have_colon_at_the_end) {
-                    self.current_char_idx += 1;
-                }
-                return self.current_char_idx;
-            },
-        }
-        unreachable;
-    }
 };
+
 const digits = "0123456789";
 
 fn is_binary_message_char(chr: u8) bool {
@@ -513,6 +495,66 @@ test "lex identifiers" {
         LexerError.colon_at_both_identifier_ends,
         lexer.next_token(),
     );
+}
+
+test "lex number" {
+    // TODO: test lexing of negative numbers
+
+    // Indexes into the input string:
+    //                                   10        20        30
+    //                         01234567890123456789012345678901234
+    const input: []const u8 = "  3  42  85769  2.0  9. 3.1415 5";
+    var lexer = Lexer.create(input, .{});
+
+    try assert_same_token(
+        CodePosition.at(2),
+        .{ .integer = 3 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(5, 6),
+        .{ .integer = 42 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(9, 13),
+        .{ .integer = 85769 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(16, 18),
+        .{ .float = 2.0 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(21, 21),
+        .{ .integer = 9 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(22, 22),
+        .dot,
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(24, 29),
+        .{ .float = 3.1415 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(31, 31),
+        .{ .integer = 5 },
+        try lexer.next_token(),
+    );
+
+    try std.testing.expectEqual(null, try lexer.next_token());
 }
 
 // TODO: test lexing of binary messages
