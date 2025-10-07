@@ -25,6 +25,10 @@ const State = enum {
     inside_comment,
     lexing_identifier,
     saw_colon,
+    saw_pipe,
+    lexing_binary_message,
+    saw_dash,
+    saw_multiple_dashes,
 };
 
 pub const Lexer = struct {
@@ -76,11 +80,15 @@ pub const Lexer = struct {
                     const number_token = try self.lex_number(false, token_start_idx);
                     return number_token;
                 },
+                '-' => continue :loop .saw_dash,
+                '|' => continue :loop .saw_pipe,
                 ':' => continue :loop .saw_colon,
                 '"' => continue :loop .inside_comment,
                 else => |chr| if (std.ascii.isWhitespace(chr)) {
                     token_start_idx = self.current_char_idx;
                     continue :loop .start;
+                } else if (is_binary_message_char(chr)) {
+                    continue :loop .lexing_binary_message;
                 } else {
                     self.reporter.report_error(
                         .{ .pos = CodePosition.at(token_start_idx) },
@@ -89,6 +97,50 @@ pub const Lexer = struct {
                     );
                     return LexerError.unexpected_character;
                 },
+            },
+            .saw_dash => switch (try self.current_char()) {
+                '0'...'9' => {
+                    // Encountered a negative number literal
+                    const number_token = try self.lex_number(true, token_start_idx);
+                    return number_token;
+                },
+                '-' => {
+                    self.current_char_idx += 1;
+                    continue :loop .saw_multiple_dashes;
+                },
+                else => |chr| if (is_binary_message_char(chr)) {
+                    self.current_char_idx += 1;
+                    continue :loop .lexing_binary_message;
+                } else {
+                    return Token{
+                        .pos = CodePosition.at(token_start_idx),
+                        .kind = .binary_message,
+                    };
+                },
+            },
+            .saw_multiple_dashes => switch (try self.current_char()) {
+                '-' => {
+                    self.current_char_idx += 1;
+                    continue :loop .saw_multiple_dashes;
+                },
+                else => |chr| if (is_binary_message_char(chr)) {
+                    continue :loop .lexing_binary_message;
+                } else {
+                    const token_position = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1);
+                    if (token_position.length >= separator_minimum_length) {
+                        return Token{ .pos = token_position, .kind = .separator };
+                    }
+                    return Token{ .pos = token_position, .kind = .binary_message };
+                },
+            },
+            .saw_pipe => if (is_binary_message_char(try self.current_char())) {
+                self.current_char_idx += 1;
+                continue :loop .lexing_binary_message;
+            } else {
+                return Token{
+                    .pos = CodePosition.at(token_start_idx),
+                    .kind = .pipe,
+                };
             },
             .saw_colon => switch (try self.eat_char()) {
                 'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
@@ -164,6 +216,15 @@ pub const Lexer = struct {
                     }
                     return Token{ .pos = token_position, .kind = .identifier };
                 },
+            },
+            .lexing_binary_message => if (is_binary_message_char(try self.current_char())) {
+                self.current_char_idx += 1;
+                continue :loop .lexing_binary_message;
+            } else {
+                return Token{
+                    .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
+                    .kind = .binary_message,
+                };
             },
             .inside_comment => switch (self.eat_unchecked_byte()) {
                 '"' => {
@@ -261,13 +322,14 @@ pub const Lexer = struct {
         const start_char = try self.current_char();
         std.debug.assert(std.ascii.isDigit(start_char));
 
+        const sign: FloatRepr = if (whole_part < 0) -1 else 1;
         var result: FloatRepr = @floatFromInt(whole_part);
         var power_of_10: FloatRepr = 10;
 
         loop: switch (try self.current_char()) {
             '0'...'9' => |c| {
                 const digit: FloatRepr = @floatFromInt(c - '0');
-                result += digit / power_of_10;
+                result += sign * digit / power_of_10;
 
                 self.current_char_idx += 1;
                 power_of_10 *= 10;
@@ -408,10 +470,10 @@ fn assert_same_token(expected_pos: CodePosition, expected_kind: TokenKind, actua
     try std.testing.expect(actual_maybe != null);
     const actual: Token = actual_maybe.?;
 
+    try std.testing.expectEqual(expected_kind, actual.kind);
+
     try std.testing.expectEqual(expected_pos.start_idx, actual.pos.start_idx);
     try std.testing.expectEqual(expected_pos.length, actual.pos.length);
-
-    try std.testing.expectEqual(expected_kind, actual.kind);
 }
 
 test "lex text with comments" {
@@ -498,8 +560,6 @@ test "lex identifiers" {
 }
 
 test "lex number" {
-    // TODO: test lexing of negative numbers
-
     // Indexes into the input string:
     //                                   10        20        30
     //                         01234567890123456789012345678901234
@@ -551,6 +611,58 @@ test "lex number" {
     try assert_same_token(
         CodePosition.from_start_and_end(31, 31),
         .{ .integer = 5 },
+        try lexer.next_token(),
+    );
+
+    try std.testing.expectEqual(null, try lexer.next_token());
+}
+
+test "lex negative number" {
+    // Indexes into the input string:
+    //                                   10        20        30
+    //                         012345678901234567890123456789012345678
+    const input: []const u8 = "  42  -5  -97    3  -253 -2.1  -43.472";
+    var lexer = Lexer.create(input, .{});
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(2, 3),
+        .{ .integer = 42 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(6, 7),
+        .{ .integer = -5 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(10, 12),
+        .{ .integer = -97 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(17, 17),
+        .{ .integer = 3 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(20, 23),
+        .{ .integer = -253 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(25, 28),
+        .{ .float = -2.1 },
+        try lexer.next_token(),
+    );
+
+    try assert_same_token(
+        CodePosition.from_start_and_end(31, 37),
+        .{ .float = -43.472 },
         try lexer.next_token(),
     );
 
