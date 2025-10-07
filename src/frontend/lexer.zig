@@ -669,4 +669,45 @@ test "lex negative number" {
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
-// TODO: test lexing of binary messages
+test "lex single-char binary message" {
+    var buffer: [1]u8 = undefined;
+    for (binary_message_chars) |chr| {
+        buffer[0] = chr;
+        var lexer = Lexer.create(&buffer, .{});
+        const got_token = try lexer.next_token();
+        if (chr == '|') {
+            try assert_same_token(CodePosition.at(0), .pipe, got_token);
+        } else {
+            try assert_same_token(CodePosition.at(0), .binary_message, got_token);
+        }
+    }
+}
+
+test "lex two-char binary message" {
+    var buffer: [2]u8 = undefined;
+    for (binary_message_chars) |chr0| {
+        buffer[0] = chr0;
+        for (binary_message_chars) |chr1| {
+            buffer[1] = chr1;
+            var lexer = Lexer.create(&buffer, .{});
+            const got_token = try lexer.next_token();
+
+            try assert_same_token(CodePosition.from_start_and_end(0, 1), .binary_message, got_token);
+            try std.testing.expectEqual(null, try lexer.next_token());
+        }
+    }
+}
+
+test "lex separator" {
+    var buffer: []const u8 = "----------";
+    for (1..buffer.len) |len| {
+        const input = buffer[0..len];
+        const expected_kind: TokenKind = if (len >= separator_minimum_length) .separator else .binary_message;
+
+        var lexer = Lexer.create(input, .{});
+        const got_token = try lexer.next_token();
+
+        try assert_same_token(CodePosition.from_start_and_end(0, len - 1), expected_kind, got_token);
+        try std.testing.expectEqual(null, try lexer.next_token());
+    }
+}
