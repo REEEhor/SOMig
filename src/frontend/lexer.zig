@@ -144,6 +144,12 @@ pub const Lexer = struct {
             },
             .saw_colon => switch (try self.eat_char()) {
                 'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
+                '=' => {
+                    return Token{
+                        .pos = CodePosition{ .start_idx = token_start_idx, .length = 2 },
+                        .kind = .assign,
+                    };
+                },
                 else => {
                     self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) },
                         \\Found the ':' character on its own.
@@ -463,6 +469,18 @@ test "lex simple characters" {
     try std.testing.expectEqual(null, try lexer.next_token());
     try std.testing.expectEqual(null, try lexer.next_token());
     try std.testing.expectEqual(null, try lexer.peek_token());
+    try std.testing.expectEqual(null, try lexer.next_token());
+}
+
+test "lex the assign token" {
+    // Indexes into the input string:
+    //                         0123456789
+    const input: []const u8 = " := . := ";
+    var lexer = Lexer.create(input, ErrorReporter{});
+
+    try assert_same_token(CodePosition{ .start_idx = 1, .length = 2 }, .assign, try lexer.next_token());
+    try assert_same_token(CodePosition.at(4), .dot, try lexer.next_token());
+    try assert_same_token(CodePosition{ .start_idx = 6, .length = 2 }, .assign, try lexer.next_token());
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
