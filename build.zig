@@ -85,6 +85,17 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    // Added by me :D
+    const frontend_test = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/frontend/test_all.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // Added by me :D
+    const run_frontend_tests = b.addRunArtifact(frontend_test);
+
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
     // hence why we have to create two separate ones.
@@ -100,6 +111,9 @@ pub fn build(b: *std.Build) void {
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_exe_tests.step);
+
+    // Added by me :D
+    test_step.dependOn(&run_frontend_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
