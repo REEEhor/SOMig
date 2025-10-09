@@ -86,15 +86,30 @@ pub fn build(b: *std.Build) void {
     }
 
     // Added by me :D
+    const example_snapshot_tests_options = b.addOptions();
+    const example_som_code_path = b.option(
+        []const u8,
+        "snapshot_testing_path",
+        \\Path to the directory containing SOM code, that are to be run by the snapshot tester.
+        \\The directory will be recursively traversed and searched for `*.som` files.
+        ,
+    ) orelse "original-som-repo/TestSuite/";
+    example_snapshot_tests_options.addOption([]const u8, "snapshot_testing_path", example_som_code_path);
+
+    // Added by me :D
+    const frontend_module = b.createModule(.{
+        .root_source_file = b.path("src/frontend/test_all.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // Added by me :D
     const frontend_test = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/frontend/test_all.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = frontend_module,
     });
     // Added by me :D
     const run_frontend_tests = b.addRunArtifact(frontend_test);
+    // Added by me :D
+    frontend_module.addOptions("snapshot_test_options", example_snapshot_tests_options);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,

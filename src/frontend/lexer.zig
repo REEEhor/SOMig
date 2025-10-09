@@ -729,3 +729,11 @@ test "lex separator" {
         try std.testing.expectEqual(null, try lexer.next_token());
     }
 }
+
+test "snapshot test on example files" {
+    const snapshot_options = @import("snapshot_test_options");
+
+    const path = snapshot_options.snapshot_testing_path;
+    std.debug.print("\n[DEBUG] Path to SOM files for snapshot testing: '{s}'\n", .{path});
+    // TODO: check if the path string is not empty for a better error message
+}
