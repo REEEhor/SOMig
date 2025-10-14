@@ -9,7 +9,7 @@ const uint = defs.uint;
 const dbg = std.debug.print;
 
 pub fn main() !void {
-    var lexer = Lexer.create("", .{});
+    var lexer = Lexer.create("", .{}, undefined);
     _ = try lexer.next_token();
     std.debug.print("This will be an amazing {s} project.\n\n", .{"SOMig"});
 }

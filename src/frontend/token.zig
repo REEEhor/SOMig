@@ -5,7 +5,6 @@ const std = @import("std");
 const int = i64;
 const uint = u64;
 
-
 // And              &
 // At               @
 // Comma            ,
@@ -21,12 +20,7 @@ const uint = u64;
 // Plus             +
 // Star             *
 
-
-
 // &@,/=<-\>~|%+*
-
-
-
 
 pub const CodePosition = struct {
     const Self = @This();
@@ -69,14 +63,36 @@ pub const TokenKind = union(enum) {
     /// The symbol `:=`
     assign,
 
+    /// The symbol `(`
     open_parenthesis,
+    /// The symbol `)`
     close_parenthesis,
 
+    /// The symbol `[`
     open_bracket,
+    /// The symbol `]`
     close_bracket,
 
     integer: IntegerRepresentation,
     float: FloatRepresentation,
+
+    /// The symbol `#(`
+    array_literal_begin,
+
+    /// The symbol `#`
+    hashtag,
+
+    /// The keyword `primitive`
+    kw_primitive,
+
+    /// String literal is enclosed in 'single quotes'.
+    /// It is actually important to store also the contents of the string
+    /// because of escape sequences like `\n` which are translated into
+    /// corresponding ASCII values in the string.
+    ///
+    /// TODO: Consider allocating all string into an array so the token has to store only an index into that array.
+    ///
+    string_literal: []u8,
 
     /// Identifier consisting of: `&@,/=<-\>~|%+*`
     binary_message,
