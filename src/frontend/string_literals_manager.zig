@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator: type = std.mem.Allocator;
 pub const Error = error{OutOfMemory};
 
+// @to_ask_result: string interning
 pub const StringLiteralsManager = struct {
     const Self = @This();
 

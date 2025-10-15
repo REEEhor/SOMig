@@ -931,13 +931,21 @@ test "lex a string literals with escape codes" {
 
     try std.testing.expectEqual(null, try lexer.next_token());
 }
+// TODO: test all escape characters
 
-// TODO: test all special characters
-
+// @to_ask_result: These can be here. Stress tests from the `original-som-repo` can be put into a `zig build test-stress`.
 test "snapshot test on example files" {
     const snapshot_options = @import("snapshot_test_options");
 
     const path = snapshot_options.snapshot_testing_path;
     std.debug.print("\n[DEBUG] Path to SOM files for snapshot testing: '{s}'\n", .{path});
     // TODO: check if the path string is not empty for a better error message
+
+    // TODO: Implements this
+    // Usage would be something like:
+    // try snapshot_testing.do_snapshot_tests(.{
+    //      .snapshot_path   = snapshot_options.snapshot_path,
+    //      .test_files_path = snapshot_options.test_files_path,
+    //      .tested_function = function_that_outputs_tokens_from_lexer,  // function defined somewhere in this file
+    // });
 }
