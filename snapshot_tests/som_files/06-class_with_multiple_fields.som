@@ -1,0 +1,8 @@
+Example = (
+	|
+		aField
+		someAnotherField
+		oneMoreField
+		lastField
+	|
+)

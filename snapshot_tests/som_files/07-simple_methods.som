@@ -1,0 +1,19 @@
+Tested__Class__Identifier42 = (
+	| number_1 number_2 |
+
+	" This method is implemented inside the interpreter "
+	internalMethod = primitive
+
+	" Returns the sum of the two numbers "
+	sum = ( ^ number_1 + number_2 )
+
+	" Returns the square of the sum (also tests lexing of number literals a bit) "
+	squareOfSum = (
+		| tmp result |
+		tmp := 0 + self sum + 0.0.  " <-- The `self sum` has the highest precedence. "
+		result := tmp * tmp + 0.
+		^ result.
+	)
+
+	lazySum = ( ^ [ self sum ]. )
+)
