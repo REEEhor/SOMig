@@ -933,19 +933,37 @@ test "lex a string literals with escape codes" {
 }
 // TODO: test all escape characters
 
+fn print_tokens(
+    input: []const u8,
+    gpa: std.mem.Allocator,
+    writer: *std.io.Writer,
+) !void {
+    defer writer.flush() catch std.debug.print("bruh\n", .{});
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    var string_literals = try StringLiteralsManager.create(arena.allocator(), gpa, 0);
+    defer string_literals.deinit();
+
+    var lexer = Lexer.create(input, .{}, &string_literals);
+    while (try lexer.next_token()) |t| {
+        const token_text = input[t.pos.start_idx .. t.pos.end_idx_inclusive() + 1];
+        try writer.print(
+            " - [{d:03}..{d:03}] {any} >{s}<\n",
+            .{ t.pos.start_idx, t.pos.end_idx_inclusive(), t.kind, token_text },
+        );
+    }
+    writer.flush() catch std.debug.print("bruh\n", .{});
+}
+
 // @to_ask_result: These can be here. Stress tests from the `original-som-repo` can be put into a `zig build test-stress`.
 test "snapshot test on example files" {
-    const snapshot_options = @import("snapshot_test_options");
-
-    const path = snapshot_options.snapshot_testing_path;
-    std.debug.print("\n[DEBUG] Path to SOM files for snapshot testing: '{s}'\n", .{path});
-    // TODO: check if the path string is not empty for a better error message
-
-    // TODO: Implements this
-    // Usage would be something like:
-    // try snapshot_testing.do_snapshot_tests(.{
-    //      .snapshot_path   = snapshot_options.snapshot_path,
-    //      .test_files_path = snapshot_options.test_files_path,
-    //      .tested_function = function_that_outputs_tokens_from_lexer,  // function defined somewhere in this file
-    // });
+    const snapshot_testing = @import("snapshot_testing.zig");
+    // TODO: check if the path is not empty to ignore the test
+    const opts = snapshot_testing.opts;
+    try snapshot_testing.do_snapshot_tests(.{
+        .snapshots_directory = opts.snapshots_path ++ "/lexer",
+        .tested_files_directory = opts.test_files_path,
+        .output_producer = print_tokens,
+    }, "Lexing");
 }

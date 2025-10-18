@@ -42,7 +42,7 @@ pub const CodePosition = struct {
         };
     }
 
-    pub fn end_idx_inclusive(self: *Self) uint {
+    pub fn end_idx_inclusive(self: *const Self) uint {
         return self.start_idx + self.length - 1;
     }
 };

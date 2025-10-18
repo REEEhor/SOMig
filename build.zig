@@ -86,30 +86,29 @@ pub fn build(b: *std.Build) void {
     }
 
     // Added by me :D
-    const example_snapshot_tests_options = b.addOptions();
-    const example_som_code_path = b.option(
-        []const u8,
-        "snapshot_testing_path",
-        \\Path to the directory containing SOM code, that are to be run by the snapshot tester.
-        \\The directory will be recursively traversed and searched for `*.som` files.
-        ,
-    ) orelse "original-som-repo/TestSuite/";
-    example_snapshot_tests_options.addOption([]const u8, "snapshot_testing_path", example_som_code_path);
+    const snapshot_test_options = b.addOptions();
+    var buffer: [4096]u8 = undefined;
+    {
+        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch @panic("Filepath too long");
+        const tests_path = b.option(
+            []const u8,
+            "snap-test-files",
+            "Absolute path to the directory containing SOM code, that are to be run by the snapshot tester.",
+        ) orelse default_path;
+        snapshot_test_options.addOption([]const u8, "test_files_path", tests_path);
+    }
+    {
+        const default_path = std.fs.cwd().realpath("snapshot_tests/snapshots/", &buffer) catch @panic("Filepath too long");
+        const snapshots_path = b.option(
+            []const u8,
+            "snap-snapshots-files",
+            "Absolute path which can be used for storing snapshots.",
+        ) orelse default_path;
+        snapshot_test_options.addOption([]const u8, "snapshots_path", snapshots_path);
+    }
 
     // Added by me :D
-    const frontend_module = b.createModule(.{
-        .root_source_file = b.path("src/frontend/test_all.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    // Added by me :D
-    const frontend_test = b.addTest(.{
-        .root_module = frontend_module,
-    });
-    // Added by me :D
-    const run_frontend_tests = b.addRunArtifact(frontend_test);
-    // Added by me :D
-    frontend_module.addOptions("snapshot_test_options", example_snapshot_tests_options);
+    exe.root_module.addOptions("snapshot_test_options", snapshot_test_options);
 
     // Creates an executable that will run `test` blocks from the executable's
     // root module. Note that test executables only test one module at a time,
@@ -126,9 +125,6 @@ pub fn build(b: *std.Build) void {
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_exe_tests.step);
-
-    // Added by me :D
-    test_step.dependOn(&run_frontend_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
