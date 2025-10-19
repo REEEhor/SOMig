@@ -1,0 +1,11 @@
+Position   Token                      String (according to position of the token)
+[  0..  6] identifier               | "Example"
+[  8..  8] binary_message           | "="
+[ 10.. 10] open_parenthesis         | "("
+[ 13.. 13] pipe                     | "|"
+[ 17.. 22] identifier               | "aField"
+[ 26.. 41] identifier               | "someAnotherField"
+[ 45.. 56] identifier               | "oneMoreField"
+[ 60.. 68] identifier               | "lastField"
+[ 71.. 71] pipe                     | "|"
+[ 73.. 73] close_parenthesis        | ")"
