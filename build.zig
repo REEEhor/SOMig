@@ -98,13 +98,26 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption([]const u8, "test_files_path", tests_path);
     }
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/snapshots/", &buffer) catch @panic("Filepath too long");
+        const sub_path = "snapshot_tests/snapshots/";
+        std.fs.cwd().makePath(sub_path) catch @panic("Could not assert the existance of a directory or create a new one");
+        const default_path = std.fs.cwd().realpath(sub_path, &buffer) catch @panic("Filepath too long");
         const snapshots_path = b.option(
             []const u8,
             "snap-snapshots-files",
             "Absolute path which can be used for storing snapshots.",
         ) orelse default_path;
         snapshot_test_options.addOption([]const u8, "snapshots_path", snapshots_path);
+    }
+    {
+        const accept_missing_snapshots = b.option(
+            bool,
+            "snap-accept-all",
+            \\When this flag is turned on and a snapshot file is not found during snapshot testing, a new snapshot file will be created from the program output.
+            \\This can be used for a workflow, where the developer runs the snapshot tests, deletes the snapshot files that are no longer valid and re-runs the test with this flag on.
+            \\This option is `false` by default.
+            ,
+        ) orelse false;
+        snapshot_test_options.addOption(bool, "accept_all", accept_missing_snapshots);
     }
 
     // Added by me :D

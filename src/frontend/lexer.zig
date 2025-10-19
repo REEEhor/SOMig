@@ -938,22 +938,41 @@ fn print_tokens(
     gpa: std.mem.Allocator,
     writer: *std.io.Writer,
 ) !void {
-    defer writer.flush() catch std.debug.print("bruh\n", .{});
+    defer writer.flush() catch {};
+    try writer.print("Position   Token                      String (according to position of the token)\n", .{});
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     var string_literals = try StringLiteralsManager.create(arena.allocator(), gpa, 0);
     defer string_literals.deinit();
 
+    var line_buffer: [4096]u8 = undefined;
+
     var lexer = Lexer.create(input, .{}, &string_literals);
     while (try lexer.next_token()) |t| {
         const token_text = input[t.pos.start_idx .. t.pos.end_idx_inclusive() + 1];
-        try writer.print(
-            " - [{d:03}..{d:03}] {any} >{s}<\n",
-            .{ t.pos.start_idx, t.pos.end_idx_inclusive(), t.kind, token_text },
-        );
+        switch (t.kind) {
+            inline else => |payload, tag| {
+                // Separate writer so we can align the tokens to the right with padding of max 35 spaces
+                var line_writer = std.io.Writer.fixed(&line_buffer);
+
+                try line_writer.print("[{d:3}..{d:3}] ", .{ t.pos.start_idx, t.pos.end_idx_inclusive() });
+                try line_writer.print("{t}", .{tag});
+                if (@TypeOf(payload) == []u8) {
+                    const string_without_newlines = try std.mem.replaceOwned(u8, gpa, payload, "\n", "[NL]");
+                    try line_writer.print("(\"{s}\")", .{string_without_newlines});
+                    defer gpa.free(string_without_newlines);
+                } else if (@TypeOf(payload) != void) {
+                    try line_writer.print("({any})", .{payload});
+                }
+                // Pad the line text that has been outputted so far
+                while (line_writer.end < 35) _ = try line_writer.write(" ");
+
+                // Print the line together with the token text
+                try writer.print("{s} | \"{s}\"\n", .{ line_buffer[0..line_writer.end], token_text });
+            },
+        }
     }
-    writer.flush() catch std.debug.print("bruh\n", .{});
 }
 
 // @to_ask_result: These can be here. Stress tests from the `original-som-repo` can be put into a `zig build test-stress`.
