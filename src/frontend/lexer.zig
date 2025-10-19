@@ -240,7 +240,6 @@ pub const Lexer = struct {
                         token_start_idx,
                         self.current_char_idx - 1,
                     );
-                    self.current_char_idx += 1;
 
                     if (first_char == ':' and token_position.length == 1) {
                         self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) }, "Found the ':' character on its own.", .{});

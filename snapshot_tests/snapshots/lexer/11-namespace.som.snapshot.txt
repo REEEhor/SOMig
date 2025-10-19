@@ -39,6 +39,7 @@ Position   Token                      String (according to position of the token
 [173..180] identifier               | "global_2"
 [182..183] assign                   | ":="
 [185..192] identifier               | "newValue"
+[193..193] dot                      | "."
 [196..196] close_parenthesis        | ")"
 [273..282] identifier               | "getProduct"
 [284..284] binary_message           | "="

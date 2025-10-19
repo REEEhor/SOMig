@@ -43,6 +43,7 @@ Position   Token                      String (according to position of the token
 [434..434] dot                      | "."
 [438..438] exit                     | "^"
 [440..445] identifier               | "result"
+[446..446] dot                      | "."
 [449..449] close_parenthesis        | ")"
 [453..459] identifier               | "lazySum"
 [461..461] binary_message           | "="
