@@ -57,7 +57,13 @@ pub const TokenKind = union(enum) {
     /// Line `------`
     separator,
 
+    /// The symbol `|`.
+    /// Used in the syntax of the language (field declaration, for example),
+    /// but can also be defined as a custom binary message.
     pipe,
+
+    /// The symbol `.`.
+    /// Used for separating statements or expressions.
     dot,
 
     /// The symbol `:=`
@@ -81,9 +87,6 @@ pub const TokenKind = union(enum) {
 
     /// The symbol `#`
     hashtag,
-
-    /// The keyword `primitive`
-    kw_primitive,
 
     /// String literal is enclosed in 'single quotes'.
     /// It is actually important to store also the contents of the string
