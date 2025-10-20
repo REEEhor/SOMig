@@ -23,14 +23,14 @@ const FloatRepr: type = token.FloatRepresentation;
 const eof = 0;
 
 pub const LexerError = error{
-    unexpected_character,
-    alone_colon,
-    colon_at_both_identifier_ends,
-    non_ascii_byte,
-    number_literal_too_big,
-    unclosed_comment,
-    unclosed_string_literal,
-    invalid_escaped_character_in_string_literal,
+unexpected_character,
+alone_colon,
+colon_at_both_identifier_ends,
+non_ascii_byte,
+number_literal_too_big,
+unclosed_comment,
+unclosed_string_literal,
+invalid_escaped_character_in_string_literal,
 } || string_literals_manager.Error;
 
 const State = enum {
@@ -932,7 +932,7 @@ test "lex a string literals with escape codes" {
 }
 // TODO: test all escape characters
 
-fn print_tokens(
+pub fn print_tokens(
     input: []const u8,
     gpa: std.mem.Allocator,
     writer: *std.io.Writer,
@@ -974,7 +974,6 @@ fn print_tokens(
     }
 }
 
-// @to_ask_result: These can be here. Stress tests from the `original-som-repo` can be put into a `zig build test-stress`.
 test "snapshot test on example files" {
     const snapshot_testing = @import("snapshot_testing.zig");
     // TODO: check if the path is not empty to ignore the test

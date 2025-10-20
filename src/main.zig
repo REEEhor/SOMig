@@ -1,5 +1,6 @@
 const std = @import("std");
 const lexer_module = @import("frontend/lexer.zig");
+const StringLiteralsManager = @import("frontend/string_literals_manager.zig").StringLiteralsManager;
 const Lexer = lexer_module.Lexer;
 
 const defs = @import("custom_definitions/definitions.zig");
@@ -9,31 +10,43 @@ const uint = defs.uint;
 const dbg = std.debug.print;
 
 pub fn main() !void {
-    var lexer = Lexer.create("", .{}, undefined);
-    _ = try lexer.next_token();
-    std.debug.print("This will be an amazing {s} project.\n\n", .{"SOMig"});
+    const allocator = std.heap.page_allocator;
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    const Example = union(enum) { lol, bruh: []const u8, xd: int };
-    const ex1: Example = .lol;
-    const ex2: Example = .{ .bruh = "Toto je bruh" };
-    const ex3: Example = .{ .xd = 42 };
-    const exs: [3]Example = .{ ex1, ex2, ex3 };
-    for (exs) |e| {
-        // std.enums.values(comptime E: type)
+    if (args.len == 3 and std.mem.eql(u8, args[1], "-lex")) {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const gpa = arena.allocator();
 
-        switch (e) {
-            inline else => |payload, tag| {
-                // Check if the payload type is void
-                if (@typeInfo(@TypeOf(payload)) == .void) {
-                    std.debug.print("{s}\n", .{@tagName(tag)});
-                } else {
-                    std.debug.print("{s}: {any}\n", .{ @tagName(tag), payload });
-                }
-            },
-        }
-        std.debug.print("\n", .{});
+        const filepath = args[2];
+        var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
+            std.debug.print("Could not open the file '{s}'\n", .{filepath});
+            return err;
+        };
+        defer file.close();
+        const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
+            std.debug.print("Could not read the entire file due to size limits\n", .{});
+            return err;
+        };
+        defer gpa.free(file_contents);
+
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        var stdout = &stdout_writer.interface;
+        try lexer_module.print_tokens(file_contents, gpa, stdout);
+        defer stdout.flush() catch std.debug.print("Could not flush stdout\n", .{});
+        return;
     }
+
+    std.debug.print(
+        "This will be an amazing SOMig project!\n\nUsage (so far):\n\t- `somig -lex <path/to/file.som>` | prints tokens and exits",
+        .{},
+    );
 }
+
+// Forcing for `zig build test` to run tests in all files that
+// are recursively imported from here.
 test {
     std.testing.refAllDeclsRecursive(@This());
 }
