@@ -2,6 +2,7 @@ const std = @import("std");
 const lexer_module = @import("frontend/lexer.zig");
 const StringLiteralsManager = @import("frontend/string_literals_manager.zig").StringLiteralsManager;
 const Lexer = lexer_module.Lexer;
+const Parser = @import("frontend/parser.zig").Parser;
 
 const defs = @import("custom_definitions/definitions.zig");
 const int = defs.int;

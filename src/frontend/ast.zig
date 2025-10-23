@@ -1,23 +1,42 @@
 const std = @import("std");
 const token_module = @import("token.zig");
 const FloatRepresentation = token_module.FloatRepresentation;
+const IntegerRepresentation = token_module.IntegerRepresentation;
+
+/// Span of tokens which represent different pieces of the AST
+const TokenSpan = struct {
+    /// Index into the token array where the first token is.
+    start_idx: usize,
+    /// Index into the token array where the last (including) token is.
+    end_idx: usize,
+};
 
 pub const ClassDefinition = struct {
+    pos: TokenSpan,
+    class_name: Identifier,
+    methods: []MethodDefinition,
+
     // TODO:
     //  - Separate this into class and instance parts
     //  - Add instance+class fields
-
-    methods: []Method,
+    //  - Add superclass
 };
 
-pub const Method = struct {
+/// Method definition
+pub const MethodDefinition = struct {
+    pos: TokenSpan,
     header: MethodHeader,
     body: MethodBody,
 };
 
 pub const Identifier = []const u8;
 
-pub const MethodHeader = union(enum) {
+pub const MethodHeader = struct {
+    pos: TokenSpan,
+    kind: MethodHeaderKind,
+};
+
+pub const MethodHeaderKind = union(enum) {
     unary: struct { method_name: Identifier },
     binary: struct { method_name: []const u8, parameter: Identifier },
 
@@ -26,6 +45,7 @@ pub const MethodHeader = union(enum) {
 };
 
 pub const MethodBody = struct {
+    pos: TokenSpan,
     locals: []Identifier,
     expressions: []ExprId,
 };
@@ -33,11 +53,17 @@ pub const MethodBody = struct {
 /// Index into an array of expressions
 pub const ExprId = u32;
 
+pub const Expression = struct {
+    pos: TokenSpan,
+    kind: ExpressionKind,
+};
+
 // TODO:
 //  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
-pub const Expression = union(enum) {
-    assignment: struct { variables: []Identifier, targer_value: ExprId },
+pub const ExpressionKind = union(enum) {
+    assignment: struct { variables: []Identifier, target_value: ExprId },
     variable: struct { identifier: Identifier },
+    integer_literal: IntegerRepresentation,
     float_literal: FloatRepresentation,
     string_literal: []const u8, // @cleanup: Maybe replace with index into an array of strings?
 

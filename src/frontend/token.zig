@@ -45,6 +45,10 @@ pub const CodePosition = struct {
     pub fn end_idx_inclusive(self: *const Self) uint {
         return self.start_idx + self.length - 1;
     }
+
+    pub fn slice_from(self: *const Self, text: []const u8) []const u8 {
+        return text[self.start_idx .. self.start_idx + self.end_idx_inclusive() + 1];
+    }
 };
 
 pub const IntegerRepresentation = i64;
