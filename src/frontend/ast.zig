@@ -2,17 +2,28 @@ const std = @import("std");
 const token_module = @import("token.zig");
 const FloatRepresentation = token_module.FloatRepresentation;
 const IntegerRepresentation = token_module.IntegerRepresentation;
+const Token = token_module.Token;
+const CodePosition = token_module.CodePosition;
 
 /// Span of tokens which represent different pieces of the AST
-const TokenSpan = struct {
+pub const TokenSpan = struct {
     /// Index into the token array where the first token is.
-    start_idx: usize,
+    start_idx: u32,
     /// Index into the token array where the last (including) token is.
-    end_idx: usize,
+    end_idx: u32,
+
+    pub fn to_pos(self: *@This(), tokens: []Token) CodePosition {
+        const start_token = tokens[self.start_idx];
+        const end_token = tokens[self.end_idx];
+        return CodePosition.from_start_and_end(
+            start_token.pos.start_idx,
+            end_token.pos.end_idx_inclusive(),
+        );
+    }
 };
 
 pub const ClassDefinition = struct {
-    pos: TokenSpan,
+    span: TokenSpan,
     class_name: Identifier,
     methods: []MethodDefinition,
 
@@ -24,7 +35,7 @@ pub const ClassDefinition = struct {
 
 /// Method definition
 pub const MethodDefinition = struct {
-    pos: TokenSpan,
+    span: TokenSpan,
     header: MethodHeader,
     body: MethodBody,
 };
@@ -32,7 +43,7 @@ pub const MethodDefinition = struct {
 pub const Identifier = []const u8;
 
 pub const MethodHeader = struct {
-    pos: TokenSpan,
+    span: TokenSpan,
     kind: MethodHeaderKind,
 };
 
@@ -45,7 +56,7 @@ pub const MethodHeaderKind = union(enum) {
 };
 
 pub const MethodBody = struct {
-    pos: TokenSpan,
+    span: TokenSpan,
     locals: []Identifier,
     expressions: []ExprId,
 };
@@ -54,27 +65,32 @@ pub const MethodBody = struct {
 pub const ExprId = u32;
 
 pub const Expression = struct {
-    pos: TokenSpan,
+    span: TokenSpan,
     kind: ExpressionKind,
+};
+
+pub const KeywordArgumentPair = struct {
+    /// Keyword contains even the parsed `:` at the end
+    keyword: []const u8,
+    argument: ExprId,
 };
 
 // TODO:
 //  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
 pub const ExpressionKind = union(enum) {
-    assignment: struct { variables: []Identifier, target_value: ExprId },
-    variable: struct { identifier: Identifier },
+    assignment: struct { variable: Identifier, target_value: ExprId },
+    variable: Identifier,
     integer_literal: IntegerRepresentation,
     float_literal: FloatRepresentation,
     string_literal: []const u8, // @cleanup: Maybe replace with index into an array of strings?
 
     unary_message_call: struct { argument: ExprId, message: Identifier },
     binary_message_call: struct { lhs: ExprId, rhs: ExprId, message: []const u8 },
-    keyword_message_call: struct { keywords: []const []const u8, arguments: []Identifier },
+    keyword_message_call: struct { first_argument: ExprId, args: []const KeywordArgumentPair },
 
     // TODO:
     //  - Add:
     //      - block (lambda in SOM)
-    //      - integer literals
     //      - array literals
     //      - symbols (maybe)
     //      - that's it?

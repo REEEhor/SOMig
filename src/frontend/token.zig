@@ -55,6 +55,8 @@ pub const IntegerRepresentation = i64;
 pub const FloatRepresentation = f64;
 
 pub const TokenKind = union(enum) {
+    const Self = @This();
+
     /// The `^` character
     exit,
 
@@ -112,10 +114,18 @@ pub const TokenKind = union(enum) {
 
     /// String in the form of `:someIdentifier`
     block_param,
+
+    pub fn tag(self: *const Self) std.meta.Tag(Self) {
+        return std.meta.activeTag(self.*);
+    }
 };
 
 pub const Token = struct {
     const Self = @This();
     kind: TokenKind,
     pos: CodePosition,
+
+    pub fn tag(self: *const Self) std.meta.Tag(TokenKind) {
+        return self.kind.tag();
+    }
 };

@@ -1,10 +1,16 @@
-// @nice-to-have: When there is an unexpected binary message, it might have been meant
-//                as a unary operator. Nice error message would have been nice.
-//                Maybe the lexer should lex `+2` correctly.
+// @nice-to-have:
+//  When there is an unexpected binary message, it might have been meant
+//    as a unary operator. Nice error message would have been nice.
+//  Maybe the lexer should lex `+2` correctly.
+
+// NOTE:
+//  Currently, assignments can only be at the beginning of an expression (which is adhering to the grammar).
+//  But it would be nice-to-have the possibility to use it somewhere else.
+//  On the other hand, it is possible when surrounded by parenthesis like this: `( var1 := expression )`,
+//    so it does not matter and it forces a better program style.
 
 const std = @import("std");
 const assert = std.debug.assert;
-const activeTag = std.meta.activeTag;
 
 const lexer_module = @import("lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -23,14 +29,23 @@ const ExprId = ast_module.ExprId;
 const Identifier = ast_module.Identifier;
 const MethodDefinition = ast_module.MethodDefinition;
 const TokenSpan = ast_module.TokenSpan;
+const KeywordArgumentPair = ast_module.KeywordArgumentPair;
 
 const ErrorReporter = @import("reporter.zig").ErrorReporter;
+
+/// TODO: remove this once this is properly implemented
+/// Use the compiler errors to find all usages of this.
+const todo_span = TokenSpan{
+    .start_idx = 0,
+    .end_idx = 0,
+};
 
 const ParserError = error{
     unexpected_eof,
     unexpected_token,
     unmatched_parenthesis,
     unmatched_bracket,
+    non_variable_used_as_lhs_of_expression,
 
     /// TODO: remove this, this is just for testing (so that the parser does not panic)
     TODO,
@@ -81,7 +96,7 @@ pub const Parser = struct {
         while (true) {
             const token = self.peek_next_token() orelse break;
             // TODO: parse binary methods and keyword methods
-            if (activeTag(token.kind) == .identifier) {
+            if (token.tag() == .identifier) {
                 const method_definition = try self.parse_unary_method_definition();
                 try method_definitions.append(self.allocator, method_definition);
             }
@@ -99,10 +114,10 @@ pub const Parser = struct {
 
         const locals: []Identifier = parse_locals: {
             const token = self.peek_next_token() orelse {
-                self.reporter.report_unexpected_eof("Expected body of a method or a closing parenthesis", .{});
+                self.reporter.report_unexpected_eof("Expected body of a method or a closing parenthesis.", .{});
                 return ParserError.unexpected_eof;
             };
-            if (activeTag(token.kind) == .pipe) {
+            if (token.tag() == .pipe) {
                 @panic("TODO: parse locals");
                 // TODO: parse locals
                 // break :parse_locals locals;
@@ -111,9 +126,18 @@ pub const Parser = struct {
             }
         };
 
-        // TODO: parse expressions
+        // TODO: move this into a separate function:
+        //          parse_function_body(self: *Self) struct { ends_with_exit: bool, expressions: []ExprId }
         // TODO: don't forget that there are dots between expressions
-        _ = try self.parse_expression();
+
+        var start_idx_exit_expression: ?@FieldType(CodePosition, "start_idx") = null;
+        while (true) {
+            // @continue: Check if it is a `^` and figure out how/when to parse expressions (after `^` it is required, but where else?)
+            const token = self.peek_next_token() orelse break;
+            // token.tag()
+            // if (act)
+            _ = try self.parse_expression();
+        }
         // TODO: don't forget to check for exit (token `^`)
 
         _ = try self.eat_token(.close_parenthesis);
@@ -122,61 +146,133 @@ pub const Parser = struct {
     }
 
     fn parse_expression(self: *Self) ParserError!ExprId {
-        const assignment_vars = std.ArrayList(Identifier).empty;
-        var is_first_iteration = true;
-        while (true) : (is_first_iteration = true) {
-            const token = self.peek_next_token() orelse {
-                // This function should never be called when there is no tokens left.
-                assert(!is_first_iteration);
-                self.reporter.report_unexpected_eof("Expected the right hand side of the assignment (an expression).", .{});
-                return ParserError.unexpected_eof;
-            };
-            switch (token.kind) {
-                .identifier => {
-                    // @cleanup: Maybe some sort of a scratch allocator should be used here?
-                    try assignment_vars.append(self.allocator, self.text_at(token.pos));
+        const primary_expr_id = try self.parse_primary();
+        const primary_expression = self.expressions.items[primary_expr_id];
+
+        const token = self.peek_next_token() orelse return primary_expr_id;
+
+        // Check whether this expression is an assignment or not
+        if (token.tag() == .assign) {
+            const lhs_identifier: Identifier = blk: switch (primary_expression.kind) {
+                .variable => |identifier| break :blk identifier,
+                else => {
+                    self.reporter.report_error(
+                        .{ .pos = self.pos_of(primary_expr_id) },
+                        "Only a variable can be on the left hand side of an assignment.",
+                        .{},
+                    );
+                    self.reporter.add_note(
+                        .no_location,
+                        "The expression recognised here is: {t}.",
+                        .{primary_expression.kind},
+                    );
+                    return ParserError.non_variable_used_as_lhs_of_expression;
                 },
-                else => break, // We stop iterating the moment we don't see an identifier
-            }
+            };
+            _ = self.next_token(); // Consume the assignment operator token
+            const rhs_expression_id = try self.parse_expression();
+
+            return self.create_expression(
+                todo_span,
+                .{ .assignment = .{ .variable = lhs_identifier, .target_value = rhs_expression_id } },
+            );
+        }
+
+        return try self.parse_maybe_messages(primary_expr_id);
+    }
+
+    fn parse_maybe_messages(self: *Self, primary_expr_id: ExprId) ParserError!ExprId {
+        const first_argument_id = try self.parse_maybe_binary_messages(primary_expr_id);
+        // @cleanup: Maybe some sort of scratch temporary allocator could be used here?
+        var keyword_arguments = std.ArrayList(KeywordArgumentPair).empty;
+
+        // Parse keyword message calls
+        while (self.peek_next_token()) |token| {
+            if (token.tag() != .keyword_message) break;
+            _ = self.next_token();
+            const error_str = "Because of this, an argument to this keyword message could have been parsed.";
+
+            // Parse the argument of the message call
+            const argument_primary_id: ExprId = self.parse_primary() catch |err| {
+                self.reporter.add_note(.{ .pos = token.pos }, error_str, .{});
+                return err;
+            };
+            const argument_id: ExprId = self.parse_maybe_binary_messages(argument_primary_id) catch |err| {
+                self.reporter.add_note(.{ .pos = token.pos }, error_str, .{});
+                return err;
+            };
+            // Append it to the list of keyword arguments
+            try keyword_arguments.append(self.allocator, .{
+                .argument = argument_id,
+                .keyword = self.text_at(token.pos),
+            });
+        }
+        // We didn't parse any keyword pairs, so the resulting expression is not a keyword message call
+        if (keyword_arguments.items.len == 0) return first_argument_id;
+
+        const args: []KeywordArgumentPair = try keyword_arguments.toOwnedSlice(self.allocator);
+        const keyword_message_call = .{ .first_argument = first_argument_id, .args = args };
+        return self.create_expression(todo_span, .{ .keyword_message_call = keyword_message_call });
+    }
+
+    fn parse_maybe_binary_messages(self: *Self, lhs_expr_id: ExprId) ParserError!ExprId {
+        var result_expr_id = try self.parse_maybe_unary_messages(lhs_expr_id);
+
+        while (self.peek_next_token()) |token| {
+            if (token.tag() != .binary_message) break;
             _ = self.next_token();
 
-            const maybe_assign = self.peek_next_token() orelse {
-                // TODO: HERE
-                //      Think about if these scenarios are the only ones that can happen here (I think yes):
-                //         case1:     method = ( var1 := var2 := var3 [EOF]
-                //         case2:     method = ( var1                 [EOF]
-                //
-                //      .. so probably the only problem is the missing parenthesis (I think)
-                //      .. so the `if` below is probably not needed and the `is_first_iteration` variable can be moved into the body of this `while`
-                //
-                // if (!is_first_iteration) {
-                //     TODO
-                //     self.reporter.report_unexpected_eof("Expected ", .{});
-                // }
-                //
-                return ParserError.unexpected_eof;
+            // Parse right hand side of the binary message call
+            const rhs_primary: ExprId = self.parse_primary() catch |err| {
+                self.reporter.add_note(
+                    .{ .pos = token.pos },
+                    "Because of this, a right hand side operand could not have been parsed for this binary message.",
+                    .{},
+                );
+                return err;
             };
+            const rhs_expr_id: ExprId = try self.parse_maybe_unary_messages(rhs_primary);
 
-            // TODO: match `:=` or break
+            const binary_call = ExpressionKind{ .binary_message_call = .{
+                .lhs = result_expr_id,
+                .message = self.text_at(token),
+                .rhs = rhs_expr_id,
+            } };
+            result_expr_id = try self.create_expression(todo_span, binary_call);
         }
-        // NOTE: handle `assignment_vars` here
+        return result_expr_id;
+    }
 
-        const primary = try parse_primary(self);
-        // TODO: there might be an assignment and multiple lhs
-        @panic("TODO");
-        // TODO: parse messages
+    fn parse_maybe_unary_messages(self: *Self, primary_expr_id: ExprId) ParserError!ExprId {
+        var result_expr_id = primary_expr_id;
+        while (self.peek_next_token()) |token| {
+            if (token.tag() != .identifier) break;
+            _ = self.next_token();
+
+            // Append the message call
+            const unary_call = .{
+                .argument = result_expr_id,
+                .message = self.text_at(token.pos),
+            };
+            result_expr_id = try self.create_expression(todo_span, .{ .unary_message_call = unary_call });
+        }
+        return result_expr_id;
+    }
+
+    fn pos_of(self: *Self, expression_id: ExprId) CodePosition {
+        return self.expressions.items[expression_id].span.to_pos(self.tokens);
     }
 
     fn parse_primary(self: *Self) ParserError!ExprId {
         // This function should be called only when we expect a primary
-        const token = self.next_token() orelse unreachable;
+        const token = self.next_token() orelse {
+            self.reporter.report_unexpected_eof("Expected an expression.", .{});
+            return ParserError.unexpected_eof;
+        };
         const expression_kind: ExpressionKind = get_expression: switch (token.kind) {
             .identifier => {
-                // NOTE: this should be probably an invalid state, since the identifier should have already been
-                // parsed in the function `parse_expression`, that calls this. For refactoring reasons, I am keeping this here.
-                // @cleanup: It would be nice if this branch is actually marked unreachable
                 const text = self.text_at(token.pos);
-                break :get_expression .{ .variable = .{ .identifier = text } };
+                break :get_expression .{ .variable = text };
             },
             .integer => |value| {
                 break :get_expression .{ .integer_literal = value };
@@ -206,11 +302,11 @@ pub const Parser = struct {
             },
 
             .close_parenthesis => {
-                self.reporter.report_error(.{ .pos = token.pos }, "Unmatched parenthesis.", .{});
+                self.reporter.report_error(.{ .pos = token.pos }, "Unmatched parenthesis found. Expected an expression.", .{});
                 return ParserError.unmatched_parenthesis;
             },
             .close_bracket => {
-                self.reporter.report_error(.{ .pos = token.pos }, "Unmatched bracket.", .{});
+                self.reporter.report_error(.{ .pos = token.pos }, "Unmatched bracket found. Expected an expression.", .{});
                 return ParserError.unmatched_bracket;
             },
             // List all the tokens so if there is a change to the list of token options, we catch it here
@@ -220,12 +316,11 @@ pub const Parser = struct {
             },
         };
 
-        const expression = Expression{
-            .pos = TokenSpan{ .start_idx = 0, .end_idx = 0 }, // TODO: proper position
-            .kind = expression_kind,
-        };
-        const new_expression_id = try self.add_expression(expression);
-        return new_expression_id;
+        return self.create_expression(todo_span, expression_kind);
+    }
+
+    fn create_expression(self: *Self, span: TokenSpan, kind: ExpressionKind) ParserError!ExprId {
+        return self.add_expression(.{ .span = span, .kind = kind });
     }
 
     fn add_expression(self: *Self, new_expression: Expression) ParserError!ExprId {
