@@ -55,6 +55,7 @@ pub const MethodHeaderKind = union(enum) {
     keyword: struct { keywords: []const []const u8, parameters: []Identifier },
 };
 
+// TODO: reuse this also for the body of a block
 pub const MethodBody = struct {
     span: TokenSpan,
     locals: []Identifier,
@@ -83,6 +84,8 @@ pub const ExpressionKind = union(enum) {
     integer_literal: IntegerRepresentation,
     float_literal: FloatRepresentation,
     string_literal: []const u8, // @cleanup: Maybe replace with index into an array of strings?
+
+    exit_expression: struct { return_value: ExprId },
 
     unary_message_call: struct { argument: ExprId, message: Identifier },
     binary_message_call: struct { lhs: ExprId, rhs: ExprId, message: []const u8 },

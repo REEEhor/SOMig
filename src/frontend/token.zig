@@ -27,6 +27,7 @@ pub const CodePosition = struct {
     start_idx: uint,
     length: uint,
 
+    /// Creates a position in code of a single character.
     pub fn at(start_index: usize) CodePosition {
         return CodePosition{
             .start_idx = start_index,

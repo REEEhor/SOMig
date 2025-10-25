@@ -2,7 +2,7 @@ const std = @import("std");
 const lexer_module = @import("frontend/lexer.zig");
 const StringLiteralsManager = @import("frontend/string_literals_manager.zig").StringLiteralsManager;
 const Lexer = lexer_module.Lexer;
-const Parser = @import("frontend/parser.zig").Parser;
+const parser_module = @import("frontend/parser.zig");
 
 const defs = @import("custom_definitions/definitions.zig");
 const int = defs.int;
@@ -49,5 +49,6 @@ pub fn main() !void {
 // Forcing for `zig build test` to run tests in all files that
 // are recursively imported from here.
 test {
+    _ = @import("frontend/parser.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

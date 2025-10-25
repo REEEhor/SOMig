@@ -30,6 +30,9 @@ const Identifier = ast_module.Identifier;
 const MethodDefinition = ast_module.MethodDefinition;
 const TokenSpan = ast_module.TokenSpan;
 const KeywordArgumentPair = ast_module.KeywordArgumentPair;
+const MethodBody = ast_module.MethodBody;
+const MethodHeader = ast_module.MethodHeader;
+const MethodHeaderKind = ast_module.MethodHeaderKind;
 
 const ErrorReporter = @import("reporter.zig").ErrorReporter;
 
@@ -46,6 +49,7 @@ const ParserError = error{
     unmatched_parenthesis,
     unmatched_bracket,
     non_variable_used_as_lhs_of_expression,
+    expressions_not_separated_by_dot,
 
     /// TODO: remove this, this is just for testing (so that the parser does not panic)
     TODO,
@@ -65,7 +69,7 @@ pub const Parser = struct {
     /// This `ExprId` is an index into this array-list.
     expressions: std.ArrayList(Expression),
 
-    pub fn create(lexer: Lexer, error_reporter: ErrorReporter, allocator: *std.mem.Allocator) ParserError!Parser {
+    pub fn create(lexer: *Lexer, error_reporter: ErrorReporter, allocator: *std.mem.Allocator) ParserError!Parser {
         // Lex all the tokens
         // @cleanup: Arbitrary choice. Empirically choose the length
         // @cleanup: If we end up lexing all tokens ahead of time, than it makes sense to remove `.peek_token(...)` from `Lexer`
@@ -85,16 +89,14 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Self) ParserError!ClassDefinition {
-        const identifier = try self.eat_token(.identifier);
-        _ = identifier;
+        const class_name: Identifier = self.text_at((try self.eat_token(.identifier)).pos.*);
         _ = try self.eat_binary_message("=");
         // TODO: parse a potential super class here
         try self.eat_token(.open_parenthesis);
-        // TODO: parse a potential struct fields here
+        // TODO: parse a potential instance fields here
 
         var method_definitions = std.ArrayList(MethodDefinition).empty;
-        while (true) {
-            const token = self.peek_next_token() orelse break;
+        while (self.peek_next_token()) |token| {
             // TODO: parse binary methods and keyword methods
             if (token.tag() == .identifier) {
                 const method_definition = try self.parse_unary_method_definition();
@@ -102,7 +104,15 @@ pub const Parser = struct {
             }
         }
 
+        const class_definition = ClassDefinition{
+            .class_name = class_name,
+            .methods = try method_definitions.toOwnedSlice(self.allocator),
+            .span = todo_span,
+        };
+
         try self.eat_token(.close_parenthesis);
+
+        return class_definition;
     }
 
     fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
@@ -118,8 +128,10 @@ pub const Parser = struct {
                 return ParserError.unexpected_eof;
             };
             if (token.tag() == .pipe) {
-                @panic("TODO: parse locals");
+                _ = self.next_token();
                 // TODO: parse locals
+                return ParserError.TODO;
+
                 // break :parse_locals locals;
             } else {
                 break :parse_locals []Identifier{};
@@ -130,19 +142,55 @@ pub const Parser = struct {
         //          parse_function_body(self: *Self) struct { ends_with_exit: bool, expressions: []ExprId }
         // TODO: don't forget that there are dots between expressions
 
-        var start_idx_exit_expression: ?@FieldType(CodePosition, "start_idx") = null;
-        while (true) {
-            // @continue: Check if it is a `^` and figure out how/when to parse expressions (after `^` it is required, but where else?)
-            const token = self.peek_next_token() orelse break;
-            // token.tag()
-            // if (act)
-            _ = try self.parse_expression();
-        }
-        // TODO: don't forget to check for exit (token `^`)
+        var expressions = std.ArrayList(ExprId).empty;
+        var saw_dot = false;
+        while (self.peek_next_token()) |token| {
+            const expr_id: ExprId = get_expr: switch (token.kind) {
+                .exit => {
+                    _ = self.next_token(); // Consume the exit token
+                    const return_value: ExprId = self.parse_expression() catch |err| {
+                        self.reporter.add_note(.{ .pos = token.pos }, "An expression is expected because of an exit token here.", .{});
+                        return err;
+                    };
+                    break :get_expr self.create_expression(todo_span, .{
+                        .exit_expression = .{ .return_value = return_value },
+                    });
+                },
+                .close_parenthesis, .close_bracket => {
+                    break;
+                },
+                else => {
+                    break :get_expr try self.parse_expression();
+                },
+            };
+            if (expressions.getLastOrNull() and !saw_dot) |prev_expr| {
+                const end_of_prev_expr = self.pos_of(prev_expr).end_idx_inclusive();
+                const error_pos = CodePosition.at(end_of_prev_expr);
+                self.reporter.report_error(.{ .pos = error_pos }, "Expected a `.` after this expression.", .{});
+                return ParserError.expressions_not_separated_by_dot;
+            }
 
+            try expressions.append(self.allocator, expr_id);
+            while (self.peek_next_token() == .dot) {
+                saw_dot = true;
+                _ = self.next_token();
+            } else saw_dot = false;
+        }
+
+        // TODO: when refactoring this, don't forget about blocks that end with `]`
         _ = try self.eat_token(.close_parenthesis);
 
-        // TODO: construct and return `MethodDefinition` (`MethodBody` first)
+        const method_body = MethodBody{
+            .expressions = try expressions.toOwnedSlice(self.allocator),
+            .locals = locals,
+            .span = todo_span,
+        };
+        const method_definition = MethodDefinition{
+            .header = .{ .span = todo_span, .kind = .{ .unary = method_name } },
+            .body = method_body,
+            .span = todo_span,
+        };
+        return method_definition;
     }
 
     fn parse_expression(self: *Self) ParserError!ExprId {
@@ -190,7 +238,7 @@ pub const Parser = struct {
         while (self.peek_next_token()) |token| {
             if (token.tag() != .keyword_message) break;
             _ = self.next_token();
-            const error_str = "Because of this, an argument to this keyword message could have been parsed.";
+            const error_str = "Because of this, an argument to this keyword message could have not been parsed.";
 
             // Parse the argument of the message call
             const argument_primary_id: ExprId = self.parse_primary() catch |err| {
@@ -405,3 +453,144 @@ pub const Parser = struct {
         return token;
     }
 };
+
+fn print_span(parser: *const Parser, span: TokenSpan, writer: *std.io.Writer) !void {
+    const pos = span.to_pos(parser.tokens);
+    try writer.print("[{3d}..{3d}]", .{ pos.start_idx, pos.end_idx_inclusive() });
+}
+
+// TODO(continue-here): create a single formatter that will be passed around
+const FormatSpan = struct {
+    span: TokenSpan,
+    tokens: []Token,
+    pub fn fmt(span: TokenSpan, tokens: []Token) @This() {
+        return .{ .span = span, .tokens = tokens };
+    }
+    pub fn format(self: *@This(), w: *std.io.Writer) std.io.Writer.Error!void {
+        const pos = self.span.to_pos(self.tokens);
+        try w.print("[{3d}..{3d}]", .{ pos.start_idx, pos.end_idx_inclusive() });
+    }
+};
+
+fn print_expression_recursive(
+    writer: *std.io.Writer,
+    expr_id: ExprId,
+    expressions: []Expression,
+    ts: []Token,
+    indent: i32,
+) !void {
+    const expression = expressions[expr_id];
+
+    for (0..indent) |_| try writer.print("\t", .{});
+
+    try writer.print("- {f}(id={d}) ", .{ FormatSpan.fmt(expression.span, ts), expr_id });
+    switch (expression.kind) {
+        .variable => |identifier| try writer.print("Variable({s})\n", .{identifier}),
+        .integer_literal => |value| try writer.print("Integer literal({})\n", .{value}),
+        .float_literal => |value| try writer.print("Float literal({})\n", .{value}),
+        .string_literal => |value| try writer.print("String literal({s})\n", .{value}),
+
+        .exit_expression => |return_value_expr| {
+            try writer.print("Exit expression with return value:\n", .{});
+            try print_expression_recursive(writer, return_value_expr, expressions, ts, indent + 1);
+        },
+        .assignment => |assignment| {
+            try writer.print("Assignment of '{s}' to:\n", .{assignment.variable});
+            try print_expression_recursive(writer, assignment.target_value, expressions, ts, indent + 1);
+        },
+
+        .unary_message_call => |unary_call| {
+            try writer.print("Unary message '{s}' to the object:\n", .{unary_call.message});
+            try print_expression_recursive(writer, unary_call.argument, expressions, ts, indent + 1);
+        },
+        .binary_message_call => |binary_call| {
+            try writer.print("Binary message call '{s}', with lhs:\n", .{binary_call.message});
+            try print_expression_recursive(writer, binary_call.lhs, expressions, ts, indent + 1);
+            try writer.print("and rhs:\n", .{});
+            try print_expression_recursive(writer, binary_call.rhs, expressions, ts, indent + 1);
+        },
+        .keyword_message_call => |keyword_call| {
+            // TODO:
+            _ = keyword_call;
+            return ParserError.TODO;
+        },
+    }
+}
+
+pub fn print_class_definition(
+    input: []const u8,
+    gpa: std.mem.Allocator,
+    writer: *std.io.Writer,
+) !void {
+    const StringLiteralsManager = @import("string_literals_manager.zig").StringLiteralsManager;
+
+    defer writer.flush() catch {};
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+
+    var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
+    var lexer = Lexer.create(input, .{}, &string_literals_manager);
+
+    var parser = try Parser.create(&lexer, .{}, &allocator);
+    const class_definition = try parser.parse();
+    const ts = parser.tokens;
+
+    try writer.print("AST of the class {f}'{s}'\n", .{
+        FormatSpan.fmt(class_definition.span, ts), class_definition.class_name,
+    });
+
+    for (class_definition.methods, 1..) |method, method_idx| {
+        try writer.print("{f}Method #{d}:\n", .{ method.span, method_idx });
+
+        const header = method.header;
+        try writer.print("\t{f}Header: ", .{FormatSpan.fmt(header.span, ts)});
+        switch (header.kind) {
+            .unary => |info| {
+                try writer.print("(unary-method) '{s}'\n", .{info.method_name});
+            },
+            .binary => |info| {
+                _ = info;
+                return ParserError.TODO;
+            },
+            .keyword => |info| {
+                _ = info;
+                return ParserError.TODO;
+            },
+        }
+
+        try writer.print("\t{f}Body:\n", .{method.body.span});
+        if (method.body.locals.len != 0) {
+            try writer.print("\t\tLocals:\n");
+        }
+        for (method.body.locals, 1..) |local, idx| {
+            try writer.print("\t\t\t#{d}: '{s}'", .{ idx, local });
+        } else {
+            try writer.print("\t\t(no locals)\n");
+        }
+
+        const expressions = method.body.expressions;
+        if (expressions.len != 0) {
+            try writer.print("\t\tExpressions:\n", .{});
+        }
+        for (expressions, 1..) |expr, idx| {
+            try writer.print("\t\t\tExpression #{d}:\n", .{idx});
+            const indent = 4; // because we want at least 4 tabulators before each expression
+            try print_expression_recursive(writer, expr, parser.expressions, ts, indent);
+        } else {
+            try writer.print("\t\t(empty body - no expressions)\n", .{});
+        }
+    }
+}
+
+test "parsing snapshot test on example files" {
+    const snapshot_testing = @import("snapshot_testing.zig");
+    // TODO: check if the path is not empty to ignore the test
+    const opts = snapshot_testing.opts;
+    try snapshot_testing.do_snapshot_tests(.{
+        .snapshots_directory = opts.snapshots_path ++ "/parser",
+        .tested_files_directory = opts.test_files_path,
+        .output_producer = print_class_definition,
+    }, "Parsing");
+}
