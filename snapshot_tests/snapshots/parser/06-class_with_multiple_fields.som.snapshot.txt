@@ -1,3 +1,7 @@
-
-[ERROR at 13..13] Unexpected token: .{ .kind = .{ .pipe = void }, .pos = .{ .start_idx = 13, .length = 1 } }. Expected token close_parenthesis
-Failed with parse error: 'unexpected_token'
+AST of the class [  0..  6]'Example'
+	Instance fields:
+		- 'aField'
+		- 'someAnotherField'
+		- 'oneMoreField'
+		- 'lastField'
+	(no methods)

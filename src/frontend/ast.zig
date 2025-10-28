@@ -5,12 +5,15 @@ const IntegerRepresentation = token_module.IntegerRepresentation;
 const Token = token_module.Token;
 const CodePosition = token_module.CodePosition;
 
+/// Index into the list of all tokens.
+pub const TokenIdx = u32;
+
 /// Span of tokens which represent different pieces of the AST
 pub const TokenSpan = struct {
     /// Index into the token array where the first token is.
-    start_idx: u32,
+    start_idx: TokenIdx,
     /// Index into the token array where the last (including) token is.
-    end_idx: u32,
+    end_idx: TokenIdx,
 
     pub fn to_pos(self: *const @This(), tokens: []Token) CodePosition {
         const start_token = tokens[self.start_idx];
@@ -26,6 +29,7 @@ pub const ClassDefinition = struct {
     span: TokenSpan,
     class_name: Identifier,
     instance_methods: []MethodDefinition,
+    instance_fields: []Identifier,
 
     // TODO:
     //  - Separate this into class and instance parts
@@ -40,6 +44,10 @@ pub const MethodDefinition = struct {
     body: MethodBody,
 };
 
+// TODO(cleanup): change this to be `TokenIdx`.
+// It is not only smaller in size, but we can get the position of that AST node.
+// Text can be acquired by doing `parser.text_at(parser.tokens[idx].pos)`
+// TODO: make a wrapper around `parser.text_at(parser.tokens[idx].pos)`
 pub const Identifier = []const u8;
 
 pub const MethodHeader = struct {
@@ -55,6 +63,12 @@ pub const MethodHeaderKind = union(enum) {
     keyword: struct { args: []KeywordArgumentPair },
 };
 
+pub const KeywordArgumentPair = struct {
+    /// Keyword contains even the parsed `:` at the end
+    keyword: []const u8, // TODO: after chaning `Identifer` to be a `TokenIdx`, this could also be an `Identifier`
+    argument: ExprId,
+};
+
 // TODO: reuse this also for the body of a block
 pub const MethodBody = struct {
     span: TokenSpan,
@@ -68,12 +82,6 @@ pub const ExprId = u32;
 pub const Expression = struct {
     span: TokenSpan,
     kind: ExpressionKind,
-};
-
-pub const KeywordArgumentPair = struct {
-    /// Keyword contains even the parsed `:` at the end
-    keyword: []const u8,
-    argument: ExprId,
 };
 
 // TODO:

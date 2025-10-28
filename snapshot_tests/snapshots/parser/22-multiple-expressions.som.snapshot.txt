@@ -1,4 +1,5 @@
 AST of the class [  0.. 10]'TestedClass'
+	(no instance fields)
 [  0.. 10]Method #1:
 	[  0.. 10]Header: (unary-method) 'method_1'
 	[  0.. 10]Body:

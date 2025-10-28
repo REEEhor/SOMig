@@ -52,6 +52,7 @@ const ParserError = error{
     unexpected_token,
     unmatched_parenthesis,
     unmatched_bracket,
+    unmatched_pipe,
     non_variable_used_as_lhs_of_expression,
     expressions_not_separated_by_dot,
 
@@ -101,6 +102,20 @@ pub const Parser = struct {
         _ = try self.eat_token(.open_parenthesis);
         // TODO: parse a potential instance fields here
 
+        // Check if there could be instance fields
+        // We have to check if the current character is a symbol *and* if it is not a definition of a field.
+        // We can do that by checking if the token is or is not an equal sign.
+        // For more info, see "pipe_as_binary_message.som" in the snapshot tests.
+        var instance_fields: []Identifier = &[0]Identifier{};
+        if (self.peek_next_token()) |token_1| if (self.peek_token_at_offset(2)) |token_2| {
+            const token_2_text = self.text_at(token_2.pos);
+            const is_token_2_equal_sign: bool = (token_2_text.len == 1 and token_2_text[0] == '=');
+
+            if (token_1.tag() == .pipe and !is_token_2_equal_sign) {
+                instance_fields = try self.parse_locals("instance fields");
+            }
+        };
+
         var method_definitions = std.ArrayList(MethodDefinition).empty;
         while (self.peek_next_token()) |token| {
             // TODO: parse binary methods and keyword methods
@@ -113,12 +128,55 @@ pub const Parser = struct {
         const class_definition = ClassDefinition{
             .class_name = class_name,
             .instance_methods = try method_definitions.toOwnedSlice(self.allocator),
+            .instance_fields = instance_fields,
             .span = todo_span,
         };
 
         _ = try self.eat_token(.close_parenthesis);
 
         return class_definition;
+    }
+
+    /// Parses:
+    /// ```som
+    ///     | var1 var2 var3  ...  varN |
+    ///     ^
+    ///  expected `self.next_token_idx`
+    /// ```
+    ///
+    /// Argument `structure_name` is for error reporting.
+    /// Probably one of "instance fields", "class fields", "locals of a method", "locals of a block".
+    ///
+    fn parse_locals(self: *Self, comptime structure_name: []const u8) ParserError![]Identifier {
+        // Consume the pipe token
+        const starting_pipe_token = self.next_token().?;
+        assert(starting_pipe_token.tag() == .pipe);
+
+        var identifier_list = std.ArrayList(Identifier).empty;
+        while (true) {
+            const token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected `|` to close the list of " ++ structure_name ++ ".", .{});
+                self.reporter.add_note(.{ .pos = starting_pipe_token.pos }, "The list of " ++ structure_name ++ " starts here.", .{});
+                return ParserError.unmatched_pipe;
+            };
+            switch (token.kind) {
+                .identifier => {
+                    _ = self.next_token();
+                    const identifier_text = self.text_at(token.pos);
+                    try identifier_list.append(self.allocator, identifier_text);
+                },
+                .pipe => {
+                    _ = self.next_token();
+                    break;
+                },
+                else => {
+                    self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {any}. Expected either a `|` or an identifier.", .{token.kind});
+                    return ParserError.unmatched_pipe;
+                },
+            }
+        }
+        const identifiers = try identifier_list.toOwnedSlice(self.allocator);
+        return identifiers;
     }
 
     fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
@@ -469,6 +527,13 @@ pub const Parser = struct {
         if (token != null) self.next_token_idx += 1;
         return token;
     }
+
+    fn peek_token_at_offset(self: *Self, offset: i32) ?*Token {
+        if (self.next_token_idx < offset) return null;
+        const idx = self.next_token_idx + @abs(std.math.sign(offset) * offset);
+        if (idx >= self.tokens.len) return null;
+        return &self.tokens[idx];
+    }
 };
 
 const SpanFormatter = struct {
@@ -542,7 +607,7 @@ fn print_expression_recursive(
     }
 }
 
-pub fn print_tokens(
+pub fn print_class_definition(
     input: []const u8,
     gpa: std.mem.Allocator,
     writer: *std.io.Writer,
@@ -571,6 +636,15 @@ pub fn print_tokens(
     try writer.print("AST of the class {f}'{s}'\n", .{
         span_formatter.fmt(class_definition.span), class_definition.class_name,
     });
+
+    if (class_definition.instance_fields.len == 0) {
+        try writer.print("\t(no instance fields)\n", .{});
+    } else {
+        try writer.print("\tInstance fields:\n", .{});
+        for (class_definition.instance_fields) |instance_field| {
+            try writer.print("\t\t- '{s}'\n", .{instance_field});
+        }
+    }
 
     if (class_definition.instance_methods.len == 0) {
         try writer.print("\t(no methods)\n", .{});
@@ -627,6 +701,6 @@ test "snapshot test on example files" {
     try snapshot_testing.do_snapshot_tests(.{
         .snapshots_directory = opts.snapshots_path ++ "/parser",
         .tested_files_directory = opts.test_files_path,
-        .output_producer = print_tokens,
+        .output_producer = print_class_definition,
     }, "Parsing");
 }
