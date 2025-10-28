@@ -27,7 +27,7 @@ pub const StringManager = struct {
         string_arena: Arena,
         init_list_capacity: usize,
     ) !StringManager {
-        // @cleanup this is probably not correct, but it is not a problem to change later
+        // TODO(cleanup): this is probably not correct (with storing so many allocators), but it is not a problem to change this later
         var manager = StringManager{
             .map_arena = map_arena,
             .list_arena = list_arena,

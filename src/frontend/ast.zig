@@ -83,7 +83,7 @@ pub const ExpressionKind = union(enum) {
     variable: Identifier,
     integer_literal: IntegerRepresentation,
     float_literal: FloatRepresentation,
-    string_literal: []const u8, // @cleanup: Maybe replace with index into an array of strings?
+    string_literal: []const u8, // TODO(cleanup): Maybe replace with index into an array of strings?
 
     exit_expression: struct { return_value: ExprId },
 

@@ -2,7 +2,16 @@ const std = @import("std");
 pub const opts = @import("snapshot_test_options");
 const print = std.debug.print;
 
-pub const OutputProducer = fn ([]const u8, std.mem.Allocator, *std.io.Writer) anyerror!void;
+/// Both `out` and `err_out` will get flushed after the cuntion returns.
+/// The callee does not have to flush them.
+///
+/// If there is a problem with the `input` itself, it should not get returned but the error should be written
+/// to `err_out`. Probably in a similiar way to:
+/// ```zig
+///     err_out.print("Got error: {t}\n", .{some_error});
+/// ```
+/// Other errors should be reported via the return value (out of memory, could not initialize some support object, ...)
+pub const OutputProducer = fn (input: []const u8, std.mem.Allocator, out: *std.io.Writer, err_out: *std.io.Writer) anyerror!void;
 
 pub const TestOptions = struct {
     /// Absolute path to the directory containing snapshots.
@@ -12,7 +21,6 @@ pub const TestOptions = struct {
     tested_files_directory: []const u8,
 
     /// Function to be called on SOM source code.
-    /// `std.io.Writer` is for output of the tested program.
     output_producer: OutputProducer,
 };
 
@@ -41,7 +49,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
     var updated_snapshots_count: i32 = 0;
     var different_to_snapshot_count: i32 = 0;
 
-    print(verb ++ " the code in: {s}\n", .{options.tested_files_directory});
+    print("\n" ++ verb ++ " the code in: {s}\n", .{options.tested_files_directory});
     var som_source_dir_it = som_source_dir.iterate();
     while (try som_source_dir_it.next()) |entry| {
 
@@ -64,15 +72,17 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         var writer = std.io.Writer.Allocating.init(gpa);
         defer writer.deinit();
         print(" - Test " ++ BOLD ++ "{s:<40}" ++ RESET ++ " ...", .{std.mem.sliceTo(entry.name, '.')});
-        options.output_producer(source_code, gpa, &writer.writer) catch |err| {
+        options.output_producer(source_code, gpa, &writer.writer, &writer.writer) catch |err| {
             failed_tests_count += 1;
-            print(ERR ++ "FAILED WITH: {t}\n" ++ RESET, .{err});
+            print(ERR ++ "Error occured: {t}\n" ++ RESET, .{err});
             continue;
         };
+        try writer.writer.flush();
+
         const program_output = try writer.toOwnedSlice();
         defer gpa.free(program_output);
 
-        print(GREEN ++ "OK! " ++ RESET, .{});
+        print(GREEN ++ "DONE! " ++ RESET, .{});
 
         // Save the program output
         const program_output_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ entry.name, ".new.txt" });
@@ -153,7 +163,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         print(ERR ++ " - tests where the snapshot was different: {d}\n" ++ RESET, .{different_to_snapshot_count});
     }
     if (failed_tests_count != 0) {
-        print(ERR ++ " - tests where the program threw an error: {d}\n" ++ RESET, .{failed_tests_count});
+        print(ERR ++ " - tests where the program returned an error: {d}\n" ++ RESET, .{failed_tests_count});
     }
     if (error_tests_count != 0) {
         print(ERR ++ " - tests where there was some file error: {d}\n" ++ RESET, .{error_tests_count});

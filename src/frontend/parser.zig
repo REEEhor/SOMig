@@ -1,4 +1,4 @@
-// @nice-to-have:
+// TODO(nice-to-have):
 //  When there is an unexpected binary message, it might have been meant
 //    as a unary operator. Nice error message would have been nice.
 //  Maybe the lexer should lex `+2` correctly.
@@ -77,8 +77,8 @@ pub const Parser = struct {
 
     pub fn create(lexer: *Lexer, error_reporter: ErrorReporter, allocator: std.mem.Allocator) ParserError!Parser {
         // Lex all the tokens
-        // @cleanup: Arbitrary choice. Empirically choose the length
-        // @cleanup: If we end up lexing all tokens ahead of time, than it makes sense to remove `.peek_token(...)` from `Lexer`
+        // TODO(cleanup): Arbitrary choice. Empirically choose the length
+        // TODO(cleanup): If we end up lexing all tokens ahead of time, than it makes sense to remove `.peek_token(...)` from `Lexer`
         const assumed_number_of_tokens = lexer.text.len / 8;
         var tokens = try std.ArrayList(Token).initCapacity(allocator, assumed_number_of_tokens);
         while (try lexer.next_token()) |token| {
@@ -244,7 +244,7 @@ pub const Parser = struct {
 
     fn parse_maybe_messages(self: *Self, primary_expr_id: ExprId) ParserError!ExprId {
         const first_argument_id = try self.parse_maybe_binary_messages(primary_expr_id);
-        // @cleanup: Maybe some sort of scratch temporary allocator could be used here?
+        // TODO(cleanup): Maybe some sort of scratch temporary allocator could be used here?
         var keyword_arguments = std.ArrayList(KeywordArgumentPair).empty;
 
         // Parse keyword message calls
@@ -413,7 +413,7 @@ pub const Parser = struct {
         return pos.slice_from(self.text);
     }
 
-    // @epic-zig: This is insane that this works
+    // NOTE(epic-zig): Nice compile time checked return value
     fn PayloadWithPos(comptime tag: TokenKindTag) type {
         return struct {
             pos: *const CodePosition,
@@ -439,7 +439,7 @@ pub const Parser = struct {
     }
     fn eat_token(self: *Self, comptime expected_tag: TokenKindTag) ParserError!PayloadWithPos(expected_tag) {
         const actual_token = self.next_token() orelse {
-            // @nice-to-have: convert the token tag into a more readable version with some conversion function (<- to do)
+            // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
             self.reporter.report_unexpected_eof("Expected '{t}'", .{expected_tag});
             return ParserError.unexpected_eof;
         };
@@ -447,7 +447,7 @@ pub const Parser = struct {
     }
 
     fn report_unexpected_token(self: *Self, actual_token: Token, expected_tag: TokenKindTag) ParserError {
-        // @nice-to-have: convert the token tag into a more readable version with some conversion function (<- to do)
+        // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
         self.reporter.report_error(
             .{ .pos = actual_token.pos },
             "Unexpected token: {any}. Expected token {t}",
@@ -545,20 +545,25 @@ pub fn print_tokens(
     input: []const u8,
     gpa: std.mem.Allocator,
     writer: *std.io.Writer,
+    err_writer: *std.io.Writer,
 ) !void {
     const StringLiteralsManager = @import("string_literals_manager.zig").StringLiteralsManager;
-
-    defer writer.flush() catch {};
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
-    var lexer = Lexer.create(input, .{}, &string_literals_manager);
+    var lexer = Lexer.create(input, ErrorReporter{ .writer = err_writer }, &string_literals_manager);
 
-    var parser = try Parser.create(&lexer, .{}, allocator);
-    const class_definition = try parser.parse();
+    var parser = Parser.create(&lexer, ErrorReporter{ .writer = err_writer }, allocator) catch |init_error| {
+        try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
+        return;
+    };
+    const class_definition = parser.parse() catch |parse_error| {
+        try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
+        return;
+    };
 
     const span_formatter = SpanFormatter{ .tokens = parser.tokens };
 

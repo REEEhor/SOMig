@@ -35,8 +35,15 @@ pub fn main() !void {
         var stdout_buffer: [4096]u8 = undefined;
         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
         var stdout = &stdout_writer.interface;
-        try lexer_module.print_tokens(file_contents, gpa, stdout);
-        defer stdout.flush() catch std.debug.print("Could not flush stdout\n", .{});
+        defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
+
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        var stderr = &stderr_writer.interface;
+        defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
+
+        // TODO: cleanup: make the `print_tokens` function somehow report an error, so that we can return it from this `main` function.
+        try lexer_module.print_tokens(file_contents, gpa, stdout, stderr);
         return;
     }
 
