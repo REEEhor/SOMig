@@ -112,7 +112,7 @@ pub const Parser = struct {
 
         const class_definition = ClassDefinition{
             .class_name = class_name,
-            .methods = try method_definitions.toOwnedSlice(self.allocator),
+            .instance_methods = try method_definitions.toOwnedSlice(self.allocator),
             .span = todo_span,
         };
 
@@ -572,11 +572,11 @@ pub fn print_tokens(
         span_formatter.fmt(class_definition.span), class_definition.class_name,
     });
 
-    if (class_definition.methods.len == 0) {
+    if (class_definition.instance_methods.len == 0) {
         try writer.print("\t(no methods)\n", .{});
     }
 
-    for (class_definition.methods, 1..) |method, method_idx| {
+    for (class_definition.instance_methods, 1..) |method, method_idx| {
         try writer.print("{f}Method #{d}:\n", .{ span_formatter.fmt(method.span), method_idx });
 
         const header = method.header;

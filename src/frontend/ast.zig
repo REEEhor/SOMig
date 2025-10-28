@@ -25,7 +25,7 @@ pub const TokenSpan = struct {
 pub const ClassDefinition = struct {
     span: TokenSpan,
     class_name: Identifier,
-    methods: []MethodDefinition,
+    instance_methods: []MethodDefinition,
 
     // TODO:
     //  - Separate this into class and instance parts
