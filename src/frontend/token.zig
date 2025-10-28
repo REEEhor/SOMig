@@ -48,7 +48,7 @@ pub const CodePosition = struct {
     }
 
     pub fn slice_from(self: *const Self, text: []const u8) []const u8 {
-        return text[self.start_idx .. self.start_idx + self.end_idx_inclusive() + 1];
+        return text[self.start_idx .. self.end_idx_inclusive() + 1];
     }
 };
 
@@ -130,3 +130,24 @@ pub const Token = struct {
         return self.kind.tag();
     }
 };
+
+test "slice_from" {
+    const text = "0123456789";
+    var buffer: [20]u8 = undefined;
+
+    for (0..text.len) |idx| {
+        const expected = try std.fmt.bufPrint(&buffer, "{c}", .{text[idx]});
+        try std.testing.expectEqualStrings(expected, CodePosition.at(idx).slice_from(text));
+    }
+
+    for (0..text.len - 4) |idx| {
+        const expected = try std.fmt.bufPrint(&buffer, "{c}{c}{c}{c}", .{
+            text[idx],
+            text[idx + 1],
+            text[idx + 2],
+            text[idx + 3],
+        });
+        const pos = CodePosition{ .start_idx = idx, .length = 4 };
+        try std.testing.expectEqualStrings(expected, pos.slice_from(text));
+    }
+}
