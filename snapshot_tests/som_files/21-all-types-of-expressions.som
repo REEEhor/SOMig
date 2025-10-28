@@ -1,0 +1,16 @@
+TestedClass = (
+    access_array_1 = (
+        someArray at: 20
+    )
+
+    access_array_2 = (
+        someArray at: 1 + 2
+    )
+
+    create_person_object = (
+        personFactory
+            create: 'John'
+            withSurname: ('Peter', 'son') concat
+            withAge: 10 + (1 * 30)
+    )
+)
