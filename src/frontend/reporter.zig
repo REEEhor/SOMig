@@ -45,3 +45,47 @@ pub const ErrorReporter = struct {
         } catch {};
     }
 };
+
+pub const DebugReporterWrapper = struct {
+    const Self = @This();
+    wrapped_reporter: ErrorReporter,
+
+    pub fn deinit(self: *const Self) void {
+        std.testing.allocator.free(self.wrapped_reporter.writer.buffer);
+        std.testing.allocator.destroy(self.wrapped_reporter.writer);
+    }
+
+    pub fn dump_errors(self: *const Self) void {
+        const buffer = self.wrapped_reporter.writer.buffer;
+        const end_idx = self.wrapped_reporter.writer.end;
+        const errors_text = buffer[0..end_idx];
+        if (errors_text.len != 0) {
+            std.debug.print("\n[DEBUG-ERROR-REPORTER] Reported error text:\n{s}\n", .{errors_text});
+        } else {
+            std.debug.print("\n[DEBUG-ERROR-REPORTER] No error text.\n", .{});
+        }
+    }
+};
+
+/// Returns a wrapper around `ErrorReporter` which prints the errors captured by `ErrorReporter` via `std.debug.print`
+/// only when the test returns an error (via calling `.dump_errors()` method in `errdefer`).
+///
+/// Usage:
+/// ```zig
+///     test "some test" {
+///         const debug = debug_reporter();
+///         defer debug.deinit();
+///         errdefer debug.dump_errors(); // gets called only when the test fails
+///         ...
+///         function_that_needs_a_reporter( debug.wrapped_reporter );
+///     }
+/// ```
+pub fn debug_reporter() DebugReporterWrapper {
+    const buffer = std.testing.allocator.alloc(u8, 4096) catch @panic("Out of memory for debug allocator");
+    const writer: *std.io.Writer = std.testing.allocator.create(std.io.Writer) catch @panic("Out of memory for debug allocator");
+    writer.* = std.io.Writer.fixed(buffer);
+    const reporter = ErrorReporter{ .writer = writer };
+    return DebugReporterWrapper{
+        .wrapped_reporter = reporter,
+    };
+}

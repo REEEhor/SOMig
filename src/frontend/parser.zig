@@ -11,11 +11,8 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-// TODO: move this to a separate module.
-fn dbg(loc: std.builtin.SourceLocation, comptime fmt: []const u8, args: anytype) void {
-    _ = .{ loc, fmt, args };
-    std.debug.print("[DEBUG|{d}] " ++ fmt, .{loc.line} ++ args);
-}
+
+const dbg = @import("../debug/debug.zig").dbg;
 
 const lexer_module = @import("lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -39,7 +36,9 @@ const MethodBody = ast_module.MethodBody;
 const MethodHeader = ast_module.MethodHeader;
 const MethodHeaderKind = ast_module.MethodHeaderKind;
 
-const ErrorReporter = @import("reporter.zig").ErrorReporter;
+const reporter_module = @import("reporter.zig");
+const ErrorReporter = reporter_module.ErrorReporter;
+const debug_reporter = reporter_module.debug_reporter;
 
 /// TODO: remove this once the location of AST nodes is supposed to be implemented.
 /// You can use the compiler errors to find all usages of this.

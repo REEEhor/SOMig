@@ -9,8 +9,13 @@
 
 /// NOTE(baka-src): Heavily inspired by the `tokenizer.zig` in the standard library.
 const std = @import("std");
+
+const dbg = @import("../debug/debug.zig").dbg;
+
 const error_reporter = @import("reporter.zig");
 const ErrorReporter: type = error_reporter.ErrorReporter;
+const debug_reporter = error_reporter.debug_reporter;
+
 const string_literals_manager = @import("string_literals_manager.zig");
 const StringLiteralsManager: type = string_literals_manager.StringLiteralsManager;
 
@@ -531,37 +536,6 @@ const identifier_start_chars = std.ascii.letters ++ "_";
 const identifier_chars = identifier_start_chars ++ digits;
 
 const separator_minimum_length = 4;
-
-const DebugReporterWrapper = struct {
-    const Self = @This();
-    wrapped_reporter: ErrorReporter,
-
-    fn deinit(self: *const Self) void {
-        std.testing.allocator.free(self.wrapped_reporter.writer.buffer);
-        std.testing.allocator.destroy(self.wrapped_reporter.writer);
-    }
-
-    fn dump_errors(self: *const Self) void {
-        const buffer = self.wrapped_reporter.writer.buffer;
-        const end_idx = self.wrapped_reporter.writer.end;
-        const errors_text = buffer[0..end_idx];
-        if (errors_text.len != 0) {
-            std.debug.print("\n[DEBUG-ERROR-REPORTER] Reported error text:\n{s}\n", .{errors_text});
-        } else {
-            std.debug.print("\n[DEBUG-ERROR-REPORTER] No error text.\n", .{});
-        }
-    }
-};
-
-fn debug_reporter() DebugReporterWrapper {
-    const buffer = std.testing.allocator.alloc(u8, 4096) catch @panic("Out of memory for debug allocator");
-    const writer: *std.io.Writer = std.testing.allocator.create(std.io.Writer) catch @panic("Out of memory for debug allocator");
-    writer.* = std.io.Writer.fixed(buffer);
-    const reporter = ErrorReporter{ .writer = writer };
-    return DebugReporterWrapper{
-        .wrapped_reporter = reporter,
-    };
-}
 
 test "lex simple characters" {
     const debug = debug_reporter();
