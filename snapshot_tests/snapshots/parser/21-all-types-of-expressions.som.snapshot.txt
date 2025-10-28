@@ -1,0 +1,38 @@
+AST of the class [  0.. 10]'TestedClass'
+[  0.. 10]Method #1:
+	[  0.. 10]Header: (unary-method) 'access_array_1'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=2) Keyword message call on object:
+					- [  0.. 10](id=0) Variable(someArray)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [  0.. 10](id=0) Variable(someArray)
+[  0.. 10]Method #2:
+	[  0.. 10]Header: (unary-method) 'access_array_2'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=7) Keyword message call on object:
+					- [  0.. 10](id=3) Variable(someArray)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [  0.. 10](id=3) Variable(someArray)
+[  0.. 10]Method #3:
+	[  0.. 10]Header: (unary-method) 'create_person_object'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=19) Keyword message call on object:
+					- [  0.. 10](id=8) Variable(personFactory)
+				  and argument pairs:
+					- Keyword 'create:' and arg:
+						- [  0.. 10](id=8) Variable(personFactory)
+					- Keyword 'withSurname:' and arg:
+						- [  0.. 10](id=8) Variable(personFactory)
+					- Keyword 'withAge:' and arg:
+						- [  0.. 10](id=8) Variable(personFactory)

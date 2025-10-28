@@ -1,0 +1,47 @@
+AST of the class [  0..  5]'Simple'
+[  0..  5]Method #1:
+	[  0..  5]Header: (unary-method) 'someMethod_1'
+	[  0..  5]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0..  5](id=2) Binary message call '+', with lhs:
+					- [  0..  5](id=0) Variable(a)
+				  and rhs:
+					- [  0..  5](id=1) Variable(b)
+[  0..  5]Method #2:
+	[  0..  5]Header: (unary-method) 'someMethod_2'
+	[  0..  5]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0..  5](id=5) Binary message call '*', with lhs:
+					- [  0..  5](id=3) Integer literal(-4)
+				  and rhs:
+					- [  0..  5](id=4) Integer literal(1)
+[  0..  5]Method #3:
+	[  0..  5]Header: (unary-method) 'someMethod_3'
+	[  0..  5]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0..  5](id=8) Binary message call '/*', with lhs:
+					- [  0..  5](id=6) Variable(a)
+				  and rhs:
+					- [  0..  5](id=7) Integer literal(10)
+[  0..  5]Method #4:
+	[  0..  5]Header: (unary-method) 'someMethod_4'
+	[  0..  5]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0..  5](id=15) Binary message call '++', with lhs:
+					- [  0..  5](id=13) Binary message call '--', with lhs:
+						- [  0..  5](id=11) Binary message call '++', with lhs:
+							- [  0..  5](id=9) Variable(a)
+						  and rhs:
+							- [  0..  5](id=10) Variable(b)
+					  and rhs:
+						- [  0..  5](id=12) Integer literal(12)
+				  and rhs:
+					- [  0..  5](id=14) Variable(b)

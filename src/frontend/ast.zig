@@ -12,7 +12,7 @@ pub const TokenSpan = struct {
     /// Index into the token array where the last (including) token is.
     end_idx: u32,
 
-    pub fn to_pos(self: *@This(), tokens: []Token) CodePosition {
+    pub fn to_pos(self: *const @This(), tokens: []Token) CodePosition {
         const start_token = tokens[self.start_idx];
         const end_token = tokens[self.end_idx];
         return CodePosition.from_start_and_end(
@@ -52,7 +52,7 @@ pub const MethodHeaderKind = union(enum) {
     binary: struct { method_name: []const u8, parameter: Identifier },
 
     /// Keywords are parsed together with `:` at the end
-    keyword: struct { keywords: []const []const u8, parameters: []Identifier },
+    keyword: struct { args: []KeywordArgumentPair },
 };
 
 // TODO: reuse this also for the body of a block

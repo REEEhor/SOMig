@@ -1,0 +1,61 @@
+AST of the class [  0.. 10]'TestedClass'
+[  0.. 10]Method #1:
+	[  0.. 10]Header: (unary-method) 'method_1'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=0) Variable(a)
+			Expression #2:
+				- [  0.. 10](id=3) Binary message call '+', with lhs:
+					- [  0.. 10](id=1) Integer literal(1)
+				  and rhs:
+					- [  0.. 10](id=2) Integer literal(4)
+[  0.. 10]Method #2:
+	[  0.. 10]Header: (unary-method) 'method_2'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=5) Unary message 'println' to the object:
+					- [  0.. 10](id=4) String literal(hi!)
+			Expression #2:
+				- [  0.. 10](id=7) Unary message 'println' to the object:
+					- [  0.. 10](id=6) String literal(hello!)
+[  0.. 10]Method #3:
+	[  0.. 10]Header: (unary-method) 'dots'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=9) Unary message 'println' to the object:
+					- [  0.. 10](id=8) String literal(ABC)
+			Expression #2:
+				- [  0.. 10](id=11) Unary message 'print' to the object:
+					- [  0.. 10](id=10) String literal(DEF)
+[  0.. 10]Method #4:
+	[  0.. 10]Header: (unary-method) 'multipleArrayAccesses'
+	[  0.. 10]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [  0.. 10](id=14) Keyword message call on object:
+					- [  0.. 10](id=12) Variable(arr1)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [  0.. 10](id=12) Variable(arr1)
+			Expression #2:
+				- [  0.. 10](id=21) Keyword message call on object:
+					- [  0.. 10](id=15) Variable(arr2)
+				  and argument pairs:
+					- Keyword 'updateAtIdx:' and arg:
+						- [  0.. 10](id=15) Variable(arr2)
+					- Keyword 'with:' and arg:
+						- [  0.. 10](id=15) Variable(arr2)
+			Expression #3:
+				- [  0.. 10](id=25) Exit expression with return value:
+					- [  0.. 10](id=24) Keyword message call on object:
+						- [  0.. 10](id=22) Variable(arr3)
+					  and argument pairs:
+						- Keyword 'at:' and arg:
+							- [  0.. 10](id=22) Variable(arr3)

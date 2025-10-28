@@ -1,0 +1,11 @@
+AST of the class [  0..  6]'Example'
+[  0..  6]Method #1:
+	[  0..  6]Header: (unary-method) 'someMethod1'
+	[  0..  6]Body:
+		(no locals)
+		(no expressions)
+[  0..  6]Method #2:
+	[  0..  6]Header: (unary-method) 'someMethod2'
+	[  0..  6]Body:
+		(no locals)
+		(no expressions)

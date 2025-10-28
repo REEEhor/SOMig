@@ -1,0 +1,2 @@
+AST of the class [  0..  6]'Example'
+	(no methods)
