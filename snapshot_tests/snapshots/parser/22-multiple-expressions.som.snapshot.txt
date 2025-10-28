@@ -43,19 +43,23 @@ AST of the class [  0.. 10]'TestedClass'
 					- [  0.. 10](id=12) Variable(arr1)
 				  and argument pairs:
 					- Keyword 'at:' and arg:
-						- [  0.. 10](id=12) Variable(arr1)
+						- [  0.. 10](id=13) Integer literal(4)
 			Expression #2:
 				- [  0.. 10](id=21) Keyword message call on object:
 					- [  0.. 10](id=15) Variable(arr2)
 				  and argument pairs:
 					- Keyword 'updateAtIdx:' and arg:
-						- [  0.. 10](id=15) Variable(arr2)
+						- [  0.. 10](id=19) Unary message 'sum' to the object:
+							- [  0.. 10](id=18) Binary message call ',', with lhs:
+								- [  0.. 10](id=16) Integer literal(1)
+							  and rhs:
+								- [  0.. 10](id=17) Integer literal(2)
 					- Keyword 'with:' and arg:
-						- [  0.. 10](id=15) Variable(arr2)
+						- [  0.. 10](id=20) Integer literal(80)
 			Expression #3:
 				- [  0.. 10](id=25) Exit expression with return value:
 					- [  0.. 10](id=24) Keyword message call on object:
 						- [  0.. 10](id=22) Variable(arr3)
 					  and argument pairs:
 						- Keyword 'at:' and arg:
-							- [  0.. 10](id=22) Variable(arr3)
+							- [  0.. 10](id=23) Integer literal(6)

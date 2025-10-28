@@ -257,10 +257,12 @@ pub const Parser = struct {
                 self.reporter.add_note(.{ .pos = token.pos }, error_str, .{});
                 return err;
             };
+
             const argument_id: ExprId = self.parse_maybe_binary_messages(argument_primary_id) catch |err| {
                 self.reporter.add_note(.{ .pos = token.pos }, error_str, .{});
                 return err;
             };
+
             // Append it to the list of keyword arguments
             try keyword_arguments.append(self.allocator, .{
                 .argument = argument_id,
@@ -534,7 +536,7 @@ fn print_expression_recursive(
             for (keyword_call.args) |arg_pair| {
                 for (0..@intCast(indent + 1)) |_| try writer.print("\t", .{});
                 try writer.print("- Keyword '{s}' and arg:\n", .{arg_pair.keyword});
-                try print_expression_recursive(writer, formatter, keyword_call.first_argument, expressions, indent + 2);
+                try print_expression_recursive(writer, formatter, arg_pair.argument, expressions, indent + 2);
             }
         },
     }
