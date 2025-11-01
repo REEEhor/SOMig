@@ -182,7 +182,7 @@ pub const Expression = union(enum) {
             .exit_expression => |info| blk: {
                 const span_of_return_value: TokenSpan = expressions.at(info.return_value).span(expressions);
                 break :blk TokenSpan.create(
-                    span_of_return_value.start_id.idx - 1, // We have account for the `^` token
+                    span_of_return_value.start_id.idx - 1, // We have to account for the `^` token
                     span_of_return_value.end_id.idx,
                 );
             },

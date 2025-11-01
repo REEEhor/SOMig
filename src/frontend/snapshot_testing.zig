@@ -2,7 +2,7 @@ const std = @import("std");
 pub const opts = @import("snapshot_test_options");
 const print = std.debug.print;
 
-/// Both `out` and `err_out` will get flushed after the cuntion returns.
+/// Both `out` and `err_out` will get flushed after the function returns.
 /// The callee does not have to flush them.
 ///
 /// If there is a problem with the `input` itself, it should not get returned but the error should be written
