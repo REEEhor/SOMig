@@ -1,27 +1,27 @@
 AST of the class [  0..  6]'Example'
 	(no instance fields)
 [  0..  6]Method #1:
-	[  0..  6]Header: (unary-method) 'someMethod1'
+	[ 13.. 23]Header: (unary-method) 'someMethod1'
 	[  0..  6]Body:
 		(no locals)
 		(no expressions)
 [  0..  6]Method #2:
-	[  0..  6]Header: (unary-method) 'someMethod2'
+	[ 32.. 42]Header: (unary-method) 'someMethod2'
 	[  0..  6]Body:
 		(no locals)
 		(no expressions)
 [  0..  6]Method #3:
-	[  0..  6]Header: (unary-method) 'someMethod3'
+	[ 51.. 61]Header: (unary-method) 'someMethod3'
 	[  0..  6]Body:
 		(no locals)
 		(no expressions)
 [  0..  6]Method #4:
-	[  0..  6]Header: (unary-method) 'someMethod4'
+	[ 69.. 79]Header: (unary-method) 'someMethod4'
 	[  0..  6]Body:
 		(no locals)
 		(no expressions)
 [  0..  6]Method #5:
-	[  0..  6]Header: (unary-method) 'someMethod5'
+	[ 91..101]Header: (unary-method) 'someMethod5'
 	[  0..  6]Body:
 		(no locals)
 		(no expressions)

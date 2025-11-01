@@ -1,49 +1,49 @@
 AST of the class [  0..  5]'Simple'
 	(no instance fields)
 [  0..  5]Method #1:
-	[  0..  5]Header: (unary-method) 'someMethod_1'
+	[ 16.. 27]Header: (unary-method) 'someMethod_1'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=3) Binary message call '+', with lhs:
-					- [  0..  5](id=1) Unary message 'method' to the object:
-						- [  0..  5](id=0) Variable(object)
+				- [ 42.. 58](id=3) Binary message call '+', with lhs:
+					- [ 42.. 54](id=1) Unary message 'method' to the object:
+						- [ 42.. 47](id=0) Variable(object)
 				  and rhs:
-					- [  0..  5](id=2) Integer literal(1)
+					- [ 58.. 58](id=2) Integer literal(1)
 [  0..  5]Method #2:
-	[  0..  5]Header: (unary-method) 'someMethod_2'
+	[ 74.. 85]Header: (unary-method) 'someMethod_2'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=7) Binary message call '+', with lhs:
-					- [  0..  5](id=4) Integer literal(1)
+				- [100..116](id=7) Binary message call '+', with lhs:
+					- [100..100](id=4) Integer literal(1)
 				  and rhs:
-					- [  0..  5](id=6) Unary message 'method' to the object:
-						- [  0..  5](id=5) Variable(object)
+					- [104..116](id=6) Unary message 'method' to the object:
+						- [104..109](id=5) Variable(object)
 [  0..  5]Method #3:
-	[  0..  5]Header: (unary-method) 'someMethod_3'
+	[132..143]Header: (unary-method) 'someMethod_3'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=14) Binary message call '++++', with lhs:
-					- [  0..  5](id=10) Unary message 'eat' to the object:
-						- [  0..  5](id=9) Unary message 'speak' to the object:
-							- [  0..  5](id=8) Variable(cat)
+				- [158..190](id=14) Binary message call '++++', with lhs:
+					- [158..170](id=10) Unary message 'eat' to the object:
+						- [158..166](id=9) Unary message 'speak' to the object:
+							- [158..160](id=8) Variable(cat)
 				  and rhs:
-					- [  0..  5](id=13) Unary message 'jump' to the object:
-						- [  0..  5](id=12) Unary message 'sleep' to the object:
-							- [  0..  5](id=11) Variable(dog)
+					- [177..190](id=13) Unary message 'jump' to the object:
+						- [177..185](id=12) Unary message 'sleep' to the object:
+							- [177..179](id=11) Variable(dog)
 [  0..  5]Method #4:
-	[  0..  5]Header: (unary-method) 'someMethod_4'
+	[206..217]Header: (unary-method) 'someMethod_4'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=18) Unary message 'print' to the object:
-					- [  0..  5](id=17) Binary message call '+', with lhs:
-						- [  0..  5](id=15) Integer literal(2)
+				- [233..244](id=18) Unary message 'print' to the object:
+					- [233..237](id=17) Binary message call '+', with lhs:
+						- [233..233](id=15) Integer literal(2)
 					  and rhs:
-						- [  0..  5](id=16) Integer literal(5)
+						- [237..237](id=16) Integer literal(5)

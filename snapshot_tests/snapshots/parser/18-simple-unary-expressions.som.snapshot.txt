@@ -1,38 +1,38 @@
 AST of the class [  0..  5]'Simple'
 	(no instance fields)
 [  0..  5]Method #1:
-	[  0..  5]Header: (unary-method) 'someMethod_1'
+	[ 16.. 27]Header: (unary-method) 'someMethod_1'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=0) Variable(a)
+				- [ 42.. 42](id=0) Variable(a)
 [  0..  5]Method #2:
-	[  0..  5]Header: (unary-method) 'someMethod_2'
+	[ 58.. 69]Header: (unary-method) 'someMethod_2'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=2) Unary message 'b' to the object:
-					- [  0..  5](id=1) Variable(a)
+				- [ 84.. 86](id=2) Unary message 'b' to the object:
+					- [ 84.. 84](id=1) Variable(a)
 [  0..  5]Method #3:
-	[  0..  5]Header: (unary-method) 'someMethod_3'
+	[102..113]Header: (unary-method) 'someMethod_3'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=5) Unary message 'c' to the object:
-					- [  0..  5](id=4) Unary message 'b' to the object:
-						- [  0..  5](id=3) Variable(a)
+				- [128..132](id=5) Unary message 'c' to the object:
+					- [128..130](id=4) Unary message 'b' to the object:
+						- [128..128](id=3) Variable(a)
 [  0..  5]Method #4:
-	[  0..  5]Header: (unary-method) 'someMethod_4'
+	[148..159]Header: (unary-method) 'someMethod_4'
 	[  0..  5]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [  0..  5](id=11) Unary message 'a' to the object:
-					- [  0..  5](id=10) Unary message 'b' to the object:
-						- [  0..  5](id=9) Unary message 'c' to the object:
-							- [  0..  5](id=8) Unary message 'd' to the object:
-								- [  0..  5](id=7) Unary message 'e' to the object:
-									- [  0..  5](id=6) Variable(f)
+				- [174..184](id=11) Unary message 'a' to the object:
+					- [174..182](id=10) Unary message 'b' to the object:
+						- [174..180](id=9) Unary message 'c' to the object:
+							- [174..178](id=8) Unary message 'd' to the object:
+								- [174..176](id=7) Unary message 'e' to the object:
+									- [174..174](id=6) Variable(f)

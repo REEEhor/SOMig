@@ -1,3 +1,8 @@
+// TODO:
+//  Check if it is possible to have empty locals list like this:
+//      method = ( || )
+//  Because that means we have to check for `TokenKind{.binary_message}` that is `||`
+//
 // TODO(nice-to-have):
 //  When there is an unexpected binary message, it might have been meant
 //    as a unary operator. Nice error message would have been nice.
@@ -25,7 +30,7 @@ const CodePosition = token_module.CodePosition;
 
 const ast_module = @import("ast.zig");
 const Expression = ast_module.Expression;
-const ExpressionKind = ast_module.ExpressionKind;
+const ExpressionList = ast_module.ExpressionList;
 const ClassDefinition = ast_module.ClassDefinition;
 const ExprId = ast_module.ExprId;
 const Identifier = ast_module.Identifier;
@@ -35,6 +40,7 @@ const KeywordArgumentPair = ast_module.KeywordArgumentPair;
 const MethodBody = ast_module.MethodBody;
 const MethodHeader = ast_module.MethodHeader;
 const MethodHeaderKind = ast_module.MethodHeaderKind;
+const TokenId = ast_module.TokenId;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -42,10 +48,7 @@ const debug_reporter = reporter_module.debug_reporter;
 
 /// TODO: remove this once the location of AST nodes is supposed to be implemented.
 /// You can use the compiler errors to find all usages of this.
-const todo_span = TokenSpan{
-    .start_idx = 0,
-    .end_idx = 0,
-};
+const todo_span = TokenSpan.create(0, 0);
 
 const ParserError = error{
     unexpected_eof,
@@ -60,20 +63,19 @@ const ParserError = error{
     TODO,
 } || LexerError;
 const TokenKindTag = std.meta.Tag(TokenKind);
-const TokenId = usize;
 
 pub const Parser = struct {
     const Self = @This();
     reporter: ErrorReporter,
     allocator: std.mem.Allocator,
     tokens: []Token,
-    next_token_idx: TokenId,
+    next_token_id: TokenId,
     text: []const u8,
 
     /// List of expressions in the parsed program.
     /// Expressions use `ExprId` (an integer) to refer to their sub-expressions.
     /// This `ExprId` is an index into this array-list.
-    expressions: std.ArrayList(Expression),
+    expressions: ExpressionList,
 
     pub fn create(lexer: *Lexer, error_reporter: ErrorReporter, allocator: std.mem.Allocator) ParserError!Parser {
         // Lex all the tokens
@@ -87,29 +89,29 @@ pub const Parser = struct {
 
         return Parser{
             .reporter = error_reporter,
-            .expressions = std.ArrayList(Expression).empty,
+            .expressions = ExpressionList{ .expressions = .empty },
             .allocator = allocator,
             .tokens = tokens.items,
             .text = lexer.text,
-            .next_token_idx = 0,
+            .next_token_id = TokenId.create(0),
         };
     }
 
     pub fn parse(self: *Self) ParserError!ClassDefinition {
-        const class_name: Identifier = self.text_at((try self.eat_token(.identifier)).pos.*);
+        const class_name: TokenId = self.next_token_id;
+        _ = try self.eat_token(.identifier);
         _ = try self.eat_binary_message("=");
         // TODO: parse a potential super class here
         _ = try self.eat_token(.open_parenthesis);
-        // TODO: parse a potential instance fields here
 
         // Check if there could be instance fields
         // We have to check if the current character is a symbol *and* if it is not a definition of a field.
         // We can do that by checking if the token is or is not an equal sign.
         // For more info, see "pipe_as_binary_message.som" in the snapshot tests.
-        var instance_fields: []Identifier = &[0]Identifier{};
+        var instance_fields: ?TokenSpan = null;
         if (self.peek_next_token()) |token_1| if (self.peek_token_at_offset(2)) |token_2| {
-            const token_2_text = self.text_at(token_2.pos);
-            const is_token_2_equal_sign: bool = (token_2_text.len == 1 and token_2_text[0] == '=');
+            const token_2_text = self.text_at_pos(token_2.pos);
+            const is_token_2_equal_sign: bool = std.mem.eql(u8, "=", token_2_text);
 
             if (token_1.tag() == .pipe and !is_token_2_equal_sign) {
                 instance_fields = try self.parse_locals("instance fields");
@@ -147,24 +149,19 @@ pub const Parser = struct {
     /// Argument `structure_name` is for error reporting.
     /// Probably one of "instance fields", "class fields", "locals of a method", "locals of a block".
     ///
-    fn parse_locals(self: *Self, comptime structure_name: []const u8) ParserError![]Identifier {
+    fn parse_locals(self: *Self, comptime structure_name: []const u8) ParserError!?TokenSpan {
         // Consume the pipe token
-        const starting_pipe_token = self.next_token().?;
-        assert(starting_pipe_token.tag() == .pipe);
+        const start_pos = (try self.eat_token(.pipe)).pos;
+        const first_var_token_idx = self.next_token_id.idx;
 
-        var identifier_list = std.ArrayList(Identifier).empty;
         while (true) {
             const token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected `|` to close the list of " ++ structure_name ++ ".", .{});
-                self.reporter.add_note(.{ .pos = starting_pipe_token.pos }, "The list of " ++ structure_name ++ " starts here.", .{});
+                self.reporter.add_note(.{ .pos = start_pos.* }, "The list of " ++ structure_name ++ " starts here.", .{});
                 return ParserError.unmatched_pipe;
             };
             switch (token.kind) {
-                .identifier => {
-                    _ = self.next_token();
-                    const identifier_text = self.text_at(token.pos);
-                    try identifier_list.append(self.allocator, identifier_text);
-                },
+                .identifier => _ = self.next_token(),
                 .pipe => {
                     _ = self.next_token();
                     break;
@@ -175,30 +172,33 @@ pub const Parser = struct {
                 },
             }
         }
-        const identifiers = try identifier_list.toOwnedSlice(self.allocator);
-        return identifiers;
+
+        // After the `while` loop, the `self.next_token_idx` is pointing here:
+        //      | var1 var2 ... varN | someOtherToken
+        //                             ~~~~~~~~~~~~~~
+        // So we need to subtract -1 to get to the end pipe symbol and -2 to get to the `varN`
+        const last_var_token_idx = self.next_token_id.idx - 2;
+
+        return TokenSpan.create_or_null(first_var_token_idx, last_var_token_idx);
     }
 
     fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
-        const identifier_pos = (try self.eat_token(.identifier)).pos;
-        const method_name: []const u8 = self.text_at(identifier_pos.*);
+        const method_name: TokenId = self.next_token_id;
+        _ = try self.eat_token(.identifier);
 
         _ = try self.eat_binary_message("=");
         _ = try self.eat_token(.open_parenthesis);
 
-        const locals: []Identifier = parse_locals: {
+        const locals: ?TokenSpan = parse_locals: {
             const token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected body of a method or a closing parenthesis.", .{});
                 return ParserError.unexpected_eof;
             };
             if (token.tag() == .pipe) {
                 _ = self.next_token();
-                // TODO: parse locals
-                return self.TODO("Parsing locals");
-
-                // break :parse_locals locals;
+                break :parse_locals try self.parse_locals("locals of a method");
             } else {
-                break :parse_locals &[_]Identifier{};
+                break :parse_locals null;
             }
         };
 
@@ -216,7 +216,7 @@ pub const Parser = struct {
                         self.reporter.add_note(.{ .pos = token.pos }, "An expression is expected because of an exit token here.", .{});
                         return err;
                     };
-                    break :get_expr try self.create_expression(todo_span, .{
+                    break :get_expr try self.add_expression(.{
                         .exit_expression = .{ .return_value = return_value },
                     });
                 },
@@ -227,6 +227,7 @@ pub const Parser = struct {
                     break :get_expr try self.parse_expression();
                 },
             };
+            // If this is not the first expression, there should have been a dot token before it.
             if (!saw_dot) if (expressions.getLastOrNull()) |prev_expr| {
                 const end_of_prev_expr = self.pos_of(prev_expr).end_idx_inclusive();
                 const error_pos = CodePosition.at(end_of_prev_expr);
@@ -234,6 +235,7 @@ pub const Parser = struct {
                 return ParserError.expressions_not_separated_by_dot;
             };
 
+            // Skip all dot tokens. Set `saw_dot` to true.
             try expressions.append(self.allocator, expr_id);
             while (self.peek_next_token()) |maybe_dot| {
                 if (maybe_dot.tag() != .dot) break;
@@ -250,8 +252,9 @@ pub const Parser = struct {
             .locals = locals,
             .span = todo_span,
         };
+        const header = MethodHeader{ .unary = .{ .method_name = method_name } };
         const method_definition = MethodDefinition{
-            .header = .{ .span = todo_span, .kind = .{ .unary = .{ .method_name = method_name } } },
+            .header = header,
             .body = method_body,
             .span = todo_span,
         };
@@ -264,15 +267,15 @@ pub const Parser = struct {
     }
 
     fn parse_expression(self: *Self) ParserError!ExprId {
-        const primary_expr_id = try self.parse_primary();
-        const primary_expression = self.expressions.items[primary_expr_id];
+        const primary_expr_id: ExprId = try self.parse_primary();
+        const primary_expression = self.expressions.at(primary_expr_id);
 
         const token = self.peek_next_token() orelse return primary_expr_id;
 
         // Check whether this expression is an assignment or not
         if (token.tag() == .assign) {
-            const lhs_identifier: Identifier = blk: switch (primary_expression.kind) {
-                .variable => |identifier| break :blk identifier,
+            const lhs_identifier: TokenId = blk: switch (primary_expression.*) {
+                .variable => |token_id| break :blk token_id,
                 else => {
                     self.reporter.report_error(
                         .{ .pos = self.pos_of(primary_expr_id) },
@@ -282,7 +285,7 @@ pub const Parser = struct {
                     self.reporter.add_note(
                         .no_location,
                         "The expression recognised here is: {t}.",
-                        .{primary_expression.kind},
+                        .{primary_expression.*},
                     );
                     return ParserError.non_variable_used_as_lhs_of_expression;
                 },
@@ -290,10 +293,10 @@ pub const Parser = struct {
             _ = self.next_token(); // Consume the assignment operator token
             const rhs_expression_id = try self.parse_expression();
 
-            return self.create_expression(
-                todo_span,
-                .{ .assignment = .{ .variable = lhs_identifier, .target_value = rhs_expression_id } },
-            );
+            return self.add_expression(.{ .assignment = .{
+                .variable = lhs_identifier,
+                .target_value = rhs_expression_id,
+            } });
         }
 
         return try self.parse_maybe_messages(primary_expr_id);
@@ -307,6 +310,7 @@ pub const Parser = struct {
         // Parse keyword message calls
         while (self.peek_next_token()) |token| {
             if (token.tag() != .keyword_message) break;
+            const keyword_token_idx = self.next_token_id;
             _ = self.next_token();
             const error_str = "Because of this, an argument to this keyword message could have not been parsed.";
 
@@ -324,30 +328,32 @@ pub const Parser = struct {
             // Append it to the list of keyword arguments
             try keyword_arguments.append(self.allocator, .{
                 .argument = argument_id,
-                .keyword = self.text_at(token.pos),
+                .keyword = keyword_token_idx,
             });
         }
         // We didn't parse any keyword pairs, so the resulting expression is not a keyword message call
         if (keyword_arguments.items.len == 0) return first_argument_id;
 
         const args: []KeywordArgumentPair = try keyword_arguments.toOwnedSlice(self.allocator);
-        return self.create_expression(todo_span, ExpressionKind{ .keyword_message_call = .{
+        const expression = Expression{ .keyword_message_call = .{
             .first_argument = first_argument_id,
             .args = args,
-        } });
+        } };
+        return try self.add_expression(expression);
     }
 
     fn parse_maybe_binary_messages(self: *Self, lhs_expr_id: ExprId) ParserError!ExprId {
-        var result_expr_id = try self.parse_maybe_unary_messages(lhs_expr_id);
+        var result_expr_id: ExprId = try self.parse_maybe_unary_messages(lhs_expr_id);
 
-        while (self.peek_next_token()) |token| {
-            if (token.tag() != .binary_message) break;
+        while (self.peek_next_token()) |message_token| {
+            if (message_token.tag() != .binary_message) break;
+            const message_token_id = self.next_token_id;
             _ = self.next_token();
 
             // Parse right hand side of the binary message call
             const rhs_primary: ExprId = self.parse_primary() catch |err| {
                 self.reporter.add_note(
-                    .{ .pos = token.pos },
+                    .{ .pos = message_token.pos },
                     "Because of this, a right hand side operand could not have been parsed for this binary message.",
                     .{},
                 );
@@ -355,54 +361,55 @@ pub const Parser = struct {
             };
             const rhs_expr_id: ExprId = try self.parse_maybe_unary_messages(rhs_primary);
 
-            const binary_call = ExpressionKind{ .binary_message_call = .{
+            const binary_call = Expression{ .binary_message_call = .{
                 .lhs = result_expr_id,
-                .message = self.text_at(token.pos),
+                .message = message_token_id,
                 .rhs = rhs_expr_id,
             } };
-            result_expr_id = try self.create_expression(todo_span, binary_call);
+            result_expr_id = try self.add_expression(binary_call);
         }
         return result_expr_id;
     }
 
     fn parse_maybe_unary_messages(self: *Self, primary_expr_id: ExprId) ParserError!ExprId {
         var result_expr_id = primary_expr_id;
-        while (self.peek_next_token()) |token| {
-            if (token.tag() != .identifier) break;
+        while (self.peek_next_token()) |unary_message_name| {
+            if (unary_message_name.tag() != .identifier) break;
+            const unary_message_name_id = self.next_token_id;
             _ = self.next_token();
 
             // Append the message call
-            result_expr_id = try self.create_expression(todo_span, .{ .unary_message_call = .{
+            result_expr_id = try self.add_expression(.{ .unary_message_call = .{
                 .argument = result_expr_id,
-                .message = self.text_at(token.pos),
+                .message = unary_message_name_id,
             } });
         }
         return result_expr_id;
     }
 
     fn pos_of(self: *Self, expression_id: ExprId) CodePosition {
-        return self.expressions.items[expression_id].span.to_pos(self.tokens);
+        return self.expressions.at(expression_id).span(self.expressions).to_pos(self.tokens);
     }
 
     fn parse_primary(self: *Self) ParserError!ExprId {
         // This function should be called only when we expect a primary
+        const token_id = self.next_token_id;
         const token = self.next_token() orelse {
             self.reporter.report_unexpected_eof("Expected an expression.", .{});
             return ParserError.unexpected_eof;
         };
-        const expression_kind: ExpressionKind = get_expression: switch (token.kind) {
+        const expression: Expression = get_expression: switch (token.kind) {
             .identifier => {
-                const text = self.text_at(token.pos);
-                break :get_expression .{ .variable = text };
+                break :get_expression .{ .variable = token_id };
             },
-            .integer => |value| {
-                break :get_expression .{ .integer_literal = value };
+            .integer => {
+                break :get_expression .{ .integer_literal = token_id };
             },
-            .float => |value| {
-                break :get_expression .{ .float_literal = value };
+            .float => {
+                break :get_expression .{ .float_literal = token_id };
             },
-            .string_literal => |value| {
-                break :get_expression .{ .string_literal = value };
+            .string_literal => {
+                break :get_expression .{ .string_literal = token_id };
             },
             .array_literal_begin => {
                 // TODO: parse array literals
@@ -432,24 +439,20 @@ pub const Parser = struct {
             },
             // List all the tokens so if there is a change to the list of token options, we catch it here
             .exit, .separator, .pipe, .dot, .assign, .binary_message, .keyword_message, .block_param => {
-                self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {any}. Expected an expression.", .{token});
+                self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.tag()});
                 return ParserError.unexpected_token;
             },
         };
 
-        return self.create_expression(todo_span, expression_kind);
-    }
-
-    fn create_expression(self: *Self, span: TokenSpan, kind: ExpressionKind) ParserError!ExprId {
-        return self.add_expression(.{ .span = span, .kind = kind });
+        return self.add_expression(expression);
     }
 
     fn add_expression(self: *Self, new_expression: Expression) ParserError!ExprId {
-        assert(std.math.maxInt(ExprId) > self.expressions.items.len);
+        assert(std.math.maxInt(@FieldType(ExprId, "idx")) > self.expressions.len());
 
-        const new_expression_id: ExprId = @truncate(self.expressions.items.len);
-        try self.expressions.append(self.allocator, new_expression);
-        return new_expression_id;
+        const new_expression_idx = self.expressions.len();
+        try self.expressions.expressions.append(self.allocator, new_expression);
+        return ExprId{ .idx = @truncate(new_expression_idx) };
     }
 
     fn eat_binary_message(self: *Self, expected_contents: []const u8) ParserError!PayloadWithPos(.binary_message) {
@@ -460,7 +463,7 @@ pub const Parser = struct {
             return err;
         };
 
-        const actual_contents = self.text_at(binary_message.pos.*);
+        const actual_contents = self.text_at_pos(binary_message.pos.*);
         if (std.mem.eql(u8, actual_contents, expected_contents)) {
             return binary_message;
         }
@@ -468,7 +471,12 @@ pub const Parser = struct {
         return self.report_unexpected_token(binary_message.to_token(), .binary_message);
     }
 
-    fn text_at(self: *Self, pos: CodePosition) []const u8 {
+    fn text_at(self: *Self, token_id: TokenId) []const u8 {
+        const pos = self.tokens[token_id.idx].pos;
+        return self.text_at_pos(pos);
+    }
+
+    fn text_at_pos(self: *Self, pos: CodePosition) []const u8 {
         return pos.slice_from(self.text);
     }
 
@@ -505,6 +513,21 @@ pub const Parser = struct {
         return self.assert_token(actual_token, expected_tag);
     }
 
+    fn token_payload(self: *Self, id: TokenId, comptime token_tag: TokenKindTag) PayloadWithPos(token_tag) {
+        const token: *Token = &self.tokens[id.idx];
+
+        switch (token.kind) {
+            inline else => |*payload, tag| {
+                if (tag == token_tag) {
+                    return PayloadWithPos(token_tag){
+                        .payload = payload,
+                        .pos = &token.pos,
+                    };
+                } else unreachable;
+            },
+        }
+    }
+
     fn report_unexpected_token(self: *Self, actual_token: Token, expected_tag: TokenKindTag) ParserError {
         // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
         self.reporter.report_error(
@@ -516,21 +539,21 @@ pub const Parser = struct {
     }
 
     fn peek_next_token(self: *Self) ?*Token {
-        if (self.next_token_idx >= self.tokens.len) {
+        if (@as(usize, self.next_token_id.idx) >= self.tokens.len) {
             return null;
         }
-        return &self.tokens[self.next_token_idx];
+        return &self.tokens[self.next_token_id.idx];
     }
 
     fn next_token(self: *Self) ?*Token {
         const token = self.peek_next_token();
-        if (token != null) self.next_token_idx += 1;
+        if (token != null) self.next_token_id.idx += 1;
         return token;
     }
 
     fn peek_token_at_offset(self: *Self, offset: i32) ?*Token {
-        if (self.next_token_idx < offset) return null;
-        const idx = self.next_token_idx + @abs(std.math.sign(offset) * offset);
+        if (self.next_token_id.idx < offset) return null;
+        const idx = self.next_token_id.idx + @abs(std.math.sign(offset) * offset);
         if (idx >= self.tokens.len) return null;
         return &self.tokens[idx];
     }
@@ -547,8 +570,13 @@ const SpanFormatter = struct {
             try w.print("[{d:3}..{d:3}]", .{ pos.start_idx, pos.end_idx_inclusive() });
         }
     };
+
     pub fn fmt(self: *const @This(), span: TokenSpan) Fmt {
         return .{ .span = span, .tokens = self.tokens };
+    }
+
+    pub fn fmt_token(self: *const @This(), token: TokenId) Fmt {
+        return .{ .span = TokenSpan.at(token), .tokens = self.tokens };
     }
 };
 
@@ -556,52 +584,64 @@ fn print_expression_recursive(
     writer: *std.io.Writer,
     formatter: SpanFormatter,
     expr_id: ExprId,
-    expressions: []Expression,
+    parser: *Parser,
     indent: i32,
 ) !void {
-    const expression = expressions[expr_id];
+    const expression = parser.expressions.at(expr_id);
 
     for (0..@intCast(indent)) |_| try writer.print("\t", .{});
 
-    try writer.print("- {f}(id={d}) ", .{ formatter.fmt(expression.span), expr_id });
-    switch (expression.kind) {
-        .variable => |identifier| try writer.print("Variable({s})\n", .{identifier}),
-        .integer_literal => |value| try writer.print("Integer literal({d})\n", .{value}),
-        .float_literal => |value| try writer.print("Float literal({d})\n", .{value}),
-        .string_literal => |value| try writer.print("String literal({s})\n", .{value}),
+    try writer.print("- {f}(id={d}) ", .{
+        formatter.fmt(expression.span(parser.expressions)),
+        expr_id.idx,
+    });
+    switch (expression.*) {
+        .variable => |identifier| try writer.print("Variable({s})\n", .{parser.text_at(identifier)}),
+        .integer_literal => |token_id| {
+            const value = parser.token_payload(token_id, .integer).payload.*;
+            try writer.print("Integer literal({d})\n", .{value});
+        },
+        .float_literal => |token_id| {
+            const value = parser.token_payload(token_id, .float).payload.*;
+            try writer.print("Float literal({d})\n", .{value});
+        },
+        .string_literal => |token_id| {
+            const value = parser.token_payload(token_id, .string_literal).payload.*;
+            try writer.print("String literal({s})\n", .{value});
+        },
 
         .exit_expression => |exit| {
             try writer.print("Exit expression with return value:\n", .{});
-            try print_expression_recursive(writer, formatter, exit.return_value, expressions, indent + 1);
+            try print_expression_recursive(writer, formatter, exit.return_value, parser, indent + 1);
         },
         .assignment => |assignment| {
-            try writer.print("Assignment of '{s}' to:\n", .{assignment.variable});
-            try print_expression_recursive(writer, formatter, assignment.target_value, expressions, indent + 1);
+            try writer.print("Assignment of '{s}' to:\n", .{parser.text_at(assignment.variable)});
+            try print_expression_recursive(writer, formatter, assignment.target_value, parser, indent + 1);
         },
 
         .unary_message_call => |unary_call| {
-            try writer.print("Unary message '{s}' to the object:\n", .{unary_call.message});
-            try print_expression_recursive(writer, formatter, unary_call.argument, expressions, indent + 1);
+            try writer.print("Unary message '{s}' to the object:\n", .{parser.text_at(unary_call.message)});
+            try print_expression_recursive(writer, formatter, unary_call.argument, parser, indent + 1);
         },
         .binary_message_call => |binary_call| {
-            try writer.print("Binary message call '{s}', with lhs:\n", .{binary_call.message});
-            try print_expression_recursive(writer, formatter, binary_call.lhs, expressions, indent + 1);
+            try writer.print("Binary message call '{s}', with lhs:\n", .{parser.text_at(binary_call.message)});
+            try print_expression_recursive(writer, formatter, binary_call.lhs, parser, indent + 1);
 
             for (0..@intCast(indent)) |_| try writer.print("\t", .{});
             try writer.print("  and rhs:\n", .{});
-            try print_expression_recursive(writer, formatter, binary_call.rhs, expressions, indent + 1);
+            try print_expression_recursive(writer, formatter, binary_call.rhs, parser, indent + 1);
         },
         .keyword_message_call => |keyword_call| {
             try writer.print("Keyword message call on object:\n", .{});
-            try print_expression_recursive(writer, formatter, keyword_call.first_argument, expressions, indent + 1);
+            try print_expression_recursive(writer, formatter, keyword_call.first_argument, parser, indent + 1);
 
             for (0..@intCast(indent)) |_| try writer.print("\t", .{});
             try writer.print("  and argument pairs:\n", .{});
 
             for (keyword_call.args) |arg_pair| {
                 for (0..@intCast(indent + 1)) |_| try writer.print("\t", .{});
-                try writer.print("- Keyword '{s}' and arg:\n", .{arg_pair.keyword});
-                try print_expression_recursive(writer, formatter, arg_pair.argument, expressions, indent + 2);
+                try writer.print("- Keyword '{s}' and arg:\n", .{parser.text_at(arg_pair.keyword)});
+                try print_expression_recursive(writer, formatter, arg_pair.argument, parser, indent + 2);
             }
         },
     }
@@ -634,16 +674,19 @@ pub fn print_class_definition(
     const span_formatter = SpanFormatter{ .tokens = parser.tokens };
 
     try writer.print("AST of the class {f}'{s}'\n", .{
-        span_formatter.fmt(class_definition.span), class_definition.class_name,
+        span_formatter.fmt(class_definition.span), parser.text_at(class_definition.class_name),
     });
 
-    if (class_definition.instance_fields.len == 0) {
-        try writer.print("\t(no instance fields)\n", .{});
-    } else {
+    if (class_definition.instance_fields) |span_fields| {
         try writer.print("\tInstance fields:\n", .{});
-        for (class_definition.instance_fields) |instance_field| {
-            try writer.print("\t\t- '{s}'\n", .{instance_field});
+        var iter = span_fields.iter();
+        while (iter.next()) |token_id| {
+            assert(parser.tokens[token_id.idx].tag() == .identifier);
+            const text = parser.text_at(token_id);
+            try writer.print("\t\t- '{s}'\n", .{text});
         }
+    } else {
+        try writer.print("\t(no instance fields)\n", .{});
     }
 
     if (class_definition.instance_methods.len == 0) {
@@ -654,10 +697,10 @@ pub fn print_class_definition(
         try writer.print("{f}Method #{d}:\n", .{ span_formatter.fmt(method.span), method_idx });
 
         const header = method.header;
-        try writer.print("\t{f}Header: ", .{span_formatter.fmt(header.span)});
-        switch (header.kind) {
+        try writer.print("\t{f}Header: ", .{span_formatter.fmt(header.span())});
+        switch (header) {
             .unary => |info| {
-                try writer.print("(unary-method) '{s}'\n", .{info.method_name});
+                try writer.print("(unary-method) '{s}'\n", .{parser.text_at(info.method_name)});
             },
             .binary => |info| {
                 _ = info;
@@ -670,15 +713,18 @@ pub fn print_class_definition(
         }
 
         try writer.print("\t{f}Body:\n", .{span_formatter.fmt(method.body.span)});
-        if (method.body.locals.len != 0) {
+        if (method.body.locals) |span_locals| {
             try writer.print("\t\tLocals:\n", .{});
-        }
-        for (method.body.locals, 1..) |local, idx| {
-            try writer.print("\t\t\t#{d}: '{s}'", .{ idx, local });
+            var iter = span_locals.iter();
+            var idx: usize = 1;
+            while (iter.next()) |token_id| : (idx += 1) {
+                assert(parser.tokens[token_id.idx].tag() == .identifier);
+                const local = parser.text_at(token_id);
+                try writer.print("\t\t\t#{d}: '{s}'", .{ idx, local });
+            }
         } else {
             try writer.print("\t\t(no locals)\n", .{});
         }
-
         const expressions = method.body.expressions;
         if (expressions.len != 0) {
             try writer.print("\t\tExpressions:\n", .{});
@@ -689,7 +735,7 @@ pub fn print_class_definition(
             try writer.print("\t\t\tExpression #{d}:\n", .{idx});
             const indent = 4; // because we want at least 4 tabulators before each expression
 
-            try print_expression_recursive(writer, span_formatter, expr, parser.expressions.items, indent);
+            try print_expression_recursive(writer, span_formatter, expr, &parser, indent);
         }
     }
 }
