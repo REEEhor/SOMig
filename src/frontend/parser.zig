@@ -41,6 +41,7 @@ const MethodBody = ast_module.MethodBody;
 const MethodHeader = ast_module.MethodHeader;
 const MethodHeaderKind = ast_module.MethodHeaderKind;
 const TokenId = ast_module.TokenId;
+const ArrayLiteral = ast_module.ArrayLiteral;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -412,8 +413,9 @@ pub const Parser = struct {
                 break :get_expression .{ .string_literal = token_id };
             },
             .array_literal_begin => {
-                // TODO: parse array literals
-                return self.TODO("parse array literals");
+                self.unget_token();
+                const array_literal = try self.parse_array_literal();
+                break :get_expression Expression{ .array_literal = array_literal };
             },
             .open_parenthesis => {
                 const inner_expression: ExprId = try self.parse_expression();
@@ -445,6 +447,35 @@ pub const Parser = struct {
         };
 
         return self.add_expression(expression);
+    }
+
+    fn parse_array_literal(self: *Self) ParserError!ArrayLiteral {
+        const start_token = self.next_token_id;
+        const start_pos = (try self.eat_token(.array_literal_begin)).pos;
+
+        var elements_list = std.ArrayList(ExprId).empty;
+        var end_token = start_token;
+        while (true) {
+            end_token = self.next_token_id;
+            const token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected closing parenthesis for an array literal.", .{});
+                self.reporter.add_note(.{ .pos = start_pos.* }, "Array literal starts here.", .{});
+                return ParserError.unexpected_eof;
+            };
+            if (token.tag() == .close_parenthesis) {
+                _ = self.next_token();
+                break;
+            }
+
+            const array_element: ExprId = try self.parse_expression();
+            try elements_list.append(self.allocator, array_element);
+        }
+        const elements = try elements_list.toOwnedSlice(self.allocator);
+        const array_literal = ArrayLiteral{
+            .span = TokenSpan.create(start_token.idx, end_token.idx),
+            .elements = elements,
+        };
+        return array_literal;
     }
 
     fn add_expression(self: *Self, new_expression: Expression) ParserError!ExprId {
@@ -545,6 +576,11 @@ pub const Parser = struct {
         return &self.tokens[self.next_token_id.idx];
     }
 
+    fn unget_token(self: *Self) void {
+        assert(self.next_token_id.idx > 0);
+        self.next_token_id.idx -= 1;
+    }
+
     fn next_token(self: *Self) ?*Token {
         const token = self.peek_next_token();
         if (token != null) self.next_token_id.idx += 1;
@@ -608,6 +644,23 @@ fn print_expression_recursive(
         .string_literal => |token_id| {
             const value = parser.token_payload(token_id, .string_literal).payload.*;
             try writer.print("String literal({s})\n", .{value});
+        },
+        .array_literal => |array_literal| {
+            const elements_count = array_literal.elements.len;
+            switch (elements_count) {
+                0 => try writer.print("Array literal (empty)\n", .{}),
+                1 => {
+                    try writer.print("Array literal (with 1 element):\n", .{});
+                    const element = array_literal.elements[0];
+                    try print_expression_recursive(writer, formatter, element, parser, indent + 1);
+                },
+                else => {
+                    try writer.print("Array literal (with {d} elements):\n", .{elements_count});
+                    for (array_literal.elements) |element| {
+                        try print_expression_recursive(writer, formatter, element, parser, indent + 1);
+                    }
+                },
+            }
         },
 
         .exit_expression => |exit| {

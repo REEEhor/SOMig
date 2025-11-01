@@ -155,13 +155,15 @@ pub const ExpressionList = struct {
 pub const Expression = union(enum) {
     const Self = @This();
 
-    assignment: struct { variable: TokenId, target_value: ExprId },
     variable: TokenId,
+
     integer_literal: TokenId,
     float_literal: TokenId,
     string_literal: TokenId,
+    array_literal: ArrayLiteral,
 
     exit_expression: struct { return_value: ExprId },
+    assignment: struct { variable: TokenId, target_value: ExprId },
 
     unary_message_call: struct { argument: ExprId, message: TokenId },
     binary_message_call: struct { lhs: ExprId, rhs: ExprId, message: TokenId },
@@ -173,6 +175,7 @@ pub const Expression = union(enum) {
             .integer_literal => |token_id| TokenSpan.at(token_id),
             .float_literal => |token_id| TokenSpan.at(token_id),
             .string_literal => |token_id| TokenSpan.at(token_id),
+            .array_literal => |info| info.span,
 
             .assignment => |info| blk: {
                 const start_id: TokenId = info.variable;
@@ -220,6 +223,15 @@ pub const Expression = union(enum) {
     //      Actually, it might not matter, the expressions might get stored inside a `MultiArrayList`
     //      (and if they got stored inside normal `ArrayList`, it would have been still fine *except* for the padding)
     //
+};
+
+pub const ArrayLiteral = struct {
+    // We have to store the `span` separatelly in case it would be an empty array
+    // In other cases, we could extract the `span` from `elements`.
+    // So this type `ArrayLiteral` could also be an union, but that would be too un-ergonomic.
+    // Also, it seems like we would not make the union `Expression` smaller.
+    span: TokenSpan,
+    elements: []ExprId,
 };
 
 pub const KeywordArgumentPair = struct {
