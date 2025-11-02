@@ -90,7 +90,7 @@ pub const ClassDefinition = struct {
 pub const MethodDefinition = struct {
     span: TokenSpan,
     header: MethodHeader,
-    body: MethodBody,
+    body: FunctionBody,
 };
 
 pub const MethodHeader = union(enum) {
@@ -129,7 +129,7 @@ pub const KeywordMethodHeader = struct {
 };
 
 // TODO: reuse this also for the body of a block
-pub const MethodBody = struct {
+pub const FunctionBody = struct {
     span: TokenSpan,
     locals: ?TokenSpan,
     expressions: []ExprId,

@@ -39,7 +39,7 @@ const Identifier = ast_module.Identifier;
 const MethodDefinition = ast_module.MethodDefinition;
 const TokenSpan = ast_module.TokenSpan;
 const KeywordArgumentPair = ast_module.KeywordArgumentPair;
-const MethodBody = ast_module.MethodBody;
+const FunctionBody = ast_module.FunctionBody;
 const MethodHeader = ast_module.MethodHeader;
 const MethodHeaderKind = ast_module.MethodHeaderKind;
 const TokenId = ast_module.TokenId;
@@ -187,9 +187,7 @@ pub const Parser = struct {
         return TokenSpan.create_or_null(first_var_token_idx, last_var_token_idx);
     }
 
-    // TODO: rename this to `parse_function_body`
-    // TODO: rename then `MethodBody` to `FunctionBody`
-    fn parse_method_body(self: *Self) ParserError!MethodBody {
+    fn parse_function_body(self: *Self) ParserError!FunctionBody {
         // Parse local variables
         const locals: ?TokenSpan = parse_locals: {
             const token = self.peek_next_token() orelse {
@@ -243,7 +241,7 @@ pub const Parser = struct {
             } else saw_dot = false;
         }
 
-        const body = MethodBody{
+        const body = FunctionBody{
             .locals = locals,
             .expressions = try expressions.toOwnedSlice(self.allocator),
             .span = todo_span,
@@ -256,7 +254,7 @@ pub const Parser = struct {
         _ = try self.eat_token(.identifier);
         _ = try self.eat_binary_message("=");
         _ = try self.eat_token(.open_parenthesis);
-        const method_body = try self.parse_method_body();
+        const method_body = try self.parse_function_body();
         _ = try self.eat_token(.close_parenthesis);
 
         const header = MethodHeader{ .unary = .{ .method_name = method_name } };
