@@ -138,6 +138,7 @@ pub const MethodBody = struct {
 /// Index into an array of expressions
 pub const ExprId = struct { idx: u32 };
 
+// TODO: consider implementing this struct with "dense" packing
 pub const ExpressionList = struct {
     const Self = @This();
     expressions: std.ArrayList(Expression),
