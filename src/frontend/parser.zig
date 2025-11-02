@@ -41,7 +41,6 @@ const TokenSpan = ast_module.TokenSpan;
 const KeywordArgumentPair = ast_module.KeywordArgumentPair;
 const FunctionBody = ast_module.FunctionBody;
 const MethodHeader = ast_module.MethodHeader;
-const MethodHeaderKind = ast_module.MethodHeaderKind;
 const TokenId = ast_module.TokenId;
 const ArrayLiteral = ast_module.ArrayLiteral;
 const SomSymbol = ast_module.SomSymbol;
@@ -110,9 +109,9 @@ pub const Parser = struct {
         _ = try self.eat_token(.open_parenthesis);
 
         // Check if there could be instance fields
-        // We have to check if the current character is a symbol *and* if it is not a definition of a field.
-        // We can do that by checking if the token is or is not an equal sign.
-        // For more info, see "pipe_as_binary_message.som" in the snapshot tests.
+        // NOTE: We have to check if the current character is a symbol *and* if it is not a definition of a field.
+        //       We can do that by checking if the token is or is not an equal sign.
+        //       For more info, see "pipe_as_binary_message.som" in the snapshot tests.
         var instance_fields: ?TokenSpan = null;
         if (self.peek_next_token()) |token_1| if (self.peek_token_at_offset(2)) |token_2| {
             const token_2_text = self.text_at_pos(token_2.pos);
@@ -123,11 +122,26 @@ pub const Parser = struct {
             }
         };
 
+        // Parse method definitions
         var method_definitions = std.ArrayList(MethodDefinition).empty;
         while (self.peek_next_token()) |token| {
-            const method_definition = switch (token.tag()) {
-                .identifier => try self.parse_unary_method_definition(),
+            const method_header: MethodHeader = switch (token.tag()) {
+                .identifier => self.parse_unary_method_header(),
+                // TODO: Parse binary method definition
+                .binary_message, .pipe => break,
+                // TODO: Parse keyword method definition
+                .keyword_message => break,
                 else => break,
+            };
+            _ = try self.eat_binary_message("=");
+            _ = try self.eat_token(.open_parenthesis);
+            const method_body = try self.parse_function_body();
+            _ = try self.eat_token(.close_parenthesis);
+
+            const method_definition = MethodDefinition{
+                .body = method_body,
+                .header = method_header,
+                .span = todo_span,
             };
             try method_definitions.append(self.allocator, method_definition);
         }
@@ -142,6 +156,12 @@ pub const Parser = struct {
         _ = try self.eat_token(.close_parenthesis);
 
         return class_definition;
+    }
+
+    fn parse_unary_method_header(self: *Self) MethodHeader {
+        const method_name_token: TokenId = self.next_token_id;
+        _ = self.next_token().?;
+        return MethodHeader{ .unary = .{ .method_name = method_name_token } };
     }
 
     /// Parses:
@@ -247,23 +267,6 @@ pub const Parser = struct {
             .span = todo_span,
         };
         return body;
-    }
-
-    fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
-        const method_name: TokenId = self.next_token_id;
-        _ = try self.eat_token(.identifier);
-        _ = try self.eat_binary_message("=");
-        _ = try self.eat_token(.open_parenthesis);
-        const method_body = try self.parse_function_body();
-        _ = try self.eat_token(.close_parenthesis);
-
-        const header = MethodHeader{ .unary = .{ .method_name = method_name } };
-        const method_definition = MethodDefinition{
-            .header = header,
-            .body = method_body,
-            .span = todo_span,
-        };
-        return method_definition;
     }
 
     fn TODO(self: *Self, comptime fmt: []const u8) ParserError {
