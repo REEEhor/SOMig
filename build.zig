@@ -109,15 +109,19 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption([]const u8, "snapshots_path", snapshots_path);
     }
     {
-        const accept_missing_snapshots = b.option(
-            bool,
-            "snap-accept-all",
+        const accept_missing_snapshots = b.option(bool, "snap-accept-all",
             \\When this flag is turned on and a snapshot file is not found during snapshot testing, a new snapshot file will be created from the program output.
             \\This can be used for a workflow, where the developer runs the snapshot tests, deletes the snapshot files that are no longer valid and re-runs the test with this flag on.
             \\This option is `false` by default.
-            ,
         ) orelse false;
         snapshot_test_options.addOption(bool, "accept_all", accept_missing_snapshots);
+    }
+    {
+        const show_diff = b.option(bool, "snap-diff",
+            \\Whether to show or hide diff when the snapshot is different to the output file.
+            \\This option is `true` by default.
+        ) orelse true;
+        snapshot_test_options.addOption(bool, "show_diff", show_diff);
     }
 
     // Added by me :D

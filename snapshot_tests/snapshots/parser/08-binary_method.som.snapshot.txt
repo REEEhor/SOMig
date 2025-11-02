@@ -1,3 +1,14 @@
-
-[ERROR at 32..33] Unexpected token: .{ .kind = .{ .binary_message = void }, .pos = .{ .start_idx = 32, .length = 2 } }. Expected token close_parenthesis
-Failed with parse error: 'unexpected_token'
+AST of the class [  0..  6]'Counter'
+	Instance fields:
+		- 'currentValue'
+[  0..  6]Method #1:
+	[ 32.. 42]Header: (binary-method) '+=' with parameter 'byAmount'
+	[  0..  6]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 50.. 88](id=4) Assignment of 'currentValue' to:
+					- [ 66.. 88](id=3) Binary message call '+', with lhs:
+						- [ 66.. 77](id=1) Variable(currentValue)
+					  and rhs:
+						- [ 81.. 88](id=2) Variable(byAmount)

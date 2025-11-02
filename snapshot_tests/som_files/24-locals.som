@@ -1,0 +1,34 @@
+LocalsTest = (
+
+    one_local = (
+        | someLocal |
+        self hello.
+    )
+
+    one_local_no_expression = (
+        | someLocal |
+    )
+
+    two_locals = (
+        | someLocal someAnotherLocal |
+        self hello.
+    )
+
+    two_locals_no_expression = (
+        | someLocal someAnotherLocal |
+    )
+
+    many_locals = (
+        | var1  var2   var3    var4   var5   var6 |
+        self hello.
+    )
+
+    no_locals = (
+        |  |
+        self hello.
+    )
+
+    no_locals_no_expression = (
+        | |
+    )
+)

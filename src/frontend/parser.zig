@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const debug_module = @import("../debug/debug.zig");
 const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
+const dbgx = debug_module.dbgx;
 
 const lexer_module = @import("lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -127,8 +128,7 @@ pub const Parser = struct {
         while (self.peek_next_token()) |token| {
             const method_header: MethodHeader = switch (token.tag()) {
                 .identifier => self.parse_unary_method_header(),
-                // TODO: Parse binary method definition
-                .binary_message, .pipe => break,
+                .binary_message, .pipe => try self.parse_binary_method_header(),
                 // TODO: Parse keyword method definition
                 .keyword_message => break,
                 else => break,
@@ -162,6 +162,16 @@ pub const Parser = struct {
         const method_name_token: TokenId = self.next_token_id;
         _ = self.next_token().?;
         return MethodHeader{ .unary = .{ .method_name = method_name_token } };
+    }
+
+    fn parse_binary_method_header(self: *Self) ParserError!MethodHeader {
+        const method_name_token: TokenId = self.next_token_id;
+        _ = self.next_token().?;
+
+        const parameter_token: TokenId = self.next_token_id;
+        _ = try self.eat_token(.identifier);
+
+        return MethodHeader{ .binary = .{ .method_name = method_name_token, .parameter = parameter_token } };
     }
 
     /// Parses:
@@ -215,7 +225,6 @@ pub const Parser = struct {
                 return ParserError.unexpected_eof;
             };
             if (token.tag() == .pipe) {
-                _ = self.next_token();
                 break :parse_locals try self.parse_locals("locals of a method");
             } else {
                 break :parse_locals null;
@@ -354,7 +363,7 @@ pub const Parser = struct {
         var result_expr_id: ExprId = try self.parse_maybe_unary_messages(lhs_expr_id);
 
         while (self.peek_next_token()) |message_token| {
-            if (message_token.tag() != .binary_message) break;
+            if (message_token.tag() != .binary_message and message_token.tag() != .pipe) break;
             const message_token_id = self.next_token_id;
             _ = self.next_token();
 
@@ -836,8 +845,9 @@ pub fn print_class_definition(
                 try writer.print("(unary-method) '{s}'\n", .{parser.text_at(info.method_name)});
             },
             .binary => |info| {
-                _ = info;
-                return ParserError.TODO;
+                try writer.print("(binary-method) '{s}' with parameter '{s}'\n", .{
+                    parser.text_at(info.method_name), parser.text_at(info.parameter),
+                });
             },
             .keyword => |info| {
                 _ = info;
@@ -853,7 +863,7 @@ pub fn print_class_definition(
             while (iter.next()) |token_id| : (idx += 1) {
                 assert(parser.tokens[token_id.idx].tag() == .identifier);
                 const local = parser.text_at(token_id);
-                try writer.print("\t\t\t#{d}: '{s}'", .{ idx, local });
+                try writer.print("\t\t\t#{d}: '{s}'\n", .{ idx, local });
             }
         } else {
             try writer.print("\t\t(no locals)\n", .{});

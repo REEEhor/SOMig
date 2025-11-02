@@ -1,3 +1,3 @@
 
-[ERROR at 32..32] Unexpected token: .{ .kind = .{ .pipe = void }, .pos = .{ .start_idx = 32, .length = 1 } }. Expected token close_parenthesis
+[ERROR at 188..191] Unexpected token: .{ .kind = .{ .separator = void }, .pos = .{ .start_idx = 188, .length = 4 } }. Expected token close_parenthesis
 Failed with parse error: 'unexpected_token'

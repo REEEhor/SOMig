@@ -211,20 +211,22 @@ fn find_diff(
 
     const separator = ERR ++ ("=" ** 120) ++ RESET ++ "\n";
     print(ERR ++ "DIFFERENT!\n" ++ RESET, .{});
-    print(separator, .{});
+    if (opts.show_diff) {
+        print(separator, .{});
 
-    print(FAINT ++ "Command: ", .{});
-    for (argv) |arg| {
-        print("{s} ", .{arg});
+        print(FAINT ++ "Command: ", .{});
+        for (argv) |arg| {
+            print("{s} ", .{arg});
+        }
+        print("\n" ++ RESET, .{});
+        // Skip the first two lines
+        const lines_to_skip = 4;
+        var lines_iter = std.mem.splitScalar(u8, git_diff.stdout, '\n');
+        for (0..lines_to_skip) |_| _ = lines_iter.next();
+        print("{s}", .{lines_iter.rest()});
+
+        print(separator ++ "\n", .{});
     }
-    print("\n" ++ RESET, .{});
-    // Skip the first two lines
-    const lines_to_skip = 4;
-    var lines_iter = std.mem.splitScalar(u8, git_diff.stdout, '\n');
-    for (0..lines_to_skip) |_| _ = lines_iter.next();
-    print("{s}", .{lines_iter.rest()});
-
-    print(separator ++ "\n", .{});
     return .{ .were_same = false };
 }
 
