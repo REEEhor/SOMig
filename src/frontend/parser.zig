@@ -125,11 +125,11 @@ pub const Parser = struct {
 
         var method_definitions = std.ArrayList(MethodDefinition).empty;
         while (self.peek_next_token()) |token| {
-            // TODO: parse binary methods and keyword methods
-            if (token.tag() == .identifier) {
-                const method_definition = try self.parse_unary_method_definition();
-                try method_definitions.append(self.allocator, method_definition);
-            } else break;
+            const method_definition = switch (token.tag()) {
+                .identifier => try self.parse_unary_method_definition(),
+                else => break,
+            };
+            try method_definitions.append(self.allocator, method_definition);
         }
 
         const class_definition = ClassDefinition{
@@ -187,13 +187,10 @@ pub const Parser = struct {
         return TokenSpan.create_or_null(first_var_token_idx, last_var_token_idx);
     }
 
-    fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
-        const method_name: TokenId = self.next_token_id;
-        _ = try self.eat_token(.identifier);
-
-        _ = try self.eat_binary_message("=");
-        _ = try self.eat_token(.open_parenthesis);
-
+    // TODO: rename this to `parse_function_body`
+    // TODO: rename then `MethodBody` to `FunctionBody`
+    fn parse_method_body(self: *Self) ParserError!MethodBody {
+        // Parse local variables
         const locals: ?TokenSpan = parse_locals: {
             const token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected body of a method or a closing parenthesis.", .{});
@@ -207,10 +204,7 @@ pub const Parser = struct {
             }
         };
 
-        // TODO: move this into a separate function:
-        //          parse_function_body(self: *Self) struct { ends_with_exit: bool, expressions: []ExprId }
-        // TODO: don't forget that there are dots between expressions
-
+        // Parse list of expressions
         var expressions = std.ArrayList(ExprId).empty;
         var saw_dot = false;
         while (self.peek_next_token()) |token| {
@@ -249,14 +243,22 @@ pub const Parser = struct {
             } else saw_dot = false;
         }
 
-        // TODO: when refactoring this, don't forget about blocks that end with `]`
-        _ = try self.eat_token(.close_parenthesis);
-
-        const method_body = MethodBody{
-            .expressions = try expressions.toOwnedSlice(self.allocator),
+        const body = MethodBody{
             .locals = locals,
+            .expressions = try expressions.toOwnedSlice(self.allocator),
             .span = todo_span,
         };
+        return body;
+    }
+
+    fn parse_unary_method_definition(self: *Self) ParserError!MethodDefinition {
+        const method_name: TokenId = self.next_token_id;
+        _ = try self.eat_token(.identifier);
+        _ = try self.eat_binary_message("=");
+        _ = try self.eat_token(.open_parenthesis);
+        const method_body = try self.parse_method_body();
+        _ = try self.eat_token(.close_parenthesis);
+
         const header = MethodHeader{ .unary = .{ .method_name = method_name } };
         const method_definition = MethodDefinition{
             .header = header,
