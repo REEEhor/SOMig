@@ -1,0 +1,25 @@
+SymbolsTest = (
+    test_unary = (
+        #a.
+        #ab.
+        #abc.
+        #__b0923902cd.
+    )
+
+    test_string = (
+        #"a".
+        #"žčšě^asdf62" .
+        #"".
+    )
+
+    test_binary = (
+        #++ .
+        #^,**@>>/<\+%%,,.
+    )
+
+    test_keyword = (
+        #a:.
+        #ab:cd:.
+        #hello:how:are:you:.
+    )
+)
