@@ -162,6 +162,8 @@ pub const Expression = union(enum) {
     string_literal: TokenId,
     array_literal: ArrayLiteral,
 
+    symbol: SomSymbol,
+
     exit_expression: struct { return_value: ExprId },
     assignment: struct { variable: TokenId, target_value: ExprId },
 
@@ -176,6 +178,8 @@ pub const Expression = union(enum) {
             .float_literal => |token_id| TokenSpan.at(token_id),
             .string_literal => |token_id| TokenSpan.at(token_id),
             .array_literal => |info| info.span,
+
+            .symbol => |info| info.span,
 
             .assignment => |info| blk: {
                 const start_id: TokenId = info.variable;
@@ -232,6 +236,10 @@ pub const ArrayLiteral = struct {
     // Also, it seems like we would not make the union `Expression` smaller.
     span: TokenSpan,
     elements: []ExprId,
+};
+
+pub const SomSymbol = struct {
+    span: TokenSpan,
 };
 
 pub const KeywordArgumentPair = struct {

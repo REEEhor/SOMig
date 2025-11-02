@@ -17,7 +17,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const dbg = @import("../debug/debug.zig").dbg;
+const debug_module = @import("../debug/debug.zig");
+const dbg = debug_module.dbg;
+const dbg_nl = debug_module.dbg_nl;
 
 const lexer_module = @import("lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -42,6 +44,7 @@ const MethodHeader = ast_module.MethodHeader;
 const MethodHeaderKind = ast_module.MethodHeaderKind;
 const TokenId = ast_module.TokenId;
 const ArrayLiteral = ast_module.ArrayLiteral;
+const SomSymbol = ast_module.SomSymbol;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -59,6 +62,7 @@ const ParserError = error{
     unmatched_pipe,
     non_variable_used_as_lhs_of_expression,
     expressions_not_separated_by_dot,
+    alone_hashtag,
 
     /// TODO: remove this once all features are supposed to be parsed. This is just for testing (so that the parser does not panic)
     TODO,
@@ -427,8 +431,10 @@ pub const Parser = struct {
                 return self.TODO("parse blocks");
             },
             .hashtag => {
-                // TODO: parse symbols
-                return self.TODO("parse symbols");
+                self.unget_token();
+                const symbol: SomSymbol = try self.parse_som_symbol();
+                const symbol_expr = Expression{ .symbol = symbol };
+                break :get_expression symbol_expr;
             },
 
             .close_parenthesis => {
@@ -447,6 +453,72 @@ pub const Parser = struct {
         };
 
         return self.add_expression(expression);
+    }
+
+    fn parse_som_symbol(self: *Self) ParserError!SomSymbol {
+        const hashtag_token_id: TokenId = self.next_token_id;
+        const hashtag_pos = (try self.eat_token(.hashtag)).pos.*;
+
+        const expected_str = "The character `#` is expected to have one of these after it: a string, an identifier, a binary message or a list of keywords (for example `#some:keywords:`)";
+        const token_id = self.next_token_id;
+        const token = self.next_token() orelse {
+            self.reporter.report_unexpected_eof(expected_str, .{});
+            return ParserError.alone_hashtag;
+        };
+        const token_is_right_after_hashtag: bool = (token.pos.start_idx == hashtag_pos.end_idx_inclusive() + 1);
+        if (!token_is_right_after_hashtag) {
+            const error_pos = CodePosition.at(hashtag_pos.end_idx_inclusive() + 1);
+            self.reporter.report_error(.{ .pos = error_pos }, expected_str, .{});
+            print_hint: {
+                // Check if the user might want to remove spaces before the next token
+                const t = self.peek_next_token() orelse break :print_hint;
+                switch (t.tag()) {
+                    .string_literal, .identifier, .binary_message, .pipe, .keyword_message => {},
+                    else => break :print_hint,
+                }
+                const note_pos = CodePosition.from_start_and_end(token.pos.end_idx_inclusive() + 1, t.pos.start_idx - 1);
+                self.reporter.add_note(
+                    .{ .pos = note_pos },
+                    "Since the next token after the hashtag is {t}, consider removing this between the tokens.",
+                    .{t.tag()},
+                );
+            }
+            return ParserError.alone_hashtag;
+        }
+
+        const end_token_id: TokenId = blk: switch (token.tag()) {
+            .string_literal,
+            .identifier,
+            .binary_message,
+            .pipe, // pipe is also a binary message
+            => break :blk token_id,
+
+            .keyword_message => {
+                // Go through consecutive tokens that are keyword messages
+                var previous_end_idx = token.pos.end_idx_inclusive();
+                var end_token_idx = token_id.idx;
+
+                while (self.peek_next_token()) |current_token| {
+                    const current_start_idx = current_token.pos.start_idx;
+                    const token_is_right_after_previous: bool = (current_start_idx == previous_end_idx + 1);
+                    if (!token_is_right_after_previous or current_token.tag() != .keyword_message) {
+                        break :blk TokenId.create(end_token_idx);
+                    }
+                    _ = self.next_token();
+                    previous_end_idx = current_token.pos.end_idx_inclusive();
+                    end_token_idx += 1;
+                }
+                unreachable;
+            },
+
+            else => |tag| {
+                self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token '{t}'. " ++ expected_str, .{tag});
+                return ParserError.unexpected_token;
+            },
+        };
+
+        const span = TokenSpan.create(hashtag_token_id.idx, end_token_id.idx);
+        return SomSymbol{ .span = span };
     }
 
     fn parse_array_literal(self: *Self) ParserError!ArrayLiteral {
@@ -661,6 +733,11 @@ fn print_expression_recursive(
                     }
                 },
             }
+        },
+        .symbol => |som_symbol| {
+            const pos: CodePosition = som_symbol.span.to_pos(parser.tokens);
+            const text: []const u8 = parser.text_at_pos(pos);
+            try writer.print("Symbol '{s}'\n", .{text});
         },
 
         .exit_expression => |exit| {

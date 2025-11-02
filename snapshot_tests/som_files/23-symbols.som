@@ -7,19 +7,20 @@ SymbolsTest = (
     )
 
     test_string = (
-        #"a".
-        #"žčšě^asdf62" .
-        #"".
+        #'a'.
+        #'žčšě^asdf62' .
+        #''.
     )
 
     test_binary = (
         #++ .
-        #^,**@>>/<\+%%,,.
+        #,**@>>/<\+%%,,.
     )
 
     test_keyword = (
         #a:.
         #ab:cd:.
         #hello:how:are:you:.
+        #ab:cd:+#e:.
     )
 )
