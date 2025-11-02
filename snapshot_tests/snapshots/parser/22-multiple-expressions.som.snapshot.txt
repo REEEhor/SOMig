@@ -1,5 +1,6 @@
 AST of the class [  0.. 10]'TestedClass'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0.. 10]Method #1:
 	[ 21.. 28]Header: (unary-method) 'method_1'
 	[  0.. 10]Body:
@@ -64,3 +65,6 @@ AST of the class [  0.. 10]'TestedClass'
 					  and argument pairs:
 						- Keyword 'at:' and arg:
 							- [332..332](id=23) Integer literal(6)
+==== Class specific part ====
+	(no fields)
+	(no methods)

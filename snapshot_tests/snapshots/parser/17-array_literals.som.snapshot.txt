@@ -1,5 +1,6 @@
 AST of the class [  0..  6]'Example'
-	Instance fields:
+==== Instance specific part ====
+	Fields:
 		- 'arr'
 [  0..  6]Method #1:
 	[ 22.. 26]Header: (unary-method) 'test1'
@@ -56,3 +57,6 @@ AST of the class [  0..  6]'Example'
 							- [184..187](id=24) Integer literal(4000)
 						- [191..192](id=26) Integer literal(30)
 						- [194..195](id=27) Integer literal(40)
+==== Class specific part ====
+	(no fields)
+	(no methods)

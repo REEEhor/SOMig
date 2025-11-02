@@ -1,5 +1,6 @@
 AST of the class [  0..  5]'Simple'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0..  5]Method #1:
 	[ 16.. 27]Header: (unary-method) 'someMethod_1'
 	[  0..  5]Body:
@@ -36,3 +37,6 @@ AST of the class [  0..  5]'Simple'
 							- [174..178](id=8) Unary message 'd' to the object:
 								- [174..176](id=7) Unary message 'e' to the object:
 									- [174..174](id=6) Variable(f)
+==== Class specific part ====
+	(no fields)
+	(no methods)

@@ -1,5 +1,6 @@
 AST of the class [  0..  5]'Simple'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0..  5]Method #1:
 	[ 16.. 27]Header: (unary-method) 'someMethod_1'
 	[  0..  5]Body:
@@ -47,3 +48,6 @@ AST of the class [  0..  5]'Simple'
 						- [233..233](id=15) Integer literal(2)
 					  and rhs:
 						- [237..237](id=16) Integer literal(5)
+==== Class specific part ====
+	(no fields)
+	(no methods)

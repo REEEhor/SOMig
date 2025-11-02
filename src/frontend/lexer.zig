@@ -535,7 +535,7 @@ const identifier_start_chars = std.ascii.letters ++ "_";
 /// Valid characters in an identifier (not at the beginning of the identifier)
 const identifier_chars = identifier_start_chars ++ digits;
 
-const separator_minimum_length = 4;
+pub const separator_minimum_length = 4;
 
 test "lex simple characters" {
     const debug = debug_reporter();

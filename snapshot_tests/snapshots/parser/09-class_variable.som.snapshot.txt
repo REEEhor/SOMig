@@ -1,3 +1,8 @@
-
-[ERROR at 46..50] Unexpected token: .{ .kind = .{ .separator = void }, .pos = .{ .start_idx = 46, .length = 5 } }. Expected token close_parenthesis
-Failed with parse error: 'unexpected_token'
+AST of the class [ 34.. 40]'Example'
+==== Instance specific part ====
+	(no fields)
+	(no methods)
+==== Class specific part ====
+	Fields:
+		- 'staticVariable'
+	(no methods)

@@ -77,13 +77,21 @@ pub const TokenSpanIterator = struct {
 pub const ClassDefinition = struct {
     span: TokenSpan,
     class_name: TokenId,
-    instance_methods: []MethodDefinition,
-    instance_fields: ?TokenSpan,
+
+    instance_portion: ClassDefinitionPortion,
+    class_portion: ClassDefinitionPortion,
 
     // TODO:
-    //  - Separate this into class and instance parts
-    //  - Add instance+class fields
     //  - Add superclass
+};
+
+pub const ClassDefinitionPortion = struct {
+    const Self = @This();
+    methods: []MethodDefinition,
+    fields: ?TokenSpan,
+    pub fn empty() Self {
+        return .{ .methods = &[0]MethodDefinition{}, .fields = null };
+    }
 };
 
 /// Method definition

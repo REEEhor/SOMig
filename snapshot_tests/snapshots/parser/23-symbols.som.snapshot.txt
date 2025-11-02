@@ -1,5 +1,6 @@
 AST of the class [  0.. 10]'SymbolsTest'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0.. 10]Method #1:
 	[ 21.. 30]Header: (unary-method) 'test_unary'
 	[  0.. 10]Body:
@@ -49,3 +50,6 @@ AST of the class [  0.. 10]'SymbolsTest'
 					- [364..370](id=12) Symbol '#ab:cd:'
 				  and rhs:
 					- [372..374](id=13) Symbol '#e:'
+==== Class specific part ====
+	(no fields)
+	(no methods)

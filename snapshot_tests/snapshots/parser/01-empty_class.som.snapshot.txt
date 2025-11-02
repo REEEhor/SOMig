@@ -1,3 +1,7 @@
 AST of the class [  0..  6]'Example'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
+	(no methods)
+==== Class specific part ====
+	(no fields)
 	(no methods)

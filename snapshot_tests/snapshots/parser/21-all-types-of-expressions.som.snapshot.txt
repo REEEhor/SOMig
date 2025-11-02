@@ -1,5 +1,6 @@
 AST of the class [  0.. 10]'TestedClass'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0.. 10]Method #1:
 	[ 21.. 34]Header: (unary-method) 'access_array_1'
 	[  0.. 10]Body:
@@ -50,3 +51,6 @@ AST of the class [  0.. 10]'TestedClass'
 								- [296..296](id=15) Integer literal(1)
 							  and rhs:
 								- [300..301](id=16) Integer literal(30)
+==== Class specific part ====
+	(no fields)
+	(no methods)

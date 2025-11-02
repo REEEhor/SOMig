@@ -45,6 +45,7 @@ const MethodHeader = ast_module.MethodHeader;
 const TokenId = ast_module.TokenId;
 const ArrayLiteral = ast_module.ArrayLiteral;
 const SomSymbol = ast_module.SomSymbol;
+const ClassDefinitionPortion = ast_module.ClassDefinitionPortion;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -109,17 +110,53 @@ pub const Parser = struct {
         // TODO: parse a potential super class here
         _ = try self.eat_token(.open_parenthesis);
 
-        // Check if there could be instance fields
+        const instance_portion = try self.parse_class_definition_portion(true);
+        const class_portion = try self.parse_maybe_class_portion();
+
+        _ = try self.eat_token(.close_parenthesis);
+
+        return ClassDefinition{
+            .class_name = class_name,
+            .instance_portion = instance_portion,
+            .class_portion = class_portion,
+            .span = todo_span,
+        };
+    }
+
+    fn parse_maybe_class_portion(self: *Self) ParserError!ClassDefinitionPortion {
+        const expected_str = "Expected either a separator `-----`, a method definition, or a closing parenthesis `)`";
+        const maybe_separator = self.peek_next_token() orelse {
+            self.reporter.report_unexpected_eof(expected_str, .{});
+            return ParserError.unexpected_eof;
+        };
+        // TODO: remove `separator` from token and make it a regular binary message token
+        switch (maybe_separator.tag()) {
+            .separator => {
+                _ = self.next_token();
+                return try self.parse_class_definition_portion(false);
+            },
+            .close_parenthesis => return ClassDefinitionPortion.empty(),
+            else => |tag| {
+                self.reporter.report_error(.{ .pos = maybe_separator.pos }, "Unexpected token: '{t}'. " ++ expected_str, .{tag});
+                return ParserError.unexpected_token;
+            },
+        }
+    }
+
+    fn parse_class_definition_portion(self: *Self, comptime instance: bool) ParserError!ClassDefinitionPortion {
+        // Parse fields
+        //
         // NOTE: We have to check if the current character is a symbol *and* if it is not a definition of a field.
         //       We can do that by checking if the token is or is not an equal sign.
         //       For more info, see "pipe_as_binary_message.som" in the snapshot tests.
-        var instance_fields: ?TokenSpan = null;
+        var fields: ?TokenSpan = null;
         if (self.peek_next_token()) |token_1| if (self.peek_token_at_offset(2)) |token_2| {
             const token_2_text = self.text_at_pos(token_2.pos);
             const is_token_2_equal_sign: bool = std.mem.eql(u8, "=", token_2_text);
 
             if (token_1.tag() == .pipe and !is_token_2_equal_sign) {
-                instance_fields = try self.parse_locals("instance fields");
+                const what_is_being_parsed = if (instance) "instance" else "class" ++ " fields";
+                fields = try self.parse_locals(what_is_being_parsed);
             }
         };
 
@@ -146,16 +183,10 @@ pub const Parser = struct {
             try method_definitions.append(self.allocator, method_definition);
         }
 
-        const class_definition = ClassDefinition{
-            .class_name = class_name,
-            .instance_methods = try method_definitions.toOwnedSlice(self.allocator),
-            .instance_fields = instance_fields,
-            .span = todo_span,
+        return .{
+            .methods = try method_definitions.toOwnedSlice(self.allocator),
+            .fields = fields,
         };
-
-        _ = try self.eat_token(.close_parenthesis);
-
-        return class_definition;
     }
 
     fn parse_unary_method_header(self: *Self) MethodHeader {
@@ -789,38 +820,14 @@ fn print_expression_recursive(
     }
 }
 
-pub fn print_class_definition(
-    input: []const u8,
-    gpa: std.mem.Allocator,
+fn print_portion(
+    parser: *Parser,
+    portion: *const ClassDefinitionPortion,
+    span_formatter: SpanFormatter,
     writer: *std.io.Writer,
-    err_writer: *std.io.Writer,
 ) !void {
-    const StringLiteralsManager = @import("string_literals_manager.zig").StringLiteralsManager;
-
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
-    var lexer = Lexer.create(input, ErrorReporter{ .writer = err_writer }, &string_literals_manager);
-
-    var parser = Parser.create(&lexer, ErrorReporter{ .writer = err_writer }, allocator) catch |init_error| {
-        try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
-        return;
-    };
-    const class_definition = parser.parse() catch |parse_error| {
-        try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
-        return;
-    };
-
-    const span_formatter = SpanFormatter{ .tokens = parser.tokens };
-
-    try writer.print("AST of the class {f}'{s}'\n", .{
-        span_formatter.fmt(class_definition.span), parser.text_at(class_definition.class_name),
-    });
-
-    if (class_definition.instance_fields) |span_fields| {
-        try writer.print("\tInstance fields:\n", .{});
+    if (portion.fields) |span_fields| {
+        try writer.print("\tFields:\n", .{});
         var iter = span_fields.iter();
         while (iter.next()) |token_id| {
             assert(parser.tokens[token_id.idx].tag() == .identifier);
@@ -828,14 +835,14 @@ pub fn print_class_definition(
             try writer.print("\t\t- '{s}'\n", .{text});
         }
     } else {
-        try writer.print("\t(no instance fields)\n", .{});
+        try writer.print("\t(no fields)\n", .{});
     }
 
-    if (class_definition.instance_methods.len == 0) {
+    if (portion.methods.len == 0) {
         try writer.print("\t(no methods)\n", .{});
     }
 
-    for (class_definition.instance_methods, 1..) |method, method_idx| {
+    for (portion.methods, 1..) |method, method_idx| {
         try writer.print("{f}Method #{d}:\n", .{ span_formatter.fmt(method.span), method_idx });
 
         const header = method.header;
@@ -878,9 +885,55 @@ pub fn print_class_definition(
             try writer.print("\t\t\tExpression #{d}:\n", .{idx});
             const indent = 4; // because we want at least 4 tabulators before each expression
 
-            try print_expression_recursive(writer, span_formatter, expr, &parser, indent);
+            try print_expression_recursive(writer, span_formatter, expr, parser, indent);
         }
     }
+}
+
+pub fn print_class_definition(
+    input: []const u8,
+    gpa: std.mem.Allocator,
+    writer: *std.io.Writer,
+    err_writer: *std.io.Writer,
+) !void {
+    const StringLiteralsManager = @import("string_literals_manager.zig").StringLiteralsManager;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
+    var lexer = Lexer.create(input, ErrorReporter{ .writer = err_writer }, &string_literals_manager);
+
+    var parser = Parser.create(&lexer, ErrorReporter{ .writer = err_writer }, allocator) catch |init_error| {
+        try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
+        return;
+    };
+    const class_definition = parser.parse() catch |parse_error| {
+        try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
+        return;
+    };
+
+    const span_formatter = SpanFormatter{ .tokens = parser.tokens };
+
+    try writer.print("AST of the class {f}'{s}'\n", .{
+        span_formatter.fmt(class_definition.span), parser.text_at(class_definition.class_name),
+    });
+
+    try writer.print("==== Instance specific part ====\n", .{});
+    try print_portion(
+        &parser,
+        &class_definition.instance_portion,
+        span_formatter,
+        writer,
+    );
+    try writer.print("==== Class specific part ====\n", .{});
+    try print_portion(
+        &parser,
+        &class_definition.class_portion,
+        span_formatter,
+        writer,
+    );
 }
 
 test "snapshot test on example files" {

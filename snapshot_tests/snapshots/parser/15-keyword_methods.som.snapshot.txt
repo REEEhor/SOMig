@@ -1,3 +1,3 @@
 
-[ERROR at 13..23] Unexpected token: .{ .kind = .{ .keyword_message = void }, .pos = .{ .start_idx = 13, .length = 11 } }. Expected token close_parenthesis
+[ERROR at 13..23] Unexpected token: 'keyword_message'. Expected either a separator `-----`, a method definition, or a closing parenthesis `)`
 Failed with parse error: 'unexpected_token'

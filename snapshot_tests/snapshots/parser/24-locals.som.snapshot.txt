@@ -1,5 +1,6 @@
 AST of the class [  0..  9]'LocalsTest'
-	(no instance fields)
+==== Instance specific part ====
+	(no fields)
 [  0..  9]Method #1:
 	[ 22.. 30]Header: (unary-method) 'one_local'
 	[  0..  9]Body:
@@ -59,3 +60,6 @@ AST of the class [  0..  9]'LocalsTest'
 	[  0..  9]Body:
 		(no locals)
 		(no expressions)
+==== Class specific part ====
+	(no fields)
+	(no methods)
