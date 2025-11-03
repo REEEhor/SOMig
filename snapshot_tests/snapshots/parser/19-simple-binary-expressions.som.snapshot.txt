@@ -1,9 +1,9 @@
-AST of the class [  0..  5]'Simple'
+AST of the class [  0..209]'Simple'
 ==== Instance specific part ====
 	(no fields)
-[  0..  5]Method #1:
+[ 16.. 53]Method #1:
 	[ 16.. 27]Header: (unary-method) 'someMethod_1'
-	[  0..  5]Body:
+	[ 42.. 46]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -11,9 +11,9 @@ AST of the class [  0..  5]'Simple'
 					- [ 42.. 42](id=0) Variable(a)
 				  and rhs:
 					- [ 46.. 46](id=1) Variable(b)
-[  0..  5]Method #2:
+[ 62..100]Method #2:
 	[ 62.. 73]Header: (unary-method) 'someMethod_2'
-	[  0..  5]Body:
+	[ 88.. 93]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -21,9 +21,9 @@ AST of the class [  0..  5]'Simple'
 					- [ 88.. 89](id=3) Integer literal(-4)
 				  and rhs:
 					- [ 93.. 93](id=4) Integer literal(1)
-[  0..  5]Method #3:
+[109..148]Method #3:
 	[109..120]Header: (unary-method) 'someMethod_3'
-	[  0..  5]Body:
+	[135..141]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -31,9 +31,9 @@ AST of the class [  0..  5]'Simple'
 					- [135..135](id=6) Variable(a)
 				  and rhs:
 					- [140..141](id=7) Integer literal(10)
-[  0..  5]Method #4:
+[157..206]Method #4:
 	[157..168]Header: (unary-method) 'someMethod_4'
-	[  0..  5]Body:
+	[183..199]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

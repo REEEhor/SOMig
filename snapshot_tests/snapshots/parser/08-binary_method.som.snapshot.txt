@@ -1,10 +1,10 @@
-AST of the class [  0..  6]'Counter'
+AST of the class [  0.. 93]'Counter'
 ==== Instance specific part ====
 	Fields:
 		- 'currentValue'
-[  0..  6]Method #1:
+[ 32.. 91]Method #1:
 	[ 32.. 42]Header: (binary-method) '+=' with parameter 'byAmount'
-	[  0..  6]Body:
+	[ 50.. 88]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

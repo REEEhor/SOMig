@@ -1,27 +1,27 @@
-AST of the class [  0..  6]'Example'
+AST of the class [  0..204]'Example'
 ==== Instance specific part ====
 	Fields:
 		- 'arr'
-[  0..  6]Method #1:
+[ 22.. 43]Method #1:
 	[ 22.. 26]Header: (unary-method) 'test1'
-	[  0..  6]Body:
+	[ 32.. 41]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
 				- [ 32.. 41](id=2) Assignment of 'arr' to:
 					- [ 39.. 41](id=1) Array literal (empty)
-[  0..  6]Method #2:
+[ 46.. 69]Method #2:
 	[ 46.. 50]Header: (unary-method) 'test2'
-	[  0..  6]Body:
+	[ 56.. 67]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
 				- [ 56.. 67](id=6) Assignment of 'arr' to:
 					- [ 63.. 67](id=5) Array literal (with 1 element):
 						- [ 65.. 66](id=4) Integer literal(10)
-[  0..  6]Method #3:
+[ 72.. 98]Method #3:
 	[ 72.. 76]Header: (unary-method) 'test3'
-	[  0..  6]Body:
+	[ 82.. 96]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -29,9 +29,9 @@ AST of the class [  0..  6]'Example'
 					- [ 89.. 96](id=10) Array literal (with 2 elements):
 						- [ 91.. 92](id=8) Integer literal(10)
 						- [ 94.. 95](id=9) Integer literal(20)
-[  0..  6]Method #4:
+[101..130]Method #4:
 	[101..105]Header: (unary-method) 'test4'
-	[  0..  6]Body:
+	[111..128]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -40,9 +40,9 @@ AST of the class [  0..  6]'Example'
 						- [120..121](id=13) Integer literal(10)
 						- [123..124](id=14) Integer literal(20)
 						- [126..127](id=15) Integer literal(30)
-[  0..  6]Method #5:
+[133..202]Method #5:
 	[133..137]Header: (unary-method) 'test5'
-	[  0..  6]Body:
+	[145..199]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

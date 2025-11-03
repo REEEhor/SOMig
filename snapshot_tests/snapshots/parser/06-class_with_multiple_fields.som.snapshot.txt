@@ -1,4 +1,4 @@
-AST of the class [  0..  6]'Example'
+AST of the class [  0.. 73]'Example'
 ==== Instance specific part ====
 	Fields:
 		- 'aField'

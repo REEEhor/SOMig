@@ -14,6 +14,10 @@ pub const TokenId = struct {
     pub fn create(idx: TokenIdRepresentation) TokenId {
         return TokenId{ .idx = idx };
     }
+
+    pub fn minus(self: @This(), offset: TokenIdRepresentation) TokenId {
+        return TokenId{ .idx = self.idx - offset };
+    }
 };
 
 /// Span of tokens which represent different pieces of the AST
@@ -138,7 +142,7 @@ pub const KeywordMethodHeader = struct {
 
 // TODO: reuse this also for the body of a block
 pub const FunctionBody = struct {
-    span: TokenSpan,
+    span: ?TokenSpan,
     locals: ?TokenSpan,
     expressions: []ExprId,
 };

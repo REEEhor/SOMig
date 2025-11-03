@@ -1,29 +1,29 @@
-AST of the class [  0..  6]'Example'
+AST of the class [  0..108]'Example'
 ==== Instance specific part ====
 	(no fields)
-[  0..  6]Method #1:
+[ 13.. 29]Method #1:
 	[ 13.. 23]Header: (unary-method) 'someMethod1'
-	[  0..  6]Body:
+	[empty   ]Body:
 		(no locals)
 		(no expressions)
-[  0..  6]Method #2:
+[ 32.. 48]Method #2:
 	[ 32.. 42]Header: (unary-method) 'someMethod2'
-	[  0..  6]Body:
+	[empty   ]Body:
 		(no locals)
 		(no expressions)
-[  0..  6]Method #3:
+[ 51.. 66]Method #3:
 	[ 51.. 61]Header: (unary-method) 'someMethod3'
-	[  0..  6]Body:
+	[empty   ]Body:
 		(no locals)
 		(no expressions)
-[  0..  6]Method #4:
+[ 69.. 88]Method #4:
 	[ 69.. 79]Header: (unary-method) 'someMethod4'
-	[  0..  6]Body:
+	[empty   ]Body:
 		(no locals)
 		(no expressions)
-[  0..  6]Method #5:
+[ 91..106]Method #5:
 	[ 91..101]Header: (unary-method) 'someMethod5'
-	[  0..  6]Body:
+	[empty   ]Body:
 		(no locals)
 		(no expressions)
 ==== Class specific part ====

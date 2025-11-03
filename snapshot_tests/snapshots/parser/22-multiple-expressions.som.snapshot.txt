@@ -1,9 +1,9 @@
-AST of the class [  0.. 10]'TestedClass'
+AST of the class [  0..343]'TestedClass'
 ==== Instance specific part ====
 	(no fields)
-[  0.. 10]Method #1:
+[ 21.. 66]Method #1:
 	[ 21.. 28]Header: (unary-method) 'method_1'
-	[  0.. 10]Body:
+	[ 43.. 59]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -13,9 +13,9 @@ AST of the class [  0.. 10]'TestedClass'
 					- [ 55.. 55](id=1) Integer literal(1)
 				  and rhs:
 					- [ 59.. 59](id=2) Integer literal(4)
-[  0.. 10]Method #2:
+[ 75..135]Method #2:
 	[ 75.. 82]Header: (unary-method) 'method_2'
-	[  0.. 10]Body:
+	[ 97..128]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -24,9 +24,9 @@ AST of the class [  0.. 10]'TestedClass'
 			Expression #2:
 				- [112..127](id=7) Unary message 'println' to the object:
 					- [112..119](id=6) String literal(hello!)
-[  0.. 10]Method #3:
+[144..208]Method #3:
 	[144..147]Header: (unary-method) 'dots'
-	[  0.. 10]Body:
+	[162..201]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -35,9 +35,9 @@ AST of the class [  0.. 10]'TestedClass'
 			Expression #2:
 				- [190..200](id=11) Unary message 'print' to the object:
 					- [190..194](id=10) String literal(DEF)
-[  0.. 10]Method #4:
+[217..340]Method #4:
 	[217..237]Header: (unary-method) 'multipleArrayAccesses'
-	[  0.. 10]Body:
+	[252..333]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

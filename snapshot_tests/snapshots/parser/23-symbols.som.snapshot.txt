@@ -1,9 +1,9 @@
-AST of the class [  0.. 10]'SymbolsTest'
+AST of the class [  0..385]'SymbolsTest'
 ==== Instance specific part ====
 	(no fields)
-[  0.. 10]Method #1:
+[ 21..107]Method #1:
 	[ 21.. 30]Header: (unary-method) 'test_unary'
-	[  0.. 10]Body:
+	[ 45..100]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -14,9 +14,9 @@ AST of the class [  0.. 10]'SymbolsTest'
 				- [ 72.. 75](id=2) Symbol '#abc'
 			Expression #4:
 				- [ 87.. 99](id=3) Symbol '#__b0923902cd'
-[  0.. 10]Method #2:
+[116..196]Method #2:
 	[116..126]Header: (unary-method) 'test_string'
-	[  0.. 10]Body:
+	[141..189]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -25,18 +25,18 @@ AST of the class [  0.. 10]'SymbolsTest'
 				- [156..173](id=5) Symbol '#'žčšě^asdf62''
 			Expression #3:
 				- [186..188](id=6) Symbol '#'''
-[  0.. 10]Method #3:
+[205..267]Method #3:
 	[205..215]Header: (unary-method) 'test_binary'
-	[  0.. 10]Body:
+	[230..260]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
 				- [230..232](id=7) Symbol '#++'
 			Expression #2:
 				- [245..259](id=8) Symbol '#,**@>>/<\+%%,,'
-[  0.. 10]Method #4:
+[276..382]Method #4:
 	[276..287]Header: (unary-method) 'test_keyword'
-	[  0.. 10]Body:
+	[302..375]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

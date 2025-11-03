@@ -1,9 +1,9 @@
-AST of the class [  0..  5]'Simple'
+AST of the class [  0..254]'Simple'
 ==== Instance specific part ====
 	(no fields)
-[  0..  5]Method #1:
+[ 16.. 65]Method #1:
 	[ 16.. 27]Header: (unary-method) 'someMethod_1'
-	[  0..  5]Body:
+	[ 42.. 58]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -12,9 +12,9 @@ AST of the class [  0..  5]'Simple'
 						- [ 42.. 47](id=0) Variable(object)
 				  and rhs:
 					- [ 58.. 58](id=2) Integer literal(1)
-[  0..  5]Method #2:
+[ 74..123]Method #2:
 	[ 74.. 85]Header: (unary-method) 'someMethod_2'
-	[  0..  5]Body:
+	[100..116]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -23,9 +23,9 @@ AST of the class [  0..  5]'Simple'
 				  and rhs:
 					- [104..116](id=6) Unary message 'method' to the object:
 						- [104..109](id=5) Variable(object)
-[  0..  5]Method #3:
+[132..197]Method #3:
 	[132..143]Header: (unary-method) 'someMethod_3'
-	[  0..  5]Body:
+	[158..190]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -37,9 +37,9 @@ AST of the class [  0..  5]'Simple'
 					- [177..190](id=13) Unary message 'jump' to the object:
 						- [177..185](id=12) Unary message 'sleep' to the object:
 							- [177..179](id=11) Variable(dog)
-[  0..  5]Method #4:
+[206..251]Method #4:
 	[206..217]Header: (unary-method) 'someMethod_4'
-	[  0..  5]Body:
+	[232..244]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

@@ -1,17 +1,17 @@
-AST of the class [  0.. 25]'PipeCanAlsoBeAnOperatorWhy'
+AST of the class [  0..235]'PipeCanAlsoBeAnOperatorWhy'
 ==== Instance specific part ====
 	(no fields)
-[  0.. 25]Method #1:
+[ 32.. 86]Method #1:
 	[ 32.. 62]Header: (binary-method) '|' with parameter 'this_is_parameter_not_a_field'
-	[  0.. 25]Body:
+	[ 68.. 84]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
 				- [ 68.. 84](id=1) Unary message 'println' to the object:
 					- [ 68.. 76](id=0) String literal(Gotcha!)
-[  0.. 25]Method #2:
+[ 90..148]Method #2:
 	[ 90..101]Header: (unary-method) 'testMethod_1'
-	[  0.. 25]Body:
+	[109..145]Body:
 		Locals:
 			#1: 'local_value'
 		Expressions:
@@ -20,9 +20,9 @@ AST of the class [  0.. 25]'PipeCanAlsoBeAnOperatorWhy'
 					- [127..130](id=2) Variable(self)
 				  and rhs:
 					- [134..144](id=3) Variable(local_value)
-[  0.. 25]Method #3:
+[152..184]Method #3:
 	[152..163]Header: (unary-method) 'testMethod_2'
-	[  0.. 25]Body:
+	[171..181]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -32,9 +32,9 @@ AST of the class [  0.. 25]'PipeCanAlsoBeAnOperatorWhy'
 					- [178..180](id=6) Variable(nil)
 ==== Class specific part ====
 	(no fields)
-[  0.. 25]Method #1:
+[194..233]Method #1:
 	[194..199]Header: (binary-method) '|' with parameter 'haha'
-	[  0.. 25]Body:
+	[205..231]Body:
 		(no locals)
 		Expressions:
 			Expression #1:

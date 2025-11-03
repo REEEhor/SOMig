@@ -51,10 +51,6 @@ const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
 const debug_reporter = reporter_module.debug_reporter;
 
-/// TODO: remove this once the location of AST nodes is supposed to be implemented.
-/// You can use the compiler errors to find all usages of this.
-const todo_span = TokenSpan.create(0, 0);
-
 const ParserError = error{
     unexpected_eof,
     unexpected_token,
@@ -104,7 +100,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Self) ParserError!ClassDefinition {
-        const class_name: TokenId = self.next_token_id;
+        const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
         _ = try self.eat_binary_message("=");
         // TODO: parse a potential super class here
@@ -113,13 +109,14 @@ pub const Parser = struct {
         const instance_portion = try self.parse_class_definition_portion(true);
         const class_portion = try self.parse_maybe_class_portion();
 
+        const closing_parenthesis_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.close_parenthesis);
 
         return ClassDefinition{
-            .class_name = class_name,
+            .class_name = class_name_token,
             .instance_portion = instance_portion,
             .class_portion = class_portion,
-            .span = todo_span,
+            .span = TokenSpan.create(class_name_token.idx, closing_parenthesis_token.idx),
         };
     }
 
@@ -173,12 +170,13 @@ pub const Parser = struct {
             _ = try self.eat_binary_message("=");
             _ = try self.eat_token(.open_parenthesis);
             const method_body = try self.parse_function_body();
+            const end_token: TokenId = self.next_token_id;
             _ = try self.eat_token(.close_parenthesis);
 
             const method_definition = MethodDefinition{
                 .body = method_body,
                 .header = method_header,
-                .span = todo_span,
+                .span = TokenSpan.create(method_header.span().start_id.idx, end_token.idx),
             };
             try method_definitions.append(self.allocator, method_definition);
         }
@@ -249,6 +247,8 @@ pub const Parser = struct {
     }
 
     fn parse_function_body(self: *Self) ParserError!FunctionBody {
+        const start_token_id: TokenId = self.next_token_id;
+
         // Parse local variables
         const locals: ?TokenSpan = parse_locals: {
             const token = self.peek_next_token() orelse {
@@ -262,10 +262,16 @@ pub const Parser = struct {
             }
         };
 
+        // Later we create a `?TokenSpan` from `start_token_id` and `end_token_id`.
+        // It is important to set `end_token_id` to a value that is *before* than the start.
+        // The `end_token_id` gets updated in the while loop of parsing expressions,
+        //   so if there is at least one expression, it will be set to that.
+        var end_token_id = start_token_id.minus(1);
+
         // Parse list of expressions
         var expressions = std.ArrayList(ExprId).empty;
         var saw_dot = false;
-        while (self.peek_next_token()) |token| {
+        while (self.peek_next_token()) |token| : (end_token_id = self.next_token_id.minus(1)) {
             const expr_id: ExprId = get_expr: switch (token.kind) {
                 .exit => {
                     _ = self.next_token(); // Consume the exit token
@@ -292,7 +298,7 @@ pub const Parser = struct {
                 return ParserError.expressions_not_separated_by_dot;
             };
 
-            // Skip all dot tokens. Set `saw_dot` to true.
+            // Skip all dot tokens and set `saw_dot` to true if we see at least one dot.
             try expressions.append(self.allocator, expr_id);
             while (self.peek_next_token()) |maybe_dot| {
                 if (maybe_dot.tag() != .dot) break;
@@ -304,7 +310,7 @@ pub const Parser = struct {
         const body = FunctionBody{
             .locals = locals,
             .expressions = try expressions.toOwnedSlice(self.allocator),
-            .span = todo_span,
+            .span = TokenSpan.create_or_null(start_token_id.idx, end_token_id.idx),
         };
         return body;
     }
@@ -714,15 +720,19 @@ const SpanFormatter = struct {
     tokens: []Token,
     const Fmt = struct {
         tokens: []Token,
-        span: TokenSpan,
+        span: ?TokenSpan,
 
         pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
-            const pos = self.span.to_pos(self.tokens);
-            try w.print("[{d:3}..{d:3}]", .{ pos.start_idx, pos.end_idx_inclusive() });
+            if (self.span) |span| {
+                const pos = span.to_pos(self.tokens);
+                try w.print("[{d:3}..{d:3}]", .{ pos.start_idx, pos.end_idx_inclusive() });
+            } else {
+                try w.print("[empty   ]", .{});
+            }
         }
     };
 
-    pub fn fmt(self: *const @This(), span: TokenSpan) Fmt {
+    pub fn fmt(self: *const @This(), span: ?TokenSpan) Fmt {
         return .{ .span = span, .tokens = self.tokens };
     }
 

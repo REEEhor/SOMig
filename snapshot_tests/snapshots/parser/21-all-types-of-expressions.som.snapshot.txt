@@ -1,9 +1,9 @@
-AST of the class [  0.. 10]'TestedClass'
+AST of the class [  0..312]'TestedClass'
 ==== Instance specific part ====
 	(no fields)
-[  0.. 10]Method #1:
+[ 21.. 71]Method #1:
 	[ 21.. 34]Header: (unary-method) 'access_array_1'
-	[  0.. 10]Body:
+	[ 49.. 64]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -12,9 +12,9 @@ AST of the class [  0.. 10]'TestedClass'
 				  and argument pairs:
 					- Keyword 'at:' and arg:
 						- [ 63.. 64](id=1) Integer literal(20)
-[  0.. 10]Method #2:
+[ 80..133]Method #2:
 	[ 80.. 93]Header: (unary-method) 'access_array_2'
-	[  0.. 10]Body:
+	[108..126]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
@@ -26,9 +26,9 @@ AST of the class [  0.. 10]'TestedClass'
 							- [122..122](id=4) Integer literal(1)
 						  and rhs:
 							- [126..126](id=5) Integer literal(2)
-[  0.. 10]Method #3:
+[142..309]Method #3:
 	[142..161]Header: (unary-method) 'create_person_object'
-	[  0.. 10]Body:
+	[176..302]Body:
 		(no locals)
 		Expressions:
 			Expression #1:
