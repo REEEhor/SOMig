@@ -18,6 +18,10 @@ pub const TokenId = struct {
     pub fn minus(self: @This(), offset: TokenIdRepresentation) TokenId {
         return TokenId{ .idx = self.idx - offset };
     }
+
+    pub fn plus(self: @This(), offset: TokenIdRepresentation) TokenId {
+        return TokenId{ .idx = self.idx + offset };
+    }
 };
 
 /// Span of tokens which represent different pieces of the AST
@@ -122,17 +126,26 @@ pub const MethodHeader = union(enum) {
 
 pub const KeywordMethodHeader = struct {
     const Self = @This();
+
     argument_pairs: TokenSpan,
+
+    /// Creates a new instance of `KeywordMethodHeader`.
+    /// Asserts, that the number of tokens in `argument_pairs` is non-zero and even.
+    pub fn create(argument_pairs: TokenSpan) Self {
+        assert(argument_pairs.number_of_tokens() > 0);
+        assert(argument_pairs.number_of_tokens() % 2 == 0);
+        return KeywordMethodHeader{ .argument_pairs = argument_pairs };
+    }
 
     /// Keywords are parsed together with `:` at the end
     pub fn nth_keyword(self: *const Self, n: u32) TokenId {
         assert(n < self.number_of_args());
-        return self.argument_pairs.start_id.idx + n * 2;
+        return self.argument_pairs.start_id.plus(n * 2);
     }
 
     pub fn nth_parameter(self: *const Self, n: u32) TokenId {
         assert(n < self.number_of_args());
-        return self.argument_pairs.start_id.idx + (n * 2) + 1;
+        return self.argument_pairs.start_id.plus(n * 2 + 1);
     }
 
     pub fn number_of_args(self: *const Self) u32 {

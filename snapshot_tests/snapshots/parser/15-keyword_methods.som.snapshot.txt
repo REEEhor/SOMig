@@ -1,3 +1,4 @@
 
-[ERROR at 13..23] Unexpected token: 'keyword_message'. Expected either a separator `-----`, a method definition, or a closing parenthesis `)`
-Failed with parse error: 'unexpected_token'
+[ERROR] TODO: parse blocks
+[NOTE at 268..274] Because of this, an argument to this keyword message could have not been parsed.
+Failed with parse error: 'TODO'

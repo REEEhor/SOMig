@@ -46,6 +46,7 @@ const TokenId = ast_module.TokenId;
 const ArrayLiteral = ast_module.ArrayLiteral;
 const SomSymbol = ast_module.SomSymbol;
 const ClassDefinitionPortion = ast_module.ClassDefinitionPortion;
+const KeywordMethodHeader = ast_module.KeywordMethodHeader;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -163,8 +164,7 @@ pub const Parser = struct {
             const method_header: MethodHeader = switch (token.tag()) {
                 .identifier => self.parse_unary_method_header(),
                 .binary_message, .pipe => try self.parse_binary_method_header(),
-                // TODO: Parse keyword method definition
-                .keyword_message => break,
+                .keyword_message => try self.parse_keyword_method_header(),
                 else => break,
             };
             _ = try self.eat_binary_message("=");
@@ -201,6 +201,72 @@ pub const Parser = struct {
         _ = try self.eat_token(.identifier);
 
         return MethodHeader{ .binary = .{ .method_name = method_name_token, .parameter = parameter_token } };
+    }
+
+    fn parse_keyword_method_header(self: *Self) ParserError!MethodHeader {
+        const start_token_id: TokenId = self.next_token_id;
+        // NOTE: we are not consuming the `.keyword_message` token here.
+        // It will get consumed in the while loop below.
+
+        const end_token_id: TokenId = while (true) {
+            const maybe_keyword_token_id = self.next_token_id;
+            const maybe_keyword_token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected the rest of the keyword method definition.", .{});
+                return ParserError.unexpected_eof;
+            };
+
+            // Parse the keyword
+            const expected_keyword_str = "Unexpected token: '{t}'. Expected a keyword (an identifier with `:` at the end) or a method body `= ( \"some code\" )`.";
+            switch (maybe_keyword_token.tag()) {
+                .keyword_message => _ = self.next_token(),
+                .identifier => {
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive() + 1);
+                    self.reporter.add_note(.{ .pos = hint_pos }, "You probably wanted to put a `:` here.", .{});
+                    return ParserError.unexpected_token;
+                },
+                .binary_message => {
+                    const token_text = self.text_at_pos(maybe_keyword_token.pos);
+                    const is_equal_sign: bool = std.mem.eql(u8, token_text, "=");
+                    if (is_equal_sign) break maybe_keyword_token_id.minus(1); // `maybe_keyword_token_id` is poiting at the equal sign and we want a token before that
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    return ParserError.unexpected_token;
+                },
+                else => {
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    return ParserError.unexpected_token;
+                },
+            }
+
+            // Parse the identifier
+            const maybe_param_token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected a parameter", .{});
+                self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "Parameter is expected because of this keyword here.", .{});
+                return ParserError.unexpected_eof;
+            };
+
+            switch (maybe_param_token.tag()) {
+                .identifier => _ = self.next_token(),
+                else => |tag| {
+                    self.reporter.report_error(.{ .pos = maybe_param_token.pos }, "Unexpected token: '{t}'. Expected a parameter (which is an identifier).", .{tag});
+
+                    const token_text = self.text_at_pos(maybe_param_token.pos);
+                    if (tag == .keyword_message) {
+                        const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive());
+                        self.reporter.add_note(.{ .pos = hint_pos }, "Remove this `:` to make the `{s}` into a parameter.", .{token_text});
+                    } else if (tag == .binary_message and std.mem.eql(u8, token_text, "=")) {
+                        self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "You can provide a parameter after this keyword.", .{});
+                    } else {
+                        self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "Parameter is expected because of this keyword here.", .{});
+                    }
+                    return ParserError.unexpected_token;
+                },
+            }
+        } else unreachable; // All paths are either via `break` or `return` (this is maybe why Rust has a `loop` construct :D)
+
+        const header_span = TokenSpan.create(start_token_id.idx, end_token_id.idx);
+        const keyword_header = KeywordMethodHeader.create(header_span);
+        return MethodHeader{ .keyword = keyword_header };
     }
 
     /// Parses:
@@ -867,8 +933,14 @@ fn print_portion(
                 });
             },
             .keyword => |info| {
-                _ = info;
-                return ParserError.TODO;
+                try writer.print("(keyword-method) ", .{});
+                for (0..info.number_of_args()) |idx| {
+                    const keyword = parser.text_at(info.nth_keyword(@truncate(idx)));
+                    const parameter = parser.text_at(info.nth_parameter(@truncate(idx)));
+                    if (idx != 0) try writer.print(" | ", .{});
+                    try writer.print("'{s}' '{s}'", .{ keyword, parameter });
+                }
+                try writer.print("\n", .{});
             },
         }
 
