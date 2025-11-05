@@ -43,6 +43,13 @@ pub const CodePosition = struct {
         };
     }
 
+    pub fn offset_start_by(self: *const Self, offset: usize) CodePosition {
+        return CodePosition.from_start_and_end(
+            self.start_idx + offset,
+            self.end_idx_inclusive(),
+        );
+    }
+
     pub fn end_idx_inclusive(self: *const Self) uint {
         return self.start_idx + self.length - 1;
     }

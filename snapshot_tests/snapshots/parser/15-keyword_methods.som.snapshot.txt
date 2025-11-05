@@ -1,6 +1,130 @@
-
-======== ERROR OUTPUT FROM THE PROGRAM ========
-
-[ERROR] TODO: parse blocks
-[NOTE at 268..274] Because of this, an argument to this keyword message could have not been parsed.
-Failed with parse error: 'TODO'
+AST of the class [  0..605]'Example'
+==== Instance specific part ====
+	(no fields)
+[ 13.. 75]Method #1:
+	[ 13.. 42]Header: (keyword-method) 'someMethod:' 'arg1' | 'withArg:' 'arg2'
+	[ 48.. 73]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 48.. 59](id=1) Unary message 'println' to the object:
+					- [ 48.. 51](id=0) Variable(arg1)
+			Expression #2:
+				- [ 62.. 73](id=3) Unary message 'println' to the object:
+					- [ 62.. 65](id=2) Variable(arg2)
+[ 78..175]Method #2:
+	[ 78..127]Header: (keyword-method) 'someMethod:' 'arg1' | 'withArg:' 'arg2' | 'andAnotherArg:' 'arg3'
+	[133..173]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [133..144](id=5) Unary message 'println' to the object:
+					- [133..136](id=4) Variable(arg1)
+			Expression #2:
+				- [147..158](id=7) Unary message 'println' to the object:
+					- [147..150](id=6) Variable(arg2)
+			Expression #3:
+				- [161..172](id=9) Unary message 'println' to the object:
+					- [161..164](id=8) Variable(arg3)
+[179..603]Method #3:
+	[179..201]Header: (keyword-method) 'apply:' 'arrayOfArguments'
+	[209..600]Body:
+		Locals:
+			#1: 'arr'
+		Expressions:
+			Expression #1:
+				- [219..241](id=12) Assignment of 'arr' to:
+					- [226..241](id=11) Variable(arrayOfArguments)
+			Expression #2:
+				- [248..600](id=56) Keyword message call on object:
+					- [248..262](id=16) Binary message call '==', with lhs:
+						- [248..257](id=14) Unary message 'length' to the object:
+							- [248..250](id=13) Variable(arr)
+					  and rhs:
+						- [262..262](id=15) Integer literal(2)
+				  and argument pairs:
+					- Keyword 'ifTrue:' and arg:
+						- [277..330](id=26) [277..330] Block literal with no parameters
+							[279..328]Body:
+								(no locals)
+								Expressions:
+									Expression #1:
+										- [279..327](id=25) Exit expression with return value:
+											- [280..327](id=24) Keyword message call on object:
+												- [280..283](id=17) Variable(self)
+											  and argument pairs:
+												- Keyword 'someMethod:' and arg:
+													- [298..306](id=20) Keyword message call on object:
+														- [298..300](id=18) Variable(arr)
+													  and argument pairs:
+														- Keyword 'at:' and arg:
+															- [306..306](id=19) Integer literal(1)
+												- Keyword 'withArg:' and arg:
+													- [319..327](id=23) Keyword message call on object:
+														- [319..321](id=21) Variable(arr)
+													  and argument pairs:
+														- Keyword 'at:' and arg:
+															- [327..327](id=22) Integer literal(2)
+					- Keyword 'ifFalse:' and arg:
+						- [344..600](id=55) [344..600] Block literal with no parameters
+							[350..581]Body:
+								(no locals)
+								Expressions:
+									Expression #1:
+										- [351..581](id=54) Keyword message call on object:
+											- [351..365](id=30) Binary message call '==', with lhs:
+												- [351..360](id=28) Unary message 'length' to the object:
+													- [351..353](id=27) Variable(arr)
+											  and rhs:
+												- [365..365](id=29) Integer literal(3)
+										  and argument pairs:
+											- Keyword 'ifTrue:' and arg:
+												- [382..462](id=43) [382..462] Block literal with no parameters
+													[384..460]Body:
+														(no locals)
+														Expressions:
+															Expression #1:
+																- [384..459](id=42) Exit expression with return value:
+																	- [385..459](id=41) Keyword message call on object:
+																		- [385..388](id=31) Variable(self)
+																	  and argument pairs:
+																		- Keyword 'someMethod:' and arg:
+																			- [403..411](id=34) Keyword message call on object:
+																				- [403..405](id=32) Variable(arr)
+																			  and argument pairs:
+																				- Keyword 'at:' and arg:
+																					- [411..411](id=33) Integer literal(1)
+																		- Keyword 'withArg:' and arg:
+																			- [424..432](id=37) Keyword message call on object:
+																				- [424..426](id=35) Variable(arr)
+																			  and argument pairs:
+																				- Keyword 'at:' and arg:
+																					- [432..432](id=36) Integer literal(2)
+																		- Keyword 'andAnotherArg:' and arg:
+																			- [451..459](id=40) Keyword message call on object:
+																				- [451..453](id=38) Variable(arr)
+																			  and argument pairs:
+																				- Keyword 'at:' and arg:
+																					- [459..459](id=39) Integer literal(3)
+											- Keyword 'ifFalse:' and arg:
+												- [478..581](id=53) Unary message 'value' to the object:
+													- [478..571](id=52) [478..571] Block literal with no parameters
+														[480..569]Body:
+															(no locals)
+															Expressions:
+																Expression #1:
+																	- [480..569](id=51) Keyword message call on object:
+																		- [480..483](id=44) Variable(self)
+																	  and argument pairs:
+																		- Keyword 'error:' and arg:
+																			- [492..569](id=50) Binary message call '+', with lhs:
+																				- [492..527](id=48) Binary message call '+', with lhs:
+																					- [492..513](id=45) String literal(Array has length of )
+																				  and rhs:
+																					- [518..527](id=47) Unary message 'length' to the object:
+																						- [518..520](id=46) Variable(arr)
+																			  and rhs:
+																				- [532..569](id=49) String literal(, but valid length is either 2 or 3.)
+==== Class specific part ====
+	(no fields)
+	(no methods)

@@ -47,6 +47,7 @@ const ArrayLiteral = ast_module.ArrayLiteral;
 const SomSymbol = ast_module.SomSymbol;
 const ClassDefinitionPortion = ast_module.ClassDefinitionPortion;
 const KeywordMethodHeader = ast_module.KeywordMethodHeader;
+const BlockLiteral = ast_module.BlockLiteral;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -271,10 +272,79 @@ pub const Parser = struct {
 
     /// Parses:
     /// ```som
+    ///     :param1 :param2 :param3 ... :paramN |
+    ///        ^
+    ///    expected `self.next_token_idx`
+    /// ```
+    /// and returns `TokenSpan` spanning tokens `:param1` to `:paramN`
+    ///
+    fn parse_block_parameters(self: *Self) ParserError!?TokenSpan {
+        var result_span: TokenSpan = TokenSpan.at(self.next_token_id);
+        _ = try self.eat_token(.block_param);
+
+        while (true) {
+            const token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected more block parameters or a `|`.", .{});
+                return ParserError.unexpected_eof;
+            };
+            switch (token.tag()) {
+                .block_param => result_span.end_id.idx += 1,
+                .pipe => {
+                    _ = self.next_token();
+                    return result_span;
+                },
+                else => |tag| {
+                    self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: '{t}'. Expected to see another block parameter or a `|`.", .{tag});
+                    if (tag == .identifier) {
+                        const hint_pos = CodePosition.at(token.pos.start_idx - 1);
+                        self.reporter.add_note(.{ .pos = hint_pos }, "You might have forgotten a `:` here to make it a block parameter.", .{});
+                    } else if (tag == .keyword_message) {
+                        const parameter_text = self.text_at_pos(token.pos.offset_start_by(1));
+                        self.reporter.add_note(.{ .pos = token.pos }, "You probably might have wanted a block parameter, which would be '{s}:'", .{parameter_text});
+                    }
+                    return ParserError.unexpected_token;
+                },
+            }
+            _ = self.next_token();
+        }
+    }
+
+    fn parse_block_literal(self: *Self) ParserError!BlockLiteral {
+        const open_bracket_token: TokenId = self.next_token_id;
+        const open_bracket_pos = (try self.eat_token(.open_bracket)).pos.*;
+
+        const first_token = self.peek_next_token() orelse {
+            self.reporter.report_unexpected_eof("Expected a block literal after a `[`", .{});
+            return ParserError.unexpected_eof;
+        };
+
+        const parameters: ?TokenSpan = get_params: {
+            if (first_token.tag() == .block_param) {
+                break :get_params try self.parse_block_parameters();
+            }
+            break :get_params null;
+        };
+        const body = try self.parse_function_body();
+
+        _ = self.eat_token(.close_bracket) catch |err| {
+            self.reporter.add_note(.{ .pos = open_bracket_pos }, "The ']' is expected because of an opening `]` here.", .{});
+            return err;
+        };
+
+        return BlockLiteral{
+            .start_token_id = open_bracket_token,
+            .paremeters = parameters,
+            .body = body,
+        };
+    }
+
+    /// Parses:
+    /// ```som
     ///     | var1 var2 var3  ...  varN |
     ///     ^
     ///  expected `self.next_token_idx`
     /// ```
+    /// and returns `TokenSpan` spanning tokens `var1` to `varN`.
     ///
     /// Argument `structure_name` is for error reporting.
     /// Probably one of "instance fields", "class fields", "locals of a method", "locals of a block".
@@ -318,11 +388,11 @@ pub const Parser = struct {
         // Parse local variables
         const locals: ?TokenSpan = parse_locals: {
             const token = self.peek_next_token() orelse {
-                self.reporter.report_unexpected_eof("Expected body of a method or a closing parenthesis.", .{});
+                self.reporter.report_unexpected_eof("Expected body of function or a closing parenthesis.", .{});
                 return ParserError.unexpected_eof;
             };
             if (token.tag() == .pipe) {
-                break :parse_locals try self.parse_locals("locals of a method");
+                break :parse_locals try self.parse_locals("locals of a function body");
             } else {
                 break :parse_locals null;
             }
@@ -542,8 +612,10 @@ pub const Parser = struct {
                 return inner_expression;
             },
             .open_bracket => {
-                // TODO: parse blocks
-                return self.TODO("parse blocks");
+                self.unget_token();
+                const block_info = try self.parse_block_literal();
+                const block_expr = Expression{ .block_literal = block_info };
+                break :get_expression block_expr;
             },
             .hashtag => {
                 self.unget_token();
@@ -807,18 +879,72 @@ const SpanFormatter = struct {
     }
 };
 
+const Indent = struct {
+    const Self = @This();
+    tab_count: i32,
+
+    pub fn create(tab_count: i32) Self {
+        assert(tab_count >= 0);
+        return Indent{ .tab_count = tab_count };
+    }
+
+    pub fn plus(self: *const Self, offset: i32) Self {
+        return Indent.create(self.tab_count + offset);
+    }
+
+    pub fn format(self: *const Self, writer: *std.io.Writer) std.io.Writer.Error!void {
+        for (0..@intCast(self.tab_count)) |_| {
+            try writer.print("\t", .{});
+        }
+    }
+};
+
+const PrintFunctionBodyError = ParserError || std.io.Writer.Error;
+fn print_function_body(
+    writer: *std.io.Writer,
+    function_body: *const FunctionBody,
+    formatter: SpanFormatter,
+    parser: *Parser,
+    indent: Indent,
+) PrintFunctionBodyError!void {
+    try writer.print("{f}\t{f}Body:\n", .{ indent, formatter.fmt(function_body.span) });
+    if (function_body.locals) |span_locals| {
+        try writer.print("{f}\t\tLocals:\n", .{indent});
+        var iter = span_locals.iter();
+        var idx: usize = 1;
+        while (iter.next()) |token_id| : (idx += 1) {
+            assert(parser.tokens[token_id.idx].tag() == .identifier);
+            const local = parser.text_at(token_id);
+            try writer.print("{f}\t\t\t#{d}: '{s}'\n", .{ indent, idx, local });
+        }
+    } else {
+        try writer.print("{f}\t\t(no locals)\n", .{indent});
+    }
+    const expressions = function_body.expressions;
+    if (expressions.len != 0) {
+        try writer.print("{f}\t\tExpressions:\n", .{indent});
+    } else {
+        try writer.print("{f}\t\t(no expressions)\n", .{indent});
+    }
+    for (expressions, 1..) |expr, idx| {
+        try writer.print("{f}\t\t\tExpression #{d}:\n", .{ indent, idx });
+
+        const new_indent = indent.plus(4); // because we want at least 4 tabulators before each expression
+        try print_expression_recursive(writer, formatter, expr, parser, new_indent);
+    }
+}
+
 fn print_expression_recursive(
     writer: *std.io.Writer,
     formatter: SpanFormatter,
     expr_id: ExprId,
     parser: *Parser,
-    indent: i32,
+    indent: Indent,
 ) !void {
     const expression = parser.expressions.at(expr_id);
 
-    for (0..@intCast(indent)) |_| try writer.print("\t", .{});
-
-    try writer.print("- {f}(id={d}) ", .{
+    try writer.print("{f}- {f}(id={d}) ", .{
+        indent,
         formatter.fmt(expression.span(parser.expressions)),
         expr_id.idx,
     });
@@ -843,12 +969,12 @@ fn print_expression_recursive(
                 1 => {
                     try writer.print("Array literal (with 1 element):\n", .{});
                     const element = array_literal.elements[0];
-                    try print_expression_recursive(writer, formatter, element, parser, indent + 1);
+                    try print_expression_recursive(writer, formatter, element, parser, indent.plus(1));
                 },
                 else => {
                     try writer.print("Array literal (with {d} elements):\n", .{elements_count});
                     for (array_literal.elements) |element| {
-                        try print_expression_recursive(writer, formatter, element, parser, indent + 1);
+                        try print_expression_recursive(writer, formatter, element, parser, indent.plus(1));
                     }
                 },
             }
@@ -861,36 +987,48 @@ fn print_expression_recursive(
 
         .exit_expression => |exit| {
             try writer.print("Exit expression with return value:\n", .{});
-            try print_expression_recursive(writer, formatter, exit.return_value, parser, indent + 1);
+            try print_expression_recursive(writer, formatter, exit.return_value, parser, indent.plus(1));
         },
         .assignment => |assignment| {
             try writer.print("Assignment of '{s}' to:\n", .{parser.text_at(assignment.variable)});
-            try print_expression_recursive(writer, formatter, assignment.target_value, parser, indent + 1);
+            try print_expression_recursive(writer, formatter, assignment.target_value, parser, indent.plus(1));
+        },
+
+        .block_literal => |info| {
+            try writer.print("{f} Block literal", .{formatter.fmt(info.span())});
+            if (info.paremeters) |span_parameters| {
+                try writer.print(" with {d} parameters:\n", .{span_parameters.number_of_tokens()});
+                var iter = span_parameters.iter();
+                while (iter.next()) |parameter_token| {
+                    const parameter_text = parser.text_at(parameter_token);
+                    try writer.print("{f}- '{s}'\n", .{ indent.plus(1), parameter_text });
+                }
+            } else {
+                try writer.print(" with no parameters\n", .{});
+            }
+            try print_function_body(writer, &info.body, formatter, parser, indent);
         },
 
         .unary_message_call => |unary_call| {
             try writer.print("Unary message '{s}' to the object:\n", .{parser.text_at(unary_call.message)});
-            try print_expression_recursive(writer, formatter, unary_call.argument, parser, indent + 1);
+            try print_expression_recursive(writer, formatter, unary_call.argument, parser, indent.plus(1));
         },
         .binary_message_call => |binary_call| {
             try writer.print("Binary message call '{s}', with lhs:\n", .{parser.text_at(binary_call.message)});
-            try print_expression_recursive(writer, formatter, binary_call.lhs, parser, indent + 1);
+            try print_expression_recursive(writer, formatter, binary_call.lhs, parser, indent.plus(1));
 
-            for (0..@intCast(indent)) |_| try writer.print("\t", .{});
-            try writer.print("  and rhs:\n", .{});
-            try print_expression_recursive(writer, formatter, binary_call.rhs, parser, indent + 1);
+            try writer.print("{f}  and rhs:\n", .{indent});
+            try print_expression_recursive(writer, formatter, binary_call.rhs, parser, indent.plus(1));
         },
         .keyword_message_call => |keyword_call| {
             try writer.print("Keyword message call on object:\n", .{});
-            try print_expression_recursive(writer, formatter, keyword_call.first_argument, parser, indent + 1);
+            try print_expression_recursive(writer, formatter, keyword_call.first_argument, parser, indent.plus(1));
 
-            for (0..@intCast(indent)) |_| try writer.print("\t", .{});
-            try writer.print("  and argument pairs:\n", .{});
+            try writer.print("{f}  and argument pairs:\n", .{indent});
 
             for (keyword_call.args) |arg_pair| {
-                for (0..@intCast(indent + 1)) |_| try writer.print("\t", .{});
-                try writer.print("- Keyword '{s}' and arg:\n", .{parser.text_at(arg_pair.keyword)});
-                try print_expression_recursive(writer, formatter, arg_pair.argument, parser, indent + 2);
+                try writer.print("{f}- Keyword '{s}' and arg:\n", .{ indent.plus(1), parser.text_at(arg_pair.keyword) });
+                try print_expression_recursive(writer, formatter, arg_pair.argument, parser, indent.plus(2));
             }
         },
     }
@@ -944,31 +1082,7 @@ fn print_portion(
             },
         }
 
-        try writer.print("\t{f}Body:\n", .{span_formatter.fmt(method.body.span)});
-        if (method.body.locals) |span_locals| {
-            try writer.print("\t\tLocals:\n", .{});
-            var iter = span_locals.iter();
-            var idx: usize = 1;
-            while (iter.next()) |token_id| : (idx += 1) {
-                assert(parser.tokens[token_id.idx].tag() == .identifier);
-                const local = parser.text_at(token_id);
-                try writer.print("\t\t\t#{d}: '{s}'\n", .{ idx, local });
-            }
-        } else {
-            try writer.print("\t\t(no locals)\n", .{});
-        }
-        const expressions = method.body.expressions;
-        if (expressions.len != 0) {
-            try writer.print("\t\tExpressions:\n", .{});
-        } else {
-            try writer.print("\t\t(no expressions)\n", .{});
-        }
-        for (expressions, 1..) |expr, idx| {
-            try writer.print("\t\t\tExpression #{d}:\n", .{idx});
-            const indent = 4; // because we want at least 4 tabulators before each expression
-
-            try print_expression_recursive(writer, span_formatter, expr, parser, indent);
-        }
+        try print_function_body(writer, &method.body, span_formatter, parser, Indent.create(0));
     }
 }
 
@@ -1003,19 +1117,10 @@ pub fn print_class_definition(
     });
 
     try writer.print("==== Instance specific part ====\n", .{});
-    try print_portion(
-        &parser,
-        &class_definition.instance_portion,
-        span_formatter,
-        writer,
-    );
+    try print_portion(&parser, &class_definition.instance_portion, span_formatter, writer);
+
     try writer.print("==== Class specific part ====\n", .{});
-    try print_portion(
-        &parser,
-        &class_definition.class_portion,
-        span_formatter,
-        writer,
-    );
+    try print_portion(&parser, &class_definition.class_portion, span_formatter, writer);
 }
 
 test "snapshot test on example files" {

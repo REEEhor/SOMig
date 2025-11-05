@@ -1,5 +1,51 @@
-
-======== ERROR OUTPUT FROM THE PROGRAM ========
-
-[ERROR] TODO: parse blocks
-Failed with parse error: 'TODO'
+AST of the class [  0..168]'Example'
+==== Instance specific part ====
+	(no fields)
+[ 13.. 58]Method #1:
+	[ 13.. 21]Header: (unary-method) 'getBlock0'
+	[ 27.. 56]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 27.. 56](id=2) [ 27.. 56] Block literal with no parameters
+					[ 44.. 54]Body:
+						(no locals)
+						Expressions:
+							Expression #1:
+								- [ 44.. 53](id=1) Unary message 'print' to the object:
+									- [ 44.. 46](id=0) Variable(nil)
+[ 61..106]Method #2:
+	[ 61.. 69]Header: (unary-method) 'getBlock1'
+	[ 75..104]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 75..104](id=5) [ 75..104] Block literal with 1 parameters:
+					- ':arg1'
+					[ 91..102]Body:
+						(no locals)
+						Expressions:
+							Expression #1:
+								- [ 91..101](id=4) Unary message 'print' to the object:
+									- [ 91.. 94](id=3) Variable(arg1)
+[109..166]Method #3:
+	[109..117]Header: (unary-method) 'getBlock2'
+	[123..164]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [123..164](id=10) [123..164] Block literal with 2 parameters:
+					- ':arg1'
+					- ':arg2'
+					[139..162]Body:
+						(no locals)
+						Expressions:
+							Expression #1:
+								- [139..149](id=7) Unary message 'print' to the object:
+									- [139..142](id=6) Variable(arg1)
+							Expression #2:
+								- [152..161](id=9) Unary message 'print' to the object:
+									- [152..155](id=8) Variable(arg2)
+==== Class specific part ====
+	(no fields)
+	(no methods)

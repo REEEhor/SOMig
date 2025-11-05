@@ -153,7 +153,6 @@ pub const KeywordMethodHeader = struct {
     }
 };
 
-// TODO: reuse this also for the body of a block
 pub const FunctionBody = struct {
     span: ?TokenSpan,
     locals: ?TokenSpan,
@@ -193,6 +192,8 @@ pub const Expression = union(enum) {
     exit_expression: struct { return_value: ExprId },
     assignment: struct { variable: TokenId, target_value: ExprId },
 
+    block_literal: BlockLiteral,
+
     unary_message_call: struct { argument: ExprId, message: TokenId },
     binary_message_call: struct { lhs: ExprId, rhs: ExprId, message: TokenId },
     keyword_message_call: struct { first_argument: ExprId, args: []KeywordArgumentPair },
@@ -219,6 +220,8 @@ pub const Expression = union(enum) {
                     span_of_return_value.end_id.idx,
                 );
             },
+            .block_literal => |info| info.span(),
+
             .unary_message_call => |info| blk: {
                 const start_id: TokenId = expressions.at(info.argument).span(expressions).start_id;
                 const end_id: TokenId = info.message;
@@ -256,16 +259,43 @@ pub const Expression = union(enum) {
 };
 
 pub const ArrayLiteral = struct {
+    // NOTE:
     // We have to store the `span` separatelly in case it would be an empty array
     // In other cases, we could extract the `span` from `elements`.
-    // So this type `ArrayLiteral` could also be an union, but that would be too un-ergonomic.
-    // Also, it seems like we would not make the union `Expression` smaller.
+    //
+    // So this type `ArrayLiteral` could also be an union (`empty` and `non_empty` array),
+    // but that would be probably too un-ergonomic.
+    //
+    // Also, it seems like we would not make the union `Expression` smaller
+    // (but that might matter if `ExpressionList` becomes "densly" packed).
+    //
     span: TokenSpan,
     elements: []ExprId,
 };
 
 pub const SomSymbol = struct {
     span: TokenSpan,
+};
+
+pub const BlockLiteral = struct {
+    const Self = @This();
+
+    /// `TokenId` of the starting `[`
+    start_token_id: TokenId,
+    paremeters: ?TokenSpan,
+    body: FunctionBody,
+
+    pub fn span(self: *const Self) TokenSpan {
+        const body_span_end = blk: {
+            if (self.body.span) |body_span| break :blk body_span.end_id;
+            break :blk self.start_token_id;
+        };
+
+        return TokenSpan.create(
+            self.start_token_id.idx,
+            body_span_end.idx + 1, // `+1` because we have to account for `]` after the block body
+        );
+    }
 };
 
 pub const KeywordArgumentPair = struct {

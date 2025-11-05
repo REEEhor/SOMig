@@ -7,7 +7,7 @@ Example = (
 		arr := arrayOfArguments.
 
 		(arr length == 2)
-			ifTrue:  [ ^self someMethod: (arr at: 1) withArg (arr at: 2) ]
+			ifTrue:  [ ^self someMethod: (arr at: 1) withArg: (arr at: 2) ]
 			ifFalse: [
 				(arr length == 3)
 					ifTrue:  [ ^self someMethod: (arr at: 1) withArg: (arr at: 2) andAnotherArg: (arr at: 3) ]
