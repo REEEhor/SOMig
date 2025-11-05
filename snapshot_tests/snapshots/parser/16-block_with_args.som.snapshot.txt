@@ -1,3 +1,5 @@
 
+======== ERROR OUTPUT FROM THE PROGRAM ========
+
 [ERROR] TODO: parse blocks
 Failed with parse error: 'TODO'

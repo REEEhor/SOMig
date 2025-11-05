@@ -1,3 +1,5 @@
 
+======== ERROR OUTPUT FROM THE PROGRAM ========
+
 [ERROR at 753..753] Unexpected token: .{ .kind = .{ .binary_message = void }, .pos = .{ .start_idx = 753, .length = 1 } }. Expected token identifier
 Failed with parse error: 'unexpected_token'

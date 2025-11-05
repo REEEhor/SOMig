@@ -71,18 +71,34 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         // Run the test
         var writer = std.io.Writer.Allocating.init(gpa);
         defer writer.deinit();
+        var err_writer = std.io.Writer.Allocating.init(gpa);
+        defer err_writer.deinit();
+        //
         print(" - Test " ++ BOLD ++ "{s:<40}" ++ RESET ++ " ...", .{std.mem.sliceTo(entry.name, '.')});
-        options.output_producer(source_code, gpa, &writer.writer, &writer.writer) catch |err| {
+        options.output_producer(source_code, gpa, &writer.writer, &err_writer.writer) catch |err| {
             failed_tests_count += 1;
             print(ERR ++ "Error occured: {t}\n" ++ RESET, .{err});
             continue;
         };
+        try err_writer.writer.flush();
+        const err_output: []u8 = try err_writer.toOwnedSlice();
+        defer gpa.free(err_output);
+        if (err_output.len != 0) {
+            _ = try writer.writer.print("\n======== ERROR OUTPUT FROM THE PROGRAM ========\n", .{});
+            _ = try writer.writer.write(err_output);
+        }
         try writer.writer.flush();
 
         const program_output = try writer.toOwnedSlice();
         defer gpa.free(program_output);
 
         print(GREEN ++ "DONE! " ++ RESET, .{});
+        if (err_output.len == 0) {
+            print("(output:  ok) ", .{});
+        } else {
+            print("(output: err) ", .{});
+        }
+        print("| ", .{});
 
         // Save the program output
         const program_output_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ entry.name, ".new.txt" });
