@@ -1,25 +1,26 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
 const token_module = @import("token.zig");
 const FloatRepresentation = token_module.FloatRepresentation;
 const IntegerRepresentation = token_module.IntegerRepresentation;
 const Token = token_module.Token;
 const CodePosition = token_module.CodePosition;
 
-const TokenIdRepresentation = u32;
-
 /// Index into the list of all tokens.
 pub const TokenId = struct {
-    idx: TokenIdRepresentation,
-    pub fn create(idx: TokenIdRepresentation) TokenId {
+    idx: u32,
+
+    pub fn create(idx: u32) TokenId {
         return TokenId{ .idx = idx };
     }
 
-    pub fn minus(self: @This(), offset: TokenIdRepresentation) TokenId {
+    pub fn minus(self: @This(), offset: u32) TokenId {
         return TokenId{ .idx = self.idx - offset };
     }
 
-    pub fn plus(self: @This(), offset: TokenIdRepresentation) TokenId {
+    pub fn plus(self: @This(), offset: u32) TokenId {
         return TokenId{ .idx = self.idx + offset };
     }
 };
@@ -28,7 +29,7 @@ pub const TokenId = struct {
 pub const TokenSpan = struct {
     const Self = @This();
 
-    pub fn create(start_idx: TokenIdRepresentation, end_idx: TokenIdRepresentation) Self {
+    pub fn create(start_idx: u32, end_idx: u32) Self {
         return Self.create_or_null(start_idx, end_idx).?;
     }
 
@@ -36,7 +37,7 @@ pub const TokenSpan = struct {
         return TokenSpan{ .start_id = token_id, .end_id = token_id };
     }
 
-    pub fn create_or_null(start_idx: TokenIdRepresentation, end_idx: TokenIdRepresentation) ?Self {
+    pub fn create_or_null(start_idx: u32, end_idx: u32) ?Self {
         if (end_idx < start_idx) return null;
         return TokenSpan{
             .start_id = TokenId.create(start_idx),
@@ -49,11 +50,11 @@ pub const TokenSpan = struct {
     /// Index into the token array where the last (including) token is.
     end_id: TokenId,
 
-    pub fn number_of_tokens(self: *const Self) u32 {
+    pub fn number_of_tokens(self: Self) u32 {
         return self.end_id.idx - self.start_id.idx + 1;
     }
 
-    pub fn to_pos(self: *const Self, tokens: []Token) CodePosition {
+    pub fn to_pos(self: Self, tokens: []Token) CodePosition {
         const start_token = tokens[self.start_id.idx];
         const end_token = tokens[self.end_id.idx];
         return CodePosition.from_start_and_end(
@@ -62,13 +63,20 @@ pub const TokenSpan = struct {
         );
     }
 
-    pub fn iter(self: *const Self) TokenSpanIterator {
+    pub fn iter(self: Self) TokenSpanIterator {
         return TokenSpanIterator{
             .current = self.start_id,
             .last = self.end_id,
         };
     }
 };
+
+pub fn Spanned(comptime Inner: type) type {
+    return struct {
+        inner: Inner,
+        span: TokenSpan,
+    };
+}
 
 pub const TokenSpanIterator = struct {
     const Self = @This();
@@ -106,7 +114,7 @@ pub const ClassDefinitionPortion = struct {
 pub const MethodDefinition = struct {
     span: TokenSpan,
     header: MethodHeader,
-    body: FunctionBody,
+    body: union(enum) { impl: FunctionBody, primitive },
 };
 
 pub const MethodHeader = union(enum) {
@@ -156,38 +164,233 @@ pub const KeywordMethodHeader = struct {
 pub const FunctionBody = struct {
     span: ?TokenSpan,
     locals: ?TokenSpan,
-    expressions: []ExprId,
+    expressions: []const ExprId,
 };
+
+pub const FunctionBodyId = struct { idx: u32 };
 
 /// Index into an array of expressions
 pub const ExprId = struct { idx: u32 };
 
-// TODO: consider implementing this struct with "dense" packing
 pub const ExpressionList = struct {
     const Self = @This();
-    expressions: std.ArrayList(Expression),
+    expr_list: std.MultiArrayList(Expression),
+    span_list: std.ArrayList(TokenSpan),
 
-    pub fn len(self: *const Self) usize {
-        return self.expressions.items.len;
+    pub const empty = ExpressionList{
+        .expr_list = std.MultiArrayList(Expression).empty,
+        .span_list = std.ArrayList(TokenSpan).empty,
+    };
+
+    pub fn add(self: *Self, allocator: Allocator, expr: SpannedExpr) Allocator.Error!ExprId {
+        const new_expr_id = ExprId{ .idx = self.len() };
+        try self.expr_list.append(allocator, expr.expr);
+        try self.span_list.append(allocator, expr.span);
+        return new_expr_id;
     }
-    pub fn at(self: *const Self, id: ExprId) *Expression {
-        return &self.expressions.items[id.idx];
+
+    pub fn len(self: Self) u32 {
+        return @truncate(self.span_list.items.len);
     }
+
+    pub fn set_span_of(self: *Self, id: ExprId, new_span: TokenSpan) void {
+        self.span_list.items[id.idx] = new_span;
+    }
+
+    pub fn span_of(self: Self, id: ExprId) TokenSpan {
+        return self.span_list.items[id.idx];
+    }
+
+    pub fn get(self: Self, id: ExprId) Expression {
+        return self.expr_list.get(id.idx);
+    }
+
+    pub fn get_with_span(self: Self, id: ExprId) SpannedExpr {
+        return SpannedExpr{
+            .span = self.span_of(id),
+            .expr = self.get(id),
+        };
+    }
+
+    pub fn tag_of(self: Self, id: ExprId) std.meta.Tag(Expression) {
+        return self.expr_list.items(.tags)[id.idx];
+    }
+};
+
+pub const Extras = struct {
+    const Self = @This();
+    extras: std.ArrayList(u32),
+
+    pub const empty = Extras{ .extras = std.ArrayList(u32).empty };
+
+    fn bytes_to_expr_ids(bytes: []const u32) []const ExprId {
+        return std.mem.bytesAsSlice(ExprId, std.mem.sliceAsBytes(bytes));
+    }
+
+    fn expr_ids_to_bytes(ids: []const ExprId) []const u32 {
+        return std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(ids));
+    }
+
+    pub fn add_variable_span(self: *Self, allocator: Allocator, span: []const ExprId) Allocator.Error!ExprSpanId {
+        const result_span_id = ExprSpanId{ .idx = @truncate(self.extras.items.len) };
+        const casted_span: []const u32 = expr_ids_to_bytes(span);
+
+        // Append an `ExprId` which will be interpreted as the length of the span
+        try self.extras.append(allocator, @truncate(span.len));
+        try self.extras.appendSlice(allocator, casted_span);
+
+        return result_span_id;
+    }
+
+    pub fn variable_span_of(self: Self, id: ExprSpanId) []const ExprId {
+        // Interpret the first expression id as the length of the span
+        const span_len: u32 = self.extras.items[id.idx];
+
+        const start_idx: u32 = id.idx + 1;
+        const end_idx_exclusive: u32 = start_idx + span_len;
+
+        const slice: []u32 = self.extras.items[start_idx..end_idx_exclusive];
+        const slice_expr: []ExprId = std.mem.bytesAsSlice(ExprId, std.mem.sliceAsBytes(slice));
+        return slice_expr;
+    }
+
+    pub fn add_fixed_span(
+        self: *Self,
+        allocator: Allocator,
+        comptime len: comptime_int,
+        span: [len]ExprId,
+    ) Allocator.Error!FixedExprSpanId(len) {
+        const result_span_id = FixedExprSpanId(len){ .idx = @truncate(self.extras.items.len) };
+        const slice: []const u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(span[0..]));
+        try self.extras.appendSlice(allocator, slice);
+        return result_span_id;
+    }
+
+    /// `id` is expected to be of type `FixedExprSpanId(<some-length>)`
+    pub fn fixed_span_of(self: Self, id: anytype) []const ExprId {
+        const span_len = length_of_span_id(@TypeOf(id));
+        const start_idx = id.idx;
+        const end_idx_exclusive = id.idx + span_len;
+
+        const slice = self.extras.items[start_idx..end_idx_exclusive];
+        return bytes_to_expr_ids(slice);
+    }
+
+    fn length_of_span_id(comptime IdType: type) comptime_int {
+        const error_msg = "Parameter `id` has type `" ++ @typeName(IdType) ++ "`, but `FixedExprSpanId(length)` was expected.";
+        if (!@hasDecl(IdType, "span_len")) {
+            @compileError(error_msg);
+        }
+        if (@TypeOf(IdType.span_len) != comptime_int) {
+            @compileError(error_msg);
+        }
+        if (FixedExprSpanId(IdType.span_len) != IdType) {
+            @compileError(error_msg);
+        }
+        return IdType.span_len;
+    }
+
+    // pub const FunctionBody = struct {
+    //     span: ?TokenSpan,
+    //     locals: ?TokenSpan,
+    //     expressions: []ExprId,
+    // };
+
+    /// Layout of storing `FunctionBody`:
+    /// - span: `?TokenSpan`
+    ///   - Stored in the first and the second 32 bits.
+    ///   - If `span.start_id == 0` and `span.end_id == 0`, then span is considered `null`.
+    ///     - This is an okay implementation, since the first token in the AST is always the name of the class
+    ///       and not a body of some function.
+    ///
+    /// - locals: `?TokenSpan`
+    ///   - Stored in the third and the fourth 32 bits.
+    ///   - If `locals.start_id == 0` and `locals.end_id == 0`, then span is considered `null` (same as `span`)
+    ///
+    /// - expressions: `[]ExprId`
+    ///   - Stored right after `span` and `locals` the same way `variable_span_of` uses to store `[]ExprId`
+    ///
+    pub fn add_function_body(self: *Self, allocator: Allocator, body: FunctionBody) Allocator.Error!FunctionBodyId {
+        const result_function_body_id = FunctionBodyId{ .idx = @truncate(self.extras.items.len) };
+
+        const span: TokenSpan = body.span orelse placeholder_span;
+        const locals: TokenSpan = body.locals orelse placeholder_span;
+
+        try self.extras.append(allocator, span.start_id.idx);
+        try self.extras.append(allocator, span.end_id.idx);
+
+        try self.extras.append(allocator, locals.start_id.idx);
+        try self.extras.append(allocator, locals.end_id.idx);
+
+        const expected_expr_span_idx = self.extras.items.len;
+        const expr_span_id = try self.add_variable_span(allocator, body.expressions);
+        assert(expr_span_id.idx == expected_expr_span_idx);
+
+        return result_function_body_id;
+    }
+
+    /// See `add_function_body` for more info how the storage layout is implemented.
+    pub fn function_body_of(self: *Self, id: FunctionBodyId) FunctionBody {
+        const span: ?TokenSpan = blk: {
+            const span_idx = id.idx;
+            const raw_span = TokenSpan.create(
+                self.extras.items[span_idx],
+                self.extras.items[span_idx + 1],
+            );
+            break :blk if (std.meta.eql(raw_span, placeholder_span)) null else raw_span;
+        };
+
+        const locals: ?TokenSpan = blk: {
+            const locals_idx = id.idx + 2;
+            const raw_span = TokenSpan.create(
+                self.extras.items[locals_idx],
+                self.extras.items[locals_idx + 1],
+            );
+            break :blk if (std.meta.eql(raw_span, placeholder_span)) null else raw_span;
+        };
+
+        const expressions_id = ExprSpanId{ .idx = id.idx + 4 };
+        const expressions: []const ExprId = self.variable_span_of(expressions_id);
+
+        return FunctionBody{ .span = span, .locals = locals, .expressions = expressions };
+    }
+
+    const placeholder_span = TokenSpan.at(TokenId.create(0));
+};
+
+pub const ExprSpanId = struct { idx: u32 };
+
+fn FixedExprSpanId(comptime span_lenght: comptime_int) type {
+    return struct {
+        idx: u32,
+        const span_len = span_lenght;
+    };
+}
+
+comptime {
+    // TODO: assert that all fiel payloads of `Expression` are at most u32 bits long
+}
+
+pub const SpannedExpr = struct {
+    expr: Expression,
+    span: TokenSpan,
 };
 
 // TODO:
 //  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
 pub const Expression = union(enum) {
-    const Self = @This();
+    /// The exact text of the identifier of this variable
+    /// can be extracted from the span of this expression.
+    variable,
 
-    variable: TokenId,
-
-    integer_literal: TokenId,
-    float_literal: TokenId,
+    integer_literal: IntegerRepresentation,
+    float_literal: FloatRepresentation,
     string_literal: TokenId,
     array_literal: ArrayLiteral,
 
-    symbol: SomSymbol,
+    /// The exact text of the identifier of this variable
+    /// can be extracted from the span of this expression.
+    symbol,
 
     exit_expression: struct { return_value: ExprId },
     assignment: struct { variable: TokenId, target_value: ExprId },
@@ -195,111 +398,168 @@ pub const Expression = union(enum) {
     block_literal: BlockLiteral,
 
     unary_message_call: struct { argument: ExprId, message: TokenId },
-    binary_message_call: struct { lhs: ExprId, rhs: ExprId, message: TokenId },
-    keyword_message_call: struct { first_argument: ExprId, args: []KeywordArgumentPair },
+    binary_message_call: RawBinaryMessageCall,
+    keyword_message_call: KeywordMessageCall,
 
-    pub fn span(self: *const Self, expressions: ExpressionList) TokenSpan {
-        return switch (self.*) {
-            .variable => |token_id| TokenSpan.at(token_id),
-            .integer_literal => |token_id| TokenSpan.at(token_id),
-            .float_literal => |token_id| TokenSpan.at(token_id),
-            .string_literal => |token_id| TokenSpan.at(token_id),
-            .array_literal => |info| info.span,
+    const Self = @This();
 
-            .symbol => |info| info.span,
+    pub fn tag(self: Self) std.meta.Tag(Self) {
+        return std.meta.activeTag(self);
+    }
+};
 
-            .assignment => |info| blk: {
-                const start_id: TokenId = info.variable;
-                const end_id: TokenId = expressions.at(info.target_value).span(expressions).end_id;
-                break :blk TokenSpan.create(start_id.idx, end_id.idx);
-            },
-            .exit_expression => |info| blk: {
-                const span_of_return_value: TokenSpan = expressions.at(info.return_value).span(expressions);
-                break :blk TokenSpan.create(
-                    span_of_return_value.start_id.idx - 1, // We have to account for the `^` token
-                    span_of_return_value.end_id.idx,
-                );
-            },
-            .block_literal => |info| info.span(),
+pub const KeywordMessageCall = struct {
+    const Self = @This();
+    first_argument: ExprId,
+    args_id: ExprSpanId,
 
-            .unary_message_call => |info| blk: {
-                const start_id: TokenId = expressions.at(info.argument).span(expressions).start_id;
-                const end_id: TokenId = info.message;
-                break :blk TokenSpan.create(start_id.idx, end_id.idx);
-            },
-            .binary_message_call => |info| blk: {
-                const start_id: TokenId = expressions.at(info.lhs).span(expressions).start_id;
-                const end_id: TokenId = expressions.at(info.rhs).span(expressions).end_id;
-                break :blk TokenSpan.create(start_id.idx, end_id.idx);
-            },
-            .keyword_message_call => |info| blk: {
-                const start_id: TokenId = expressions.at(info.first_argument).span(expressions).start_id;
-                //
-                const last_argument: ExprId = info.args[info.args.len - 1].argument;
-                const end_id: TokenId = expressions.at(last_argument).span(expressions).end_id;
-                //
-                break :blk TokenSpan.create(start_id.idx, end_id.idx);
-            },
-        };
+    /// Keywords are parsed together with `:` at the end
+    pub fn nth_keyword(self: Self, n: u32, extras: Extras) TokenId {
+        const args = self.get_args(extras);
+        return args.nth_keyword(n);
     }
 
-    // TODO:
-    //  - Add:
-    //      - block (lambda in SOM)
-    //      - array literals
-    //      - symbols (maybe)
-    //      - that's it?
-    //
-    //  - Consider:
-    //      Cases like `assignment` and `keyword_message_call` requires a lot of information.
-    //      Maybe their contents could be stored somewhere else (like a big array).
-    //      Actually, it might not matter, the expressions might get stored inside a `MultiArrayList`
-    //      (and if they got stored inside normal `ArrayList`, it would have been still fine *except* for the padding)
-    //
+    pub fn nth_argument(self: Self, n: u32, extras: Extras) ExprId {
+        const args = self.get_args(extras);
+        return args.nth_argument(n);
+    }
+
+    pub fn number_of_args(self: Self, extras: Extras) u32 {
+        const args = self.get_args(extras);
+        return args.number_of_args();
+    }
+
+    pub fn get_args(self: Self, extras: Extras) KeywordMessageArgs {
+        const span: []const ExprId = extras.variable_span_of(self.args_id);
+        return KeywordMessageArgs.create(span);
+    }
+};
+
+pub const KeywordMessageArgs = struct {
+    const Self = @This();
+    exprs_span: []const ExprId,
+
+    pub fn create(span: []const ExprId) Self {
+        assert(span.len > 0);
+        assert(span.len % 2 == 0);
+        return .{ .exprs_span = span };
+    }
+
+    pub fn number_of_args(self: Self) usize {
+        return self.exprs_span.len / 2;
+    }
+
+    pub fn nth_keyword(self: Self, n: u32) TokenId {
+        assert(n < self.number_of_args());
+        // We have to cast the `ExprId` into a `TokenId` here
+        // since it is stored that way.
+        return TokenId{ .idx = self.exprs_span[n * 2].idx };
+    }
+
+    pub fn nth_argument(self: Self, n: u32) ExprId {
+        assert(n < self.number_of_args());
+        return self.exprs_span[n * 2 + 1];
+    }
+};
+
+pub const RawBinaryMessageCall = struct {
+    const Self = @This();
+    info_id: FixedExprSpanId(3),
+
+    pub fn decompress(self: Self, extras: Extras) BinaryMessageCall {
+        const slice: []const ExprId = extras.fixed_span_of(self.info_id);
+        const lhs: ExprId = slice[0];
+        const rhs: ExprId = slice[1];
+        const operator: TokenId = TokenId.create(slice[2].idx);
+        return BinaryMessageCall{ .lhs = lhs, .rhs = rhs, .message = operator };
+    }
+};
+pub const BinaryMessageCall = struct {
+    const Self = @This();
+
+    lhs: ExprId,
+    rhs: ExprId,
+    message: TokenId,
+
+    pub fn compress_allocating(
+        self: Self,
+        allocator: Allocator,
+        extras: *Extras,
+    ) Allocator.Error!RawBinaryMessageCall {
+        const info: [3]ExprId = [3]ExprId{
+            self.lhs,
+            self.rhs,
+            ExprId{ .idx = self.message.idx },
+        };
+        const info_id: FixedExprSpanId(3) = try extras.add_fixed_span(allocator, 3, info);
+        return RawBinaryMessageCall{ .info_id = info_id };
+    }
 };
 
 pub const ArrayLiteral = struct {
-    // NOTE:
-    // We have to store the `span` separatelly in case it would be an empty array
-    // In other cases, we could extract the `span` from `elements`.
-    //
-    // So this type `ArrayLiteral` could also be an union (`empty` and `non_empty` array),
-    // but that would be probably too un-ergonomic.
-    //
-    // Also, it seems like we would not make the union `Expression` smaller
-    // (but that might matter if `ExpressionList` becomes "densly" packed).
-    //
-    span: TokenSpan,
-    elements: []ExprId,
+    elements: ExprSpanId,
 };
 
-pub const SomSymbol = struct {
-    span: TokenSpan,
+pub const BlockParameterIterator = struct {
+    const Self = @This();
+    next_token_id: TokenId,
+    tokens: []Token,
+
+    pub fn next(self: *Self) ?*Token {
+        if (self.next_token_id.idx >= self.tokens.len) {
+            return null;
+        }
+        const token: *Token = &self.tokens[self.next_token_id.idx];
+        if (token.tag() != .block_param) {
+            return null;
+        }
+        self.next_token_id.idx += 1;
+        return token;
+    }
 };
 
 pub const BlockLiteral = struct {
     const Self = @This();
 
-    /// `TokenId` of the starting `[`
-    start_token_id: TokenId,
-    paremeters: ?TokenSpan,
-    body: FunctionBody,
+    /// First token of the parameters for the block.
+    /// Used for inner implementation, use `parameters_start` method.
+    ///
+    /// If `impl_of_paremeters_start.idx == 0` then the block literal has no parameters.
+    /// This is an okay implementation, since the first token can never be a block parameter
+    ///   for multiple reasons (for example the first token must be the name of the class).
+    ///
+    impl_of_paremeters_start: TokenId,
+    body_id: FunctionBodyId,
 
-    pub fn span(self: *const Self) TokenSpan {
-        const body_span_end = blk: {
-            if (self.body.span) |body_span| break :blk body_span.end_id;
-            break :blk self.start_token_id;
+    pub fn create(first_parameter_token: ?TokenId, body_id: FunctionBodyId) BlockLiteral {
+        return BlockLiteral{
+            .impl_of_paremeters_start = first_parameter_token orelse TokenId.create(0),
+            .body_id = body_id,
         };
-
-        return TokenSpan.create(
-            self.start_token_id.idx,
-            body_span_end.idx + 1, // `+1` because we have to account for `]` after the block body
-        );
     }
-};
 
-pub const KeywordArgumentPair = struct {
-    /// Keyword contains even the parsed `:` at the end
-    keyword: TokenId,
-    argument: ExprId,
+    pub fn parameters_start(self: Self) ?TokenId {
+        if (self.impl_of_paremeters_start.idx == 0) return null;
+        return self.impl_of_paremeters_start;
+    }
+
+    pub fn iter_parameters(self: Self, tokens: []Token) BlockParameterIterator {
+        return BlockParameterIterator{
+            .tokens = tokens,
+            .next_token_id = self.impl_of_paremeters_start,
+        };
+    }
+
+    pub fn get_parameters(self: Self, tokens: []Token) ?TokenSpan {
+        var iter = self.iter_parameters(tokens);
+        const start_token = self.impl_of_paremeters_start;
+        _ = iter.next() orelse return null;
+
+        var last_token = start_token;
+        while (iter.next()) |_| {
+            last_token = last_token.plus(1);
+        }
+
+        return TokenSpan.create(start_token.idx, last_token.idx);
+    }
 };
