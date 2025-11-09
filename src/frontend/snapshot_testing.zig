@@ -2,6 +2,17 @@ const std = @import("std");
 pub const opts = @import("snapshot_test_options");
 const print = std.debug.print;
 
+const colors = @import("../terminal.zig");
+const RED = colors.RED;
+const GREEN = colors.GREEN;
+const YELLOW = colors.YELLOW;
+const BOLD = colors.BOLD;
+const RED_BG = colors.RED_BG;
+const FAINT = colors.FAINT;
+const ERR = colors.ERR;
+const WARN = colors.WARN;
+const RESET = colors.RESET;
+
 /// Both `out` and `err_out` will get flushed after the function returns.
 /// The callee does not have to flush them.
 ///
@@ -247,18 +258,7 @@ fn find_diff(
 }
 
 fn write_all_to_non_existing_filename(dir: std.fs.Dir, filename: []const u8, data: []const u8) !void {
-    const file = try dir.createFile(filename, .{});
+    var file = try dir.createFile(filename, .{});
+    defer file.close();
     try file.writeAll(data);
 }
-
-const RED = "\x1b[31m";
-const GREEN = "\x1b[32m";
-const YELLOW = "\x1b[33m";
-const BOLD = "\x1b[1m";
-const RED_BG = "\x1b[41m";
-const FAINT = "\x1b[2m";
-
-const ERR = RED ++ BOLD;
-const WARN = YELLOW ++ BOLD;
-
-const RESET = "\x1b[0m";

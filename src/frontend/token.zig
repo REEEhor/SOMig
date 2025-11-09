@@ -57,6 +57,10 @@ pub const CodePosition = struct {
     pub fn slice_from(self: *const Self, text: []const u8) []const u8 {
         return text[self.start_idx .. self.end_idx_inclusive() + 1];
     }
+
+    pub fn contains_byte_at(self: Self, byte_idx: usize) bool {
+        return self.start_idx <= byte_idx and byte_idx <= self.end_idx_inclusive();
+    }
 };
 
 pub const IntegerRepresentation = i64;

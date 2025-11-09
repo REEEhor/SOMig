@@ -822,8 +822,8 @@ pub const Parser = struct {
         // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
         self.reporter.report_error(
             .{ .pos = actual_token.pos },
-            "Unexpected token: {any}. Expected token {t}",
-            .{ actual_token, expected_tag },
+            "Unexpected token {t} '{s}'. Expected token '{t}'.",
+            .{ actual_token.tag(), self.text_at_pos(actual_token.pos), expected_tag },
         );
         return ParserError.unexpected_token;
     }
@@ -1099,9 +1099,14 @@ pub fn print_class_definition(
     const allocator = arena.allocator();
 
     var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
-    var lexer = Lexer.create(input, ErrorReporter{ .writer = err_writer }, &string_literals_manager);
+    var lexer = Lexer.create(input, ErrorReporter{
+        .writer = err_writer,
+        .use_color = false,
+        .source = input,
+        .source_path = null,
+    }, &string_literals_manager);
 
-    var parser = Parser.create(&lexer, ErrorReporter{ .writer = err_writer }, allocator) catch |init_error| {
+    var parser = Parser.create(&lexer, lexer.reporter, allocator) catch |init_error| {
         try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
         return;
     };

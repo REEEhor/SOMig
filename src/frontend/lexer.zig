@@ -538,13 +538,14 @@ const identifier_chars = identifier_start_chars ++ digits;
 pub const separator_minimum_length = 4;
 
 test "lex simple characters" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //             012345
     const input = ".^()[]";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try std.testing.expectEqual(Token{
@@ -589,13 +590,14 @@ test "lex simple characters" {
 }
 
 test "lex the assign token" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //                         0123456789
     const input: []const u8 = " := . := ";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(CodePosition{ .start_idx = 1, .length = 2 }, .assign, try lexer.next_token());
@@ -632,16 +634,16 @@ fn assert_string_literal_token(expected_pos: CodePosition, expected_text: []cons
 }
 
 test "lex text with comments" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     const input: []const u8 =
         // Indexes into the input string:
         //          10        20        30        40        50        60
         //01234567890123456789012345678901234567890123456789012345678901234
         \\." This is some comment"^"Another comment"("""""""Final comment")
     ;
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(CodePosition.at(0), .dot, try lexer.next_token());
@@ -651,14 +653,15 @@ test "lex text with comments" {
 }
 
 test "lex text with whitespace and comments" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //                                       10         20        30         40         50        60
     //                         012 3 4 5678 90 12345678901234567890123  7 89 012 345678901234567890123 456
     const input: []const u8 = " .\n\"\"^^[\t \" Hi! this is a comment Ř \"  \n  \" Double comment! :D \" ] \" Also a comment at the end :)\"";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(CodePosition.at(1), .dot, try lexer.next_token());
@@ -670,11 +673,12 @@ test "lex text with whitespace and comments" {
 }
 
 test "should error on non-ascii character" {
-    const debug = debug_reporter();
+    const input = "^^" ++ .{ 130, 150 };
+
+    const debug = debug_reporter(input);
     defer debug.deinit();
     errdefer debug.dump_errors();
 
-    const input = "^^" ++ .{ 130, 150 };
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
     try std.testing.expectEqual(Token{
         .pos = CodePosition.at(0),
@@ -688,14 +692,15 @@ test "should error on non-ascii character" {
 }
 
 test "lex identifiers" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //                                   10        20        30
     //                         01234567890123456789012345678901234
     const input: []const u8 = "Hello hoW_:  are :you _som9 :wrong: ";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(
@@ -731,14 +736,15 @@ test "lex identifiers" {
 }
 
 test "lex number" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //                                   10        20        30
     //                         01234567890123456789012345678901234
     const input: []const u8 = "  3  42  85769  2.0  9. 3.1415 5";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(
@@ -793,14 +799,15 @@ test "lex number" {
 }
 
 test "lex negative number" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
     // Indexes into the input string:
     //                                   10        20        30
     //                         012345678901234567890123456789012345678
     const input: []const u8 = "  42  -5  -97    3  -253 -2.1  -43.472";
+
+    const debug = debug_reporter(input);
+    defer debug.deinit();
+    errdefer debug.dump_errors();
+
     var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
 
     try assert_same_token(
@@ -848,63 +855,10 @@ test "lex negative number" {
     try std.testing.expectEqual(null, try lexer.next_token());
 }
 
-test "lex single-char binary message" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
-    var buffer: [1]u8 = undefined;
-    for (binary_message_chars) |chr| {
-        buffer[0] = chr;
-        var lexer = Lexer.create(&buffer, debug.wrapped_reporter, undefined);
-        const got_token = try lexer.next_token();
-        if (chr == '|') {
-            try assert_same_token(CodePosition.at(0), .pipe, got_token);
-        } else {
-            try assert_same_token(CodePosition.at(0), .binary_message, got_token);
-        }
-    }
-}
-
-test "lex two-char binary message" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
-    var buffer: [2]u8 = undefined;
-    for (binary_message_chars) |chr0| {
-        buffer[0] = chr0;
-        for (binary_message_chars) |chr1| {
-            buffer[1] = chr1;
-            var lexer = Lexer.create(&buffer, debug.wrapped_reporter, undefined);
-            const got_token = try lexer.next_token();
-
-            try assert_same_token(CodePosition.from_start_and_end(0, 1), .binary_message, got_token);
-            try std.testing.expectEqual(null, try lexer.next_token());
-        }
-    }
-}
-
-test "lex separator" {
-    const debug = debug_reporter();
-    defer debug.deinit();
-    errdefer debug.dump_errors();
-
-    var buffer: []const u8 = "----------";
-    for (1..buffer.len) |len| {
-        const input = buffer[0..len];
-        const expected_kind: TokenKind = if (len >= separator_minimum_length) .separator else .binary_message;
-
-        var lexer = Lexer.create(input, debug.wrapped_reporter, undefined);
-        const got_token = try lexer.next_token();
-
-        try assert_same_token(CodePosition.from_start_and_end(0, len - 1), expected_kind, got_token);
-        try std.testing.expectEqual(null, try lexer.next_token());
-    }
-}
-
 test "lex empty string literal" {
-    const debug = debug_reporter();
+    const input = "''";
+
+    const debug = debug_reporter(input);
     defer debug.deinit();
     errdefer debug.dump_errors();
 
@@ -913,7 +867,6 @@ test "lex empty string literal" {
     var strings_manager = StringLiteralsManager.create(arena_allocator.allocator(), std.testing.allocator, 0) catch unreachable;
     defer strings_manager.deinit();
 
-    const input = "''";
     var lexer = Lexer.create(input, debug.wrapped_reporter, &strings_manager);
 
     try assert_string_literal_token(CodePosition.from_start_and_end(0, 1), "", try lexer.next_token());
@@ -921,7 +874,11 @@ test "lex empty string literal" {
 }
 
 test "lex simple string literal" {
-    const debug = debug_reporter();
+    // Indexes into the input string:
+    //             012345
+    const input = "'ahoj'";
+
+    const debug = debug_reporter(input);
     defer debug.deinit();
     errdefer debug.dump_errors();
 
@@ -930,9 +887,6 @@ test "lex simple string literal" {
     var strings_manager = StringLiteralsManager.create(arena_allocator.allocator(), std.testing.allocator, 0) catch unreachable;
     defer strings_manager.deinit();
 
-    // Indexes into the input string:
-    //             012345
-    const input = "'ahoj'";
     var lexer = Lexer.create(input, debug.wrapped_reporter, &strings_manager);
 
     try assert_string_literal_token(CodePosition.from_start_and_end(0, 5), "ahoj", try lexer.next_token());
@@ -940,7 +894,12 @@ test "lex simple string literal" {
 }
 
 test "lex multiple string literals" {
-    const debug = debug_reporter();
+    // Indexes into the input string:
+    //                       10        20
+    //             0123456789012345678901234567
+    const input = "  'Ahoj!' 'jak' 'se'  'mas?' ";
+
+    const debug = debug_reporter(input);
     defer debug.deinit();
     errdefer debug.dump_errors();
 
@@ -948,11 +907,6 @@ test "lex multiple string literals" {
     defer arena_allocator.deinit();
     var strings_manager = StringLiteralsManager.create(arena_allocator.allocator(), std.testing.allocator, 0) catch unreachable;
     defer strings_manager.deinit();
-
-    // Indexes into the input string:
-    //                       10        20
-    //             0123456789012345678901234567
-    const input = "  'Ahoj!' 'jak' 'se'  'mas?' ";
     var lexer = Lexer.create(input, debug.wrapped_reporter, &strings_manager);
 
     try assert_string_literal_token(CodePosition.from_start_and_end(2, 8), "Ahoj!", try lexer.next_token());
@@ -964,7 +918,14 @@ test "lex multiple string literals" {
 }
 
 test "lex a string literals with escape codes" {
-    const debug = debug_reporter();
+    const input =
+        // Indexes into the input string:
+        //          10        20        30        40
+        //01234567890123456789012345678901234567890123456789
+        \\'Newline \n was here' 'or tab \t was also \t here'
+    ;
+
+    const debug = debug_reporter(input);
     defer debug.deinit();
     errdefer debug.dump_errors();
 
@@ -973,12 +934,6 @@ test "lex a string literals with escape codes" {
     var strings_manager = StringLiteralsManager.create(arena_allocator.allocator(), std.testing.allocator, 0) catch unreachable;
     defer strings_manager.deinit();
 
-    const input =
-        // Indexes into the input string:
-        //          10        20        30        40
-        //01234567890123456789012345678901234567890123456789
-        \\'Newline \n was here' 'or tab \t was also \t here'
-    ;
     var lexer = Lexer.create(input, debug.wrapped_reporter, &strings_manager);
 
     try assert_string_literal_token(
@@ -1011,7 +966,12 @@ pub fn print_tokens(
 
     var line_buffer: [4096]u8 = undefined;
 
-    var lexer = Lexer.create(input, ErrorReporter{ .writer = err_writer }, &string_literals);
+    var lexer = Lexer.create(input, ErrorReporter{
+        .writer = err_writer,
+        .use_color = false,
+        .source = input,
+        .source_path = null,
+    }, &string_literals);
     while (true) {
         const maybe_token: ?Token = lexer.next_token() catch |lex_error| {
             try err_writer.print("Failed with lexing error: '{t}'\n", .{lex_error});

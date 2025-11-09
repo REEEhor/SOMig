@@ -1,5 +1,9 @@
 
 ======== ERROR OUTPUT FROM THE PROGRAM ========
 
-[ERROR at 129..137] Unexpected token: .{ .kind = .{ .identifier = void }, .pos = .{ .start_idx = 129, .length = 9 } }. Expected token open_parenthesis
+[ERROR at line:5 column:19]
+Unexpected token identifier 'primitive'. Expected token 'open_parenthesis'.
+         |
+ line: 5 | internalMethod = primitive
+         |                  ^^^^^^^^^
 Failed with parse error: 'unexpected_token'

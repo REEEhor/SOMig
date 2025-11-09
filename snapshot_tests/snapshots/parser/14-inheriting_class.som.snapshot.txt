@@ -1,5 +1,9 @@
 
 ======== ERROR OUTPUT FROM THE PROGRAM ========
 
-[ERROR at 10..20] Unexpected token: .{ .kind = .{ .identifier = void }, .pos = .{ .start_idx = 10, .length = 11 } }. Expected token open_parenthesis
+[ERROR at line:1 column:11]
+Unexpected token identifier 'ExampleBase'. Expected token 'open_parenthesis'.
+         |
+ line: 1 |Example = ExampleBase
+         |          ^^^^^^^^^^^
 Failed with parse error: 'unexpected_token'
