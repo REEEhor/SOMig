@@ -43,8 +43,8 @@ AST of the class [  0..254]'Simple'
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [233..244](id=18) Unary message 'print' to the object:
-					- [233..237](id=17) Binary message call '+', with lhs:
+				- [232..244](id=18) Unary message 'print' to the object:
+					- [232..238](id=17) Binary message call '+', with lhs:
 						- [233..233](id=15) Integer literal(2)
 					  and rhs:
 						- [237..237](id=16) Integer literal(5)

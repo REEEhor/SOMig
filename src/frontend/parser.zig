@@ -676,11 +676,10 @@ pub const Parser = struct {
                 const inner_expression: ExprId = try self.parse_expression();
                 _ = try self.eat_token(.close_parenthesis);
 
-                // TODO: uncomment this after refactor and passing of snapshot tests
-                // // Adjust the span of the inner expression, since it is surrounded by parenthesis
-                // const original_span = self.span_of(inner_expression);
-                // const new_span = TokenSpan.create(original_span.start_id.idx - 1, original_span.end_id.idx + 1);
-                // self.expressions.set_span_of(inner_expression, self.span_of(new_span));
+                // Adjust the span of the inner expression, since it is surrounded by parenthesis
+                const original_span = self.span_of(inner_expression);
+                const new_span = TokenSpan.create(original_span.start_id.idx - 1, original_span.end_id.idx + 1);
+                self.expressions.set_span_of(inner_expression, new_span);
 
                 return inner_expression;
             },

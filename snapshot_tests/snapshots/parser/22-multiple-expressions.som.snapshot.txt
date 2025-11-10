@@ -51,8 +51,8 @@ AST of the class [  0..343]'TestedClass'
 					- [273..276](id=15) Variable(arr2)
 				  and argument pairs:
 					- Keyword 'updateAtIdx:' and arg:
-						- [292..300](id=19) Unary message 'sum' to the object:
-							- [292..295](id=18) Binary message call ',', with lhs:
+						- [291..300](id=19) Unary message 'sum' to the object:
+							- [291..296](id=18) Binary message call ',', with lhs:
 								- [292..292](id=16) Integer literal(1)
 							  and rhs:
 								- [295..295](id=17) Integer literal(2)

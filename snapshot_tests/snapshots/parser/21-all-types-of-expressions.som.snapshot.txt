@@ -32,22 +32,22 @@ AST of the class [  0..312]'TestedClass'
 		(no locals)
 		Expressions:
 			Expression #1:
-				- [176..301](id=19) Keyword message call on object:
+				- [176..302](id=19) Keyword message call on object:
 					- [176..188](id=8) Variable(personFactory)
 				  and argument pairs:
 					- Keyword 'create:' and arg:
 						- [211..216](id=9) String literal(John)
 					- Keyword 'withSurname:' and arg:
-						- [245..266](id=13) Unary message 'concat' to the object:
-							- [245..258](id=12) Binary message call ',', with lhs:
+						- [244..266](id=13) Unary message 'concat' to the object:
+							- [244..259](id=12) Binary message call ',', with lhs:
 								- [245..251](id=10) String literal(Peter)
 							  and rhs:
 								- [254..258](id=11) String literal(son)
 					- Keyword 'withAge:' and arg:
-						- [290..301](id=18) Binary message call '+', with lhs:
+						- [290..302](id=18) Binary message call '+', with lhs:
 							- [290..291](id=14) Integer literal(10)
 						  and rhs:
-							- [296..301](id=17) Binary message call '*', with lhs:
+							- [295..302](id=17) Binary message call '*', with lhs:
 								- [296..296](id=15) Integer literal(1)
 							  and rhs:
 								- [300..301](id=16) Integer literal(30)

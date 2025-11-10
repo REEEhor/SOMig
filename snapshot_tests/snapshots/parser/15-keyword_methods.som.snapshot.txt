@@ -36,8 +36,8 @@ AST of the class [  0..605]'Example'
 				- [219..241](id=12) Assignment of 'arr' to:
 					- [226..241](id=11) Variable(arrayOfArguments)
 			Expression #2:
-				- [248..600](id=56) Keyword message call on object:
-					- [248..262](id=16) Binary message call '==', with lhs:
+				- [247..600](id=56) Keyword message call on object:
+					- [247..263](id=16) Binary message call '==', with lhs:
 						- [248..257](id=14) Unary message 'length' to the object:
 							- [248..250](id=13) Variable(arr)
 					  and rhs:
@@ -49,18 +49,18 @@ AST of the class [  0..605]'Example'
 								(no locals)
 								Expressions:
 									Expression #1:
-										- [279..327](id=25) Exit expression with return value:
-											- [280..327](id=24) Keyword message call on object:
+										- [279..328](id=25) Exit expression with return value:
+											- [280..328](id=24) Keyword message call on object:
 												- [280..283](id=17) Variable(self)
 											  and argument pairs:
 												- Keyword 'someMethod:' and arg:
-													- [298..306](id=20) Keyword message call on object:
+													- [297..307](id=20) Keyword message call on object:
 														- [298..300](id=18) Variable(arr)
 													  and argument pairs:
 														- Keyword 'at:' and arg:
 															- [306..306](id=19) Integer literal(1)
 												- Keyword 'withArg:' and arg:
-													- [319..327](id=23) Keyword message call on object:
+													- [318..328](id=23) Keyword message call on object:
 														- [319..321](id=21) Variable(arr)
 													  and argument pairs:
 														- Keyword 'at:' and arg:
@@ -71,8 +71,8 @@ AST of the class [  0..605]'Example'
 								(no locals)
 								Expressions:
 									Expression #1:
-										- [351..581](id=54) Keyword message call on object:
-											- [351..365](id=30) Binary message call '==', with lhs:
+										- [350..581](id=54) Keyword message call on object:
+											- [350..366](id=30) Binary message call '==', with lhs:
 												- [351..360](id=28) Unary message 'length' to the object:
 													- [351..353](id=27) Variable(arr)
 											  and rhs:
@@ -84,24 +84,24 @@ AST of the class [  0..605]'Example'
 														(no locals)
 														Expressions:
 															Expression #1:
-																- [384..459](id=42) Exit expression with return value:
-																	- [385..459](id=41) Keyword message call on object:
+																- [384..460](id=42) Exit expression with return value:
+																	- [385..460](id=41) Keyword message call on object:
 																		- [385..388](id=31) Variable(self)
 																	  and argument pairs:
 																		- Keyword 'someMethod:' and arg:
-																			- [403..411](id=34) Keyword message call on object:
+																			- [402..412](id=34) Keyword message call on object:
 																				- [403..405](id=32) Variable(arr)
 																			  and argument pairs:
 																				- Keyword 'at:' and arg:
 																					- [411..411](id=33) Integer literal(1)
 																		- Keyword 'withArg:' and arg:
-																			- [424..432](id=37) Keyword message call on object:
+																			- [423..433](id=37) Keyword message call on object:
 																				- [424..426](id=35) Variable(arr)
 																			  and argument pairs:
 																				- Keyword 'at:' and arg:
 																					- [432..432](id=36) Integer literal(2)
 																		- Keyword 'andAnotherArg:' and arg:
-																			- [451..459](id=40) Keyword message call on object:
+																			- [450..460](id=40) Keyword message call on object:
 																				- [451..453](id=38) Variable(arr)
 																			  and argument pairs:
 																				- Keyword 'at:' and arg:
@@ -118,10 +118,10 @@ AST of the class [  0..605]'Example'
 																	  and argument pairs:
 																		- Keyword 'error:' and arg:
 																			- [492..569](id=50) Binary message call '+', with lhs:
-																				- [492..527](id=48) Binary message call '+', with lhs:
+																				- [492..528](id=48) Binary message call '+', with lhs:
 																					- [492..513](id=45) String literal(Array has length of )
 																				  and rhs:
-																					- [518..527](id=47) Unary message 'length' to the object:
+																					- [517..528](id=47) Unary message 'length' to the object:
 																						- [518..520](id=46) Variable(arr)
 																			  and rhs:
 																				- [532..569](id=49) String literal(, but valid length is either 2 or 3.)
