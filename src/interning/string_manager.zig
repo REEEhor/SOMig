@@ -1,33 +1,45 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 
-/// Unique identifier for a string
-pub const StringId = u64;
+const debug_module = @import("../debug/debug.zig");
+const dbg = debug_module.dbg;
+const dbg_nl = debug_module.dbg_nl;
+const dbgx = debug_module.dbgx;
 
+/// Unique identifier for a string
+pub const StringId = struct {
+    idx: u64,
+    pub fn new(idx: u64) StringId {
+        return .{ .idx = idx };
+    }
+};
+
+// TODO(cleanup): this is probably not correct (storing so many allocators),
+// but it is not a problem to change this later
 pub const StringManager = struct {
     const Self = @This();
-    const StringToIndexMap = std.StringHashMapUnmanaged(StringId);
-    const IndexToStringMap = std.ArrayListUnmanaged([]const u8);
+    pub const StringToIdMap = std.StringHashMapUnmanaged(StringId);
+    pub const IdToStringMap = std.ArrayListUnmanaged([]const u8);
 
-    map_arena: Arena,
-    list_arena: Arena,
-    string_arena: Arena,
+    map_arena: *Arena,
+    list_arena: *Arena,
+    string_arena: *Arena,
 
     map_allocator: Allocator,
     list_allocator: Allocator,
     string_allocator: Allocator,
 
-    string_to_id_map: StringToIndexMap,
-    id_to_string_map: IndexToStringMap,
+    string_to_id_map: StringToIdMap,
+    id_to_string_map: IdToStringMap,
 
     pub fn create(
-        map_arena: Arena,
-        list_arena: Arena,
-        string_arena: Arena,
+        map_arena: *Arena,
+        list_arena: *Arena,
+        string_arena: *Arena,
         init_list_capacity: usize,
     ) !StringManager {
-        // TODO(cleanup): this is probably not correct (with storing so many allocators), but it is not a problem to change this later
         var manager = StringManager{
             .map_arena = map_arena,
             .list_arena = list_arena,
@@ -37,7 +49,7 @@ pub const StringManager = struct {
             .list_allocator = undefined,
             .string_allocator = undefined,
 
-            .string_to_id_map = StringToIndexMap.empty,
+            .string_to_id_map = StringToIdMap.empty,
             .id_to_string_map = undefined,
         };
 
@@ -45,7 +57,7 @@ pub const StringManager = struct {
         manager.list_allocator = manager.list_arena.allocator();
         manager.string_allocator = manager.string_arena.allocator();
 
-        manager.id_to_string_map = try IndexToStringMap.initCapacity(manager.list_allocator, init_list_capacity);
+        manager.id_to_string_map = try IdToStringMap.initCapacity(manager.list_allocator, init_list_capacity);
 
         return manager;
     }
@@ -56,7 +68,7 @@ pub const StringManager = struct {
         self.string_arena.deinit();
     }
 
-    const InternResult = struct { id: StringId, was_new: bool };
+    pub const InternResult = struct { id: StringId, was_new: bool };
 
     /// Looks up the unique `StringId` for a string.
     /// If the string has not yet been interned, it will be added to the `StringManager` and a new `StringId` will be returned.
@@ -68,7 +80,7 @@ pub const StringManager = struct {
 
         // Create a new owned string and add it to the ArrayList and HashMap
         const owned_string = try self.string_allocator.dupe(u8, string);
-        const new_id = self.id_to_string_map.items.len;
+        const new_id = StringId{ .idx = self.id_to_string_map.items.len };
         //
         lookup_result.key_ptr.* = owned_string;
         lookup_result.value_ptr.* = new_id;
@@ -78,54 +90,62 @@ pub const StringManager = struct {
         return .{ .id = new_id, .was_new = true };
     }
 
-    pub fn string_with_id(self: *const Self, id: StringId) ?[]const u8 {
-        if (id >= self.id_to_string_map.items.len) {
+    pub fn string_with_id_or_null(self: Self, id: StringId) ?[]const u8 {
+        if (id.idx >= self.id_to_string_map.items.len) {
+            @branchHint(.unlikely);
             return null;
         }
-        return self.id_to_string_map.items[id];
+        return self.id_to_string_map.items[id.idx];
+    }
+
+    pub fn string_with_id(self: Self, id: StringId) []const u8 {
+        assert(id.idx < self.id_to_string_map.items.len);
+        return self.id_to_string_map.items[id.idx];
     }
 };
 
-fn create_manager_for_tests() !StringManager {
-    const manager = try StringManager.create(
-        Arena.init(std.testing.allocator),
-        Arena.init(std.testing.allocator),
-        Arena.init(std.testing.allocator),
-        0,
-    );
-    return manager;
-}
-
-fn expect_lookup(expected: StringManager.InternResult, actual: StringManager.InternResult) !void {
-    try std.testing.expectEqual(expected.id, actual.id);
-    try std.testing.expectEqual(expected.was_new, actual.was_new);
-}
+const testing = struct {
+    pub fn expect_lookup(expected_idx: usize, expected_was_new: bool, actual: StringManager.InternResult) !void {
+        try std.testing.expectEqual(expected_idx, actual.id.idx);
+        try std.testing.expectEqual(expected_was_new, actual.was_new);
+    }
+};
 
 test "interining" {
-    var manager = try create_manager_for_tests();
+    const expect_lookup = testing.expect_lookup;
+
+    var arenas = .{
+        Arena.init(std.testing.allocator),
+        Arena.init(std.testing.allocator),
+        Arena.init(std.testing.allocator),
+    };
+    var manager = try StringManager.create(&arenas.@"0", &arenas.@"1", &arenas.@"2", 0);
     defer manager.deinit();
 
-    for (0..5) |id| {
-        try std.testing.expectEqual(manager.string_with_id(id), null);
+    for (0..5) |idx| {
+        const id = StringId.new(idx);
+        try std.testing.expectEqual(manager.string_with_id_or_null(id), null);
     }
 
-    try expect_lookup(.{ .id = 0, .was_new = true }, try manager.id_or_intern("Test"));
-    try std.testing.expectEqualStrings("Test", manager.string_with_id(0).?);
-    try expect_lookup(.{ .id = 0, .was_new = false }, try manager.id_or_intern("Test"));
-    try expect_lookup(.{ .id = 0, .was_new = false }, try manager.id_or_intern("Test"));
-    try std.testing.expectEqualStrings("Test", manager.string_with_id(0).?);
+    try expect_lookup(0, true, try manager.id_or_intern("Test"));
+    try std.testing.expectEqualStrings("Test", manager.string_with_id(StringId.new(0)));
+    try expect_lookup(0, false, try manager.id_or_intern("Test"));
+    try expect_lookup(0, false, try manager.id_or_intern("Test"));
+    try std.testing.expectEqualStrings("Test", manager.string_with_id(StringId.new(0)));
 
-    for (1..5) |id| {
-        try std.testing.expectEqual(manager.string_with_id(id), null);
+    for (1..5) |idx| {
+        const id = StringId.new(idx);
+        try std.testing.expectEqual(manager.string_with_id_or_null(id), null);
     }
 
-    try expect_lookup(.{ .id = 1, .was_new = true }, try manager.id_or_intern("Som"));
-    try std.testing.expectEqualStrings("Som", manager.string_with_id(1).?);
-    try expect_lookup(.{ .id = 1, .was_new = false }, try manager.id_or_intern("Som"));
-    try expect_lookup(.{ .id = 1, .was_new = false }, try manager.id_or_intern("Som"));
-    try std.testing.expectEqualStrings("Som", manager.string_with_id(1).?);
+    try expect_lookup(1, true, try manager.id_or_intern("Som"));
+    try std.testing.expectEqualStrings("Som", manager.string_with_id_or_null(StringId.new(1)).?);
+    try expect_lookup(1, false, try manager.id_or_intern("Som"));
+    try expect_lookup(1, false, try manager.id_or_intern("Som"));
+    try std.testing.expectEqualStrings("Som", manager.string_with_id_or_null(StringId.new(1)).?);
 
-    for (2..5) |id| {
-        try std.testing.expectEqual(manager.string_with_id(id), null);
+    for (2..5) |idx| {
+        const id = StringId.new(idx);
+        try std.testing.expectEqual(manager.string_with_id_or_null(id), null);
     }
 }

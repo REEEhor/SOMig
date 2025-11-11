@@ -57,5 +57,6 @@ pub fn main() !void {
 // are recursively imported from here.
 test {
     _ = @import("frontend/parser.zig");
+    _ = @import("interning/string_manager.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
