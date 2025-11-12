@@ -367,10 +367,6 @@ fn FixedExprSpanId(comptime span_lenght: comptime_int) type {
     };
 }
 
-comptime {
-    // TODO: assert that all fiel payloads of `Expression` are at most u32 bits long
-}
-
 pub const SpannedExpr = struct {
     expr: Expression,
     span: TokenSpan,
@@ -563,3 +559,20 @@ pub const BlockLiteral = struct {
         return TokenSpan.create(start_token.idx, last_token.idx);
     }
 };
+
+comptime {
+    // The maximum available space for a union field is the space for two 32 bit integers.
+    const max_payload_size_bytes = (2 * 32) / 8;
+
+    const expression_fields = @typeInfo(Expression).@"union".fields;
+    for (expression_fields) |field| {
+        const field_size = @sizeOf(field.type);
+        if (field_size > max_payload_size_bytes) {
+            const err = std.fmt.comptimePrint(
+                "The field `{s}` in `{s}` has size {d} bytes, which is more than the maximum {d} bytes.",
+                .{ field.name, @typeName(Expression), field_size, max_payload_size_bytes },
+            );
+            @compileError(err);
+        }
+    }
+}
