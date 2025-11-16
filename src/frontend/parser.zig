@@ -623,13 +623,14 @@ pub const Parser = struct {
         return result_expr_id;
     }
 
-    fn pos_of(self: *Self, id: anytype) CodePosition {
+    pub fn pos_of(self: *Self, id: anytype) CodePosition {
         return switch (@TypeOf(id)) {
+            *TokenSpan, TokenSpan => id.to_pos(self.tokens),
             *Token, Token => id.pos,
-            ExprId => self.span_of(id).to_pos(self.tokens),
-            TokenId => self.tokens[id.idx].pos,
+            *ExprId, ExprId => self.span_of(id).to_pos(self.tokens),
+            *TokenId, TokenId => self.tokens[id.idx].pos,
             else => |T| @compileError(
-                "The method `pos_of` takes either `ExprId` or `TokenId`. Got: `" ++ @typeName(T) ++ "`",
+                "The method `pos_of` takes either `ExprId`, `TokenId` or `TokenSpan`. Got: `" ++ @typeName(T) ++ "`",
             ),
         };
     }
@@ -839,7 +840,7 @@ pub const Parser = struct {
         return self.expressions.span_of(id);
     }
 
-    fn text_at(self: *Self, id: anytype) []const u8 {
+    pub fn text_at(self: *Self, id: anytype) []const u8 {
         const pos = self.pos_of(id);
         return self.text_at_pos(pos);
     }
@@ -881,7 +882,7 @@ pub const Parser = struct {
         return self.assert_token(actual_token, expected_tag);
     }
 
-    fn token_payload(self: *Self, id: TokenId, comptime token_tag: TokenKindTag) PayloadWithPos(token_tag) {
+    pub fn token_payload(self: *Self, id: TokenId, comptime token_tag: TokenKindTag) PayloadWithPos(token_tag) {
         const token: *Token = &self.tokens[id.idx];
 
         switch (token.kind) {
