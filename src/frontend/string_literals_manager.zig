@@ -5,9 +5,12 @@ pub const Error = error{OutOfMemory};
 pub const StringLiteralsManager = struct {
     const Self = @This();
 
+    /// Allocator which will be used to store all the managed strings.
     string_allocator: Allocator,
 
+    /// Allocator used for allocations for `single_literal_buffer`.
     buffer_allocator: Allocator,
+    /// Buffer for a literal that is currently being created.
     single_literal_buffer: std.ArrayList(u8),
 
     pub fn create(
