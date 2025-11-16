@@ -377,6 +377,10 @@ pub const SpannedExpr = struct {
 pub const Expression = union(enum) {
     /// The exact text of the identifier of this variable
     /// can be extracted from the span of this expression.
+    ///
+    /// TODO(speed): it could actually be stored here as `TokenId`.
+    /// That way, we wouldn't have to look up span and it could stay out of the cache.
+    /// Since variable access is really common, this could speed up compilation.
     variable,
 
     integer_literal: IntegerRepresentation,
@@ -386,6 +390,9 @@ pub const Expression = union(enum) {
 
     /// The exact text of the identifier of this variable
     /// can be extracted from the span of this expression.
+    ///
+    /// TODO(speed): it could actually be stored here as a `TokenSpan`.
+    /// That way, we wouldn't have to look up span and it could stay out of the cache.
     symbol,
 
     exit_expression: struct { return_value: ExprId },
