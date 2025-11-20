@@ -11,6 +11,11 @@ const StringInterningManager = @import("interning/string_manager.zig").StringMan
 
 const codegen = @import("frontend/codegen.zig");
 
+const interpreter_module = @import("interpreter/interpreter.zig");
+const Interpreter = interpreter_module.Interpreter;
+const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
+const primitives = interpreter_module.primitives;
+
 const defs = @import("custom_definitions/definitions.zig");
 const int = defs.int;
 const uint = defs.uint;
@@ -35,6 +40,38 @@ pub fn main() !void {
     try playground(allocator);
 }
 
+fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const filepath = args[2];
+    var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
+        std.debug.print("Could not open the file '{s}'\n", .{filepath});
+        return err;
+    };
+    defer file.close();
+    const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
+        std.debug.print("Could not read the entire file due to size limits\n", .{});
+        return err;
+    };
+    defer gpa.free(file_contents);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout = &stdout_writer.interface;
+    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
+
+    var stderr_buffer: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr = &stderr_writer.interface;
+    defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
+
+    // TODO: cleanup: make the `print_tokens` function somehow report an error, so that we can return it from this `main` function.
+    try lexer_module.print_tokens(file_contents, gpa, stdout, stderr);
+    return;
+}
+
 fn playground(allocator: std.mem.Allocator) !void {
     const code =
         \\
@@ -45,13 +82,19 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          5 + 3.
         \\          1000.0 - 0.01.
         \\          'I want ' + 98 + ' ice-creams.'.
+        \\          10.0 / 0.0.
+        \\          10 / 4.
+        \\          '\'5 + 3 * 2.0 + 3\' is ' + (5 + 3 * 2.0 + 3).
+        \\          4 asString + 2.
         \\      )
         \\  )
         \\
     ;
 
+    const buffers_length = 0;
+
     // Setup stdout
-    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_buffer: [buffers_length]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var stdout: *std.io.Writer = &stdout_writer.interface;
     defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
@@ -112,40 +155,33 @@ fn playground(allocator: std.mem.Allocator) !void {
     const bytecode: codegen.Bytecode = bytecode_generator.builder.view_bytecode();
 
     // Print bytecode
-    try stdout.print("=" ** 20 ++ "Playground" ++ "=" ** 20 ++ "\n", .{});
+    try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
     try codegen.print_bytecode(&string_interning_manager, &constants_manager, bytecode, stdout);
-}
 
-fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const gpa = arena.allocator();
+    // Setup interpreter
+    var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer interpreter_arena.deinit();
+    const interpreter_allocator = interpreter_arena.allocator();
+    //
+    const primitive_methods_map = try PrimitiveMethodsMap.init_from(interpreter_allocator, primitives, &string_interning_manager);
+    //
+    var instruction_decoder = codegen.InstructionDecoder.new(bytecode);
+    //
+    var interpreter = Interpreter.new(
+        interpreter_allocator,
+        &instruction_decoder,
+        &constants_manager,
+        &string_interning_manager,
+        stdout,
+        stdout,
+        primitive_methods_map,
+    );
+    //
+    try interpreter.TODO_REMOVE_THIS__add_implementations_of_primitive_classes();
 
-    const filepath = args[2];
-    var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
-        std.debug.print("Could not open the file '{s}'\n", .{filepath});
-        return err;
-    };
-    defer file.close();
-    const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
-        std.debug.print("Could not read the entire file due to size limits\n", .{});
-        return err;
-    };
-    defer gpa.free(file_contents);
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    var stdout = &stdout_writer.interface;
-    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
-
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    var stderr = &stderr_writer.interface;
-    defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
-
-    // TODO: cleanup: make the `print_tokens` function somehow report an error, so that we can return it from this `main` function.
-    try lexer_module.print_tokens(file_contents, gpa, stdout, stderr);
-    return;
+    // Run the program
+    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
+    try interpreter.run();
 }
 
 // Forcing for `zig build test` to run tests in all files that

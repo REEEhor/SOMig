@@ -90,6 +90,10 @@ pub const StringManager = struct {
         return .{ .id = new_id, .was_new = true };
     }
 
+    pub fn id_of(self: Self, string: []const u8) ?StringId {
+        return self.string_to_id_map.get(string);
+    }
+
     pub fn string_with_id_or_null(self: Self, id: StringId) ?[]const u8 {
         if (id.idx >= self.id_to_string_map.items.len) {
             @branchHint(.unlikely);
