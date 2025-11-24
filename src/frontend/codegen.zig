@@ -308,7 +308,7 @@ pub const InstructionEncoder = struct {
 
     fn write_integer(self: *Self, allocator: Allocator, int: anytype) Allocator.Error!void {
         const IntegerType = @TypeOf(int);
-        const byte_count = @sizeOf(IntegerType);
+        const byte_count = @typeInfo(IntegerType).int.bits / 8;
 
         var bytes: [byte_count]u8 = undefined;
         std.mem.writeInt(IntegerType, &bytes, int, .little);
@@ -528,13 +528,13 @@ test InstructionEncoder {
     try std.testing.expectEqual(9, id.idx);
     try std.testing.expectEqualSlices(
         u8,
-        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 },
+        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0 },
         encoder.view_bytecode().bytes,
     );
 }
 
 test InstructionDecoder {
-    const bytes = [_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 };
+    const bytes = [_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0 };
     const expected_instructions = [_]Instruction{
         .no_op,
         .no_op,

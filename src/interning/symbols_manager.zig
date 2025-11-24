@@ -27,8 +27,23 @@ const dbgx = debug_module.dbgx;
 /// In a similiar way as other virtual machine objects are.
 ///
 pub const SymbolId = struct {
-    idx: u64,
-    pub fn new(idx: u64) SymbolId {
+    ///
+    /// Index into an array of symbols in `SymbolsManager`.
+    ///
+    /// A 24 bit index should be enough, it gives us 2^24 = ~16.8 million possible values.
+    /// That should be enough for any application written in SOM.
+    ///
+    /// Even if every line in a SOM source code contained 16 symbols, there could be a codebase with over one million rows.
+    /// Also, the symbols would have to be *unique*, which increases the options even more.
+    ///
+    /// On the other hand, having only 24 bit identifier is nice for storing that in instructions.
+    /// For example, the `send_message` instruction can be 32 bits in total (1 byte tag, rest `SymbolId`).
+    /// Which is actually important, since that is probably the most common instruction in the whole SOM.
+    ///
+    idx: IdRepr,
+    pub const IdRepr = u24;
+
+    pub fn new(idx: u24) SymbolId {
         return .{ .idx = idx };
     }
 };
@@ -94,13 +109,19 @@ pub const SymbolsManager = struct {
             return .{ .id = lookup_result.value_ptr.*, .was_new = false };
         }
 
+        // The symbol is not registered.
         // Create a new owned string and add it to the ArrayList and HashMap
         const owned_string = try self.string_allocator.dupe(u8, symbol);
-        const new_id = SymbolId{ .idx = self.id_to_string_map.items.len };
-        //
+
+        assert(self.id_to_string_map.items.len <= std.math.maxInt(SymbolId.IdRepr));
+        const symbol_idx: SymbolId.IdRepr = @truncate(self.id_to_string_map.items.len);
+        const new_id = SymbolId{ .idx = symbol_idx };
+
+        // Add it to the HashMap
         lookup_result.key_ptr.* = owned_string;
         lookup_result.value_ptr.* = new_id;
-        //
+
+        // Add it to the ArrayList
         try self.id_to_string_map.append(self.list_allocator, owned_string);
 
         return .{ .id = new_id, .was_new = true };
@@ -143,7 +164,7 @@ test "interining" {
     defer manager.deinit();
 
     for (0..5) |idx| {
-        const id = SymbolId.new(idx);
+        const id = SymbolId.new(@truncate(idx));
         try std.testing.expectEqual(manager.symbol_with_id_or_null(id), null);
     }
 
@@ -154,7 +175,7 @@ test "interining" {
     try std.testing.expectEqualStrings("Test", manager.symbol_with_id(SymbolId.new(0)));
 
     for (1..5) |idx| {
-        const id = SymbolId.new(idx);
+        const id = SymbolId.new(@truncate(idx));
         try std.testing.expectEqual(manager.symbol_with_id_or_null(id), null);
     }
 
@@ -165,7 +186,7 @@ test "interining" {
     try std.testing.expectEqualStrings("Som", manager.symbol_with_id_or_null(SymbolId.new(1)).?);
 
     for (2..5) |idx| {
-        const id = SymbolId.new(idx);
+        const id = SymbolId.new(@truncate(idx));
         try std.testing.expectEqual(manager.symbol_with_id_or_null(id), null);
     }
 }
