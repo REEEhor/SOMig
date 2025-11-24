@@ -16,6 +16,7 @@ const FAINT: []const u8 = colors.FAINT;
 const ERR: []const u8 = colors.ERR;
 const WARN: []const u8 = colors.WARN;
 const RESET: []const u8 = colors.RESET;
+const CYAN: []const u8 = colors.CYAN;
 const NO_COLOR: []const u8 = "";
 
 pub const ReportPosition = union(enum) {
@@ -53,12 +54,12 @@ pub const ErrorReporter = struct {
     pub fn add_note(self: *Self, position: ReportPosition, comptime fmt: []const u8, args: anytype) void {
         // Once the errors are structs (if they ever will be??), this will add some hint info on the last struct.
         switch (position) {
-            .eof => self.report_internal_eof("NOTE", fmt, args, GREEN),
+            .eof => self.report_internal_eof("NOTE", fmt, args, CYAN),
             .no_location => {
-                self.color_print("[NOTE] ", .{}, GREEN);
+                self.color_print("[NOTE] ", .{}, CYAN);
                 self.print(fmt ++ "\n", args);
             },
-            .pos => |pos| self.report_internal(pos, "NOTE", fmt, args, GREEN),
+            .pos => |pos| self.report_internal(pos, "NOTE", fmt, args, CYAN),
         }
     }
 
@@ -121,7 +122,7 @@ pub const ErrorReporter = struct {
         highlight_color: []const u8,
     ) void {
         const main_color: []const u8 = if (self.use_color) highlight_color else NO_COLOR;
-        const faint_color: []const u8 = if (self.use_color) FAINT else NO_COLOR;
+        const faint_color: []const u8 = if (self.use_color) RESET ++ FAINT else NO_COLOR;
         const color_reset: []const u8 = if (self.use_color) RESET else NO_COLOR;
 
         const location = location_from_position(position, self.source);
@@ -172,9 +173,11 @@ pub const ErrorReporter = struct {
 
         // Add dots at the end in case the error is multiline
         if (location.is_multi_line()) {
-            self.print("{s} ...{s}", .{ faint_color, color_reset });
+            self.print("{s} ...", .{faint_color});
         }
         self.write('\n');
+        self.print("{s}", .{color_reset});
+
         // Print the underline
         self.print("{s}", .{faint_color});
         for (0..line_id_len + 8) |_| self.write(' ');

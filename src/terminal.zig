@@ -2,6 +2,8 @@ pub const RED = "\x1b[31m";
 pub const GREEN = "\x1b[32m";
 pub const YELLOW = "\x1b[33m";
 pub const BOLD = "\x1b[1m";
+pub const CYAN = "\x1b[36m";
+
 pub const RED_BG = "\x1b[41m";
 pub const FAINT = "\x1b[2m";
 
