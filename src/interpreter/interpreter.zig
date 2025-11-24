@@ -10,9 +10,9 @@ const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
 const dbgx = debug_module.dbgx;
 
-const interning_module = @import("../interning/string_manager.zig");
-const StringManager = interning_module.StringManager;
-const StringId = interning_module.StringId;
+const interning_module = @import("../interning/symbols_manager.zig");
+const SymbolsManager = interning_module.SymbolsManager;
+const SymbolId = interning_module.SymbolId;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const InstructionDecoder = codegen_module.InstructionDecoder;
@@ -29,7 +29,7 @@ pub const stack_size = 4096;
 pub const Interpreter = struct {
     decoder: *InstructionDecoder,
     constants_manager: *ConstantsManager,
-    strings_manager: *StringManager,
+    symbols_manager: *SymbolsManager,
     stdout: *Writer,
     stderr: *Writer,
     allocator: Allocator,
@@ -39,7 +39,7 @@ pub const Interpreter = struct {
     stack: [4096]SomObject = undefined,
 
     /// Mapping: `name_of_the_class` -> `class`
-    class_map: std.AutoHashMap(StringId, Class),
+    class_map: std.AutoHashMap(SymbolId, Class),
 
     // TODO: here will be an `current_class: *Class` I think
     current_class_constant_base_id: ConstantId,
@@ -59,7 +59,7 @@ pub const Interpreter = struct {
         allocator: Allocator,
         decoder: *InstructionDecoder,
         constants_manager: *ConstantsManager,
-        strings_manager: *StringManager,
+        strings_manager: *SymbolsManager,
         stdout: *Writer,
         stderr: *Writer,
         primitive_methods: PrimitiveMethodsMap,
@@ -70,8 +70,8 @@ pub const Interpreter = struct {
             .stdout = stdout,
             .stderr = stderr,
             .constants_manager = constants_manager,
-            .strings_manager = strings_manager,
-            .class_map = std.AutoHashMap(StringId, Class).init(allocator),
+            .symbols_manager = strings_manager,
+            .class_map = std.AutoHashMap(SymbolId, Class).init(allocator),
             .primitive_methods = primitive_methods,
             .current_class_constant_base_id = ConstantId{ .idx = 0 },
         };
@@ -92,7 +92,7 @@ pub const Interpreter = struct {
                     error.duplicate => {
                         std.debug.print(
                             "A duplicate method inside a primary class was found: `{s}` (id={d})\n",
-                            .{ self.strings_manager.string_with_id(primitive_method.method_name), primitive_method.method_name.idx },
+                            .{ self.symbols_manager.symbol_with_id(primitive_method.method_name), primitive_method.method_name.idx },
                         );
                         std.debug.print("This should not happen, but we are not handeling that since this method will get remove :D\n", .{});
                         unreachable;
@@ -107,7 +107,7 @@ pub const Interpreter = struct {
 
     // TODO: for a better error reporting, store where a class is defined (for example the filepath to its file)
     // and return it in an optional string here.
-    pub fn register_class(self: *Self, class_name: StringId, class: Class) Error!struct { is_already_registered: bool } {
+    pub fn register_class(self: *Self, class_name: SymbolId, class: Class) Error!struct { is_already_registered: bool } {
         const entry = try self.class_map.getOrPut(class_name);
         if (entry.found_existing) {
             return .{ .is_already_registered = true };
@@ -163,9 +163,9 @@ pub const Interpreter = struct {
     inline fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: SomObject = self.pop_stack();
         const class: *const Class = try self.fetch_class(
-            // TODO(for SomClass): probably don't store the name of the class but just the `StringId`
+            // TODO(for SomClass): probably don't store the name of the class but just the `SymbolId`
             // and don't do this lookup in the `self.strings_manager`
-            self.strings_manager.id_of(target_object.class_name()).?,
+            self.symbols_manager.id_of(target_object.class_name()).?,
         );
         const method: *const Method = class.instance_methods.getPtr(call_info.message_name) orelse {
             // TODO: also check the parent classes (multiple!) if the method exists or no
@@ -173,7 +173,7 @@ pub const Interpreter = struct {
             //  idea from Crafting interpreters:  https://craftinginterpreters.com/superclasses.html
             self.report_runtime_error(
                 "Tried to call the method `{s}` on an instance of a class `{s}`, but that does not exist.",
-                .{ self.strings_manager.string_with_id(call_info.message_name), target_object.class_name() },
+                .{ self.symbols_manager.symbol_with_id(call_info.message_name), target_object.class_name() },
             );
             // TODO: maybe also print the methods that exist on that class?
             return Error.method_not_found;
@@ -184,7 +184,7 @@ pub const Interpreter = struct {
                 // TODO: handle `user_land` methods
                 return self.report_TODO(
                     "Tried calling the method `{s}` which is defined in user land and we don't do user land methods yet :)",
-                    .{self.strings_manager.string_with_id(call_info.message_name)},
+                    .{self.symbols_manager.symbol_with_id(call_info.message_name)},
                 );
             },
             .primitive => |primitive_method| {
@@ -192,7 +192,7 @@ pub const Interpreter = struct {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
                         "Error happened in the primitive method `{s}` of class `{s}`",
-                        .{ self.strings_manager.string_with_id(call_info.message_name), target_object.class_name() },
+                        .{ self.symbols_manager.symbol_with_id(call_info.message_name), target_object.class_name() },
                     ) catch {};
                     return err;
                 };
@@ -201,10 +201,10 @@ pub const Interpreter = struct {
         }
     }
 
-    inline fn fetch_class(self: *Self, class_name_id: StringId) Error!*const Class {
+    inline fn fetch_class(self: *Self, class_name_id: SymbolId) Error!*const Class {
         // TODO: if the class is not found, the interpreter should go and find the class definition
         const class = self.class_map.getPtr(class_name_id) orelse {
-            std.debug.print("Could not find the class `{s}`\n", .{self.strings_manager.string_with_id(class_name_id)});
+            std.debug.print("Could not find the class `{s}`\n", .{self.symbols_manager.symbol_with_id(class_name_id)});
             unreachable;
         };
         return class;
@@ -273,15 +273,15 @@ pub const Class = struct {
     const Self = @This();
 
     /// TODO(cleanup): use sorted array (not even ArrayList) with binary search on top
-    pub const MethodMap = std.AutoHashMapUnmanaged(StringId, Method);
-    pub const InitPair = struct { method_name_id: StringId, method: Method };
+    pub const MethodMap = std.AutoHashMapUnmanaged(SymbolId, Method);
+    pub const InitPair = struct { method_name_id: SymbolId, method: Method };
 
     pub const AddMethodError = error{duplicate} || Allocator.Error;
     pub fn add_method(
         self: *Self,
         allocator: Allocator,
         instance_or_class: enum { instance_method, class_method },
-        method_name: StringId,
+        method_name: SymbolId,
         method: Method,
     ) AddMethodError!void {
         const map_to_update: *MethodMap = switch (instance_or_class) {
@@ -301,13 +301,13 @@ pub const PrimitiveMethodsMap = struct {
 
     /// Stores a list of primitive methods in a class.
     pub const PrimitiveClass = struct {
-        class_name: StringId,
+        class_name: SymbolId,
         /// This is a slice of the `PrimitiveMethodsMap.all_methods` array
         sorted_methods: []PrimitiveMethod,
 
-        pub fn get_method(self: Self, method_name: StringId) ?*const PrimitiveMethod {
+        pub fn get_method(self: Self, method_name: SymbolId) ?*const PrimitiveMethod {
             const maybe_idx: ?usize = std.sort.binarySearch(PrimitiveMethod, self.sorted_methods, method_name, struct {
-                fn compare(method_name_id: StringId, method: PrimitiveMethod) std.math.Order {
+                fn compare(method_name_id: SymbolId, method: PrimitiveMethod) std.math.Order {
                     return std.math.order(method_name_id, method.method_name);
                 }
             }.compare);
@@ -318,7 +318,7 @@ pub const PrimitiveMethodsMap = struct {
             return null;
         }
     };
-    const PrimitiveMethod = struct { method_name: StringId, function: PrimitiveMethodImplementation, args_cnt: u8 };
+    const PrimitiveMethod = struct { method_name: SymbolId, function: PrimitiveMethodImplementation, args_cnt: u8 };
 
     sorted_classes: []PrimitiveClass,
     all_methods: []PrimitiveMethod,
@@ -353,7 +353,7 @@ pub const PrimitiveMethodsMap = struct {
     pub fn init_from(
         allocator: Allocator,
         comptime primitives_module: type,
-        strings_manager: *StringManager,
+        strings_manager: *SymbolsManager,
     ) Allocator.Error!Self {
         const primitive_fn_postfix = "__somig_primitive_fn";
         const fn_arity_postix = "__somig_arity";
@@ -429,9 +429,9 @@ pub const PrimitiveMethodsMap = struct {
         };
     }
 
-    pub fn get_primitive_class(self: Self, class_name: StringId) ?*const PrimitiveClass {
+    pub fn get_primitive_class(self: Self, class_name: SymbolId) ?*const PrimitiveClass {
         const maybe_idx: ?usize = std.sort.binarySearch(PrimitiveClass, self.sorted_classes, class_name, struct {
-            fn compare(class_name_id: StringId, class: PrimitiveClass) std.math.Order {
+            fn compare(class_name_id: SymbolId, class: PrimitiveClass) std.math.Order {
                 return std.math.order(class_name_id, class.class_name);
             }
         }.compare);

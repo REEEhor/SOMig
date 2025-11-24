@@ -7,7 +7,7 @@ const Parser = parser_module.Parser;
 const reporter_module = @import("frontend/reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
 
-const StringInterningManager = @import("interning/string_manager.zig").StringManager;
+const SymbolsManager = @import("interning/symbols_manager.zig").SymbolsManager;
 
 const codegen = @import("frontend/codegen.zig");
 
@@ -127,7 +127,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         std.heap.ArenaAllocator.init(allocator),
         std.heap.ArenaAllocator.init(allocator),
     };
-    var string_interning_manager = try StringInterningManager.create(&interning_arenas.@"0", &interning_arenas.@"1", &interning_arenas.@"2", 0);
+    var string_interning_manager = try SymbolsManager.create(&interning_arenas.@"0", &interning_arenas.@"1", &interning_arenas.@"2", 0);
     defer string_interning_manager.deinit();
 
     // Setup bytecode generator
@@ -147,7 +147,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         .parser = &parser,
         .reporter = &reporter,
         .constants_manager = &constants_manager,
-        .string_manager = &string_interning_manager,
+        .symbols_manager = &string_interning_manager,
     };
 
     // Compile to bytecode
@@ -189,6 +189,6 @@ fn playground(allocator: std.mem.Allocator) !void {
 test {
     _ = @import("frontend/parser.zig");
     _ = @import("frontend/codegen.zig");
-    _ = @import("interning/string_manager.zig");
+    _ = @import("interning/symbols_manager.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

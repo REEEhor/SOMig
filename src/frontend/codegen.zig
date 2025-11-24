@@ -7,9 +7,9 @@ const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
 const dbgx = debug_module.dbgx;
 
-const interning_module = @import("../interning/string_manager.zig");
-const StringManager = interning_module.StringManager;
-const StringId = interning_module.StringId;
+const interning_module = @import("../interning/symbols_manager.zig");
+const SymbolsManager = interning_module.SymbolsManager;
+const SymbolId = interning_module.SymbolId;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;
@@ -103,7 +103,7 @@ pub const BytecodeGenerator = struct {
 
     allocator: Allocator,
 
-    string_manager: *StringManager,
+    symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
     builder: *InstructionEncoder,
     reporter: *ErrorReporter,
@@ -159,7 +159,7 @@ pub const BytecodeGenerator = struct {
             .unary_message_call => |unary_call| {
                 try self.compile_expression(unary_call.argument);
                 const message_string = self.parser.text_at(unary_call.message);
-                const message: StringId = (try self.string_manager.id_or_intern(message_string)).id;
+                const message: SymbolId = (try self.symbols_manager.id_or_intern(message_string)).id;
                 try self.add_instruction(Instruction{
                     .send_message = .{ .message_name = message, .aditional_args_count = 0 },
                 });
@@ -171,7 +171,7 @@ pub const BytecodeGenerator = struct {
                 try self.compile_expression(binary_call.rhs);
                 try self.compile_expression(binary_call.lhs);
                 const message_string = self.parser.text_at(binary_call.message);
-                const message: StringId = (try self.string_manager.id_or_intern(message_string)).id;
+                const message: SymbolId = (try self.symbols_manager.id_or_intern(message_string)).id;
                 try self.add_instruction(Instruction{
                     .send_message = .{ .message_name = message, .aditional_args_count = 1 },
                 });
@@ -237,11 +237,11 @@ pub const InstructionDecoder = struct {
             .send_message => {
                 const ArgsCount = @FieldType(Instruction.SendMessage, "aditional_args_count");
                 const args_cout = self.read_integer(ArgsCount);
-                const message_name_id = self.read_integer(@FieldType(StringId, "idx"));
+                const message_name_id = self.read_integer(@FieldType(SymbolId, "idx"));
 
                 return Instruction{ .send_message = Instruction.SendMessage{
                     .aditional_args_count = args_cout,
-                    .message_name = StringId.new(message_name_id),
+                    .message_name = SymbolId.new(message_name_id),
                 } };
             },
             .no_op => return .no_op,
@@ -318,7 +318,7 @@ pub const InstructionEncoder = struct {
 };
 
 pub const InstructionFormatter = struct {
-    string_manager: *StringManager,
+    symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
     base_constant_id: ConstantId,
 
@@ -327,14 +327,14 @@ pub const InstructionFormatter = struct {
             .instruction = instruction,
             //
             .constants_manager = self.constants_manager,
-            .string_manager = self.string_manager,
+            .symbols_manager = self.symbols_manager,
             .base_constant_id = self.base_constant_id,
         };
     }
 
     const Fmt = struct {
         const Writer = std.io.Writer;
-        string_manager: *StringManager,
+        symbols_manager: *SymbolsManager,
         constants_manager: *ConstantsManager,
         instruction: Instruction,
         base_constant_id: ConstantId,
@@ -351,7 +351,7 @@ pub const InstructionFormatter = struct {
                     try self.print_constant(writer, self.constants_manager.get_constant(absolute_id));
                 },
                 .send_message => |send_message| {
-                    const message_name = self.string_manager.string_with_id(send_message.message_name);
+                    const message_name = self.symbols_manager.symbol_with_id(send_message.message_name);
                     try writer.print(" name=\"{s}\" args-count={d}", .{ message_name, send_message.aditional_args_count });
                 },
                 // NOTE(epic-zig): comptime assert
@@ -384,7 +384,7 @@ pub const InstructionFormatter = struct {
 };
 
 pub fn print_bytecode(
-    string_manager: *StringManager,
+    symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
     base_constant_id: ConstantId,
     bytecode: Bytecode,
@@ -392,7 +392,7 @@ pub fn print_bytecode(
 ) std.io.Writer.Error!void {
     const f = InstructionFormatter{
         .constants_manager = constants_manager,
-        .string_manager = string_manager,
+        .symbols_manager = symbols_manager,
         .base_constant_id = base_constant_id,
     };
     var decoder = InstructionDecoder.new(bytecode);
@@ -426,7 +426,7 @@ pub const Instruction = union(InstructionTag) {
     print, // TODO: remove this after development
 
     pub const SendMessage = struct {
-        message_name: StringId,
+        message_name: SymbolId,
 
         /// Number of arguments to pop from stack
         /// (excluding the first argument which is the message target object).
@@ -522,7 +522,7 @@ test InstructionEncoder {
     );
 
     id = try encoder.add_instruction(allocator, Instruction{ .send_message = .{
-        .message_name = StringId.new(68),
+        .message_name = SymbolId.new(68),
         .aditional_args_count = 97,
     } });
     try std.testing.expectEqual(9, id.idx);
@@ -546,7 +546,7 @@ test InstructionDecoder {
         },
         .no_op,
         Instruction{ .send_message = .{
-            .message_name = StringId.new(68),
+            .message_name = SymbolId.new(68),
             .aditional_args_count = 97,
         } },
     };
