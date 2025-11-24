@@ -23,13 +23,31 @@ const ast = @import("ast.zig");
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
 
+/// A unique identifier of a constant in the constants pool.
+pub const ConstantId = struct {
+    idx: u32,
+
+    pub fn to_relative(self: @This(), base_id: ConstantId) RelativeConstantId {
+        assert(self.idx >= base_id.idx);
+        const diff: @FieldType(RelativeConstantId, "idx") = @truncate(self.idx - base_id.idx);
+        return RelativeConstantId{ .idx = diff };
+    }
+};
+
 ///
-/// Unique identifier of a constant in the constants pool.
+/// A unique identifier of a constant in the constants pool *for a given class*.
+/// Each class has a `base_id` which is a `ConstantId` of the first constant in the constants pool.
 ///
-/// TODO(consultation): `u32` is a bit too big. What about making the constants "scoped" to the current-file-bytecode (or method maybe)
-///                       (similiar to "Crafting Interpreters - Chunk" I think)
+/// The instructions themselves store `RelativeConstantId` which is just an offset from the `base_id`.
+/// This enables the `load_constant` instruction to be smaller, which is nice for performance reasons.
 ///
-pub const ConstantId = struct { idx: u32 };
+pub const RelativeConstantId = struct {
+    idx: u16,
+
+    pub fn to_absolute(self: @This(), base_id: ConstantId) ConstantId {
+        return ConstantId{ .idx = base_id.idx + @as(u32, self.idx) };
+    }
+};
 
 pub const Constant = union(enum) {
     integer: IntegerRepresentation,
@@ -42,19 +60,32 @@ pub const ConstantsManager = struct {
 
     constants: std.MultiArrayList(Constant),
     allocator: Allocator,
+    current_base_id: ConstantId,
 
     /// TODO(speed): make a `init_with_capacity` version or call `ensureCapacity` on `self.constants` for initial capacity
     pub fn init(allocator: Allocator) ConstantsManager {
         return ConstantsManager{
             .allocator = allocator,
             .constants = .empty,
+            .current_base_id = ConstantId{ .idx = 0 },
         };
     }
 
-    pub fn add_constant(self: *Self, new_constant: Constant) Allocator.Error!ConstantId {
-        const new_constant_id = ConstantId{ .idx = @truncate(self.constants.len) };
+    pub fn next_constant_id(self: Self) ConstantId {
+        return ConstantId{ .idx = @truncate(self.constants.len) };
+    }
+
+    pub fn new_base_id_for_class(self: *Self) ConstantId {
+        self.current_base_id = self.next_constant_id();
+        return self.current_base_id;
+    }
+
+    pub fn add_constant(self: *Self, new_constant: Constant) Allocator.Error!RelativeConstantId {
+        const new_constant_id = self.next_constant_id();
         try self.constants.append(self.allocator, new_constant);
-        return new_constant_id;
+        const relative_id = new_constant_id.to_relative(self.current_base_id);
+
+        return relative_id;
     }
 
     pub fn get_constant(self: *Self, id: ConstantId) Constant {
@@ -81,6 +112,8 @@ pub const BytecodeGenerator = struct {
     class_definition: *ast.ClassDefinition,
 
     pub fn compile(self: *Self) !void {
+        _ = self.constants_manager.new_base_id_for_class();
+
         const instance_portion = self.class_definition.instance_portion;
         const run_method: ast.MethodDefinition = for (instance_portion.methods) |method| {
             const method_name: []const u8 = blk: switch (method.header) {
@@ -195,9 +228,9 @@ pub const InstructionDecoder = struct {
         const tag: Instruction.Tag = @enumFromInt(tag_byte);
         switch (tag) {
             .load_constant => {
-                const idx = self.read_integer(@FieldType(ConstantId, "idx"));
+                const idx = self.read_integer(@FieldType(RelativeConstantId, "idx"));
                 const load_constant = Instruction.LoadConstant{
-                    .id = ConstantId{ .idx = idx },
+                    .id = RelativeConstantId{ .idx = idx },
                 };
                 return Instruction{ .load_constant = load_constant };
             },
@@ -287,12 +320,15 @@ pub const InstructionEncoder = struct {
 pub const InstructionFormatter = struct {
     string_manager: *StringManager,
     constants_manager: *ConstantsManager,
+    base_constant_id: ConstantId,
 
     pub fn fmt(self: @This(), instruction: Instruction) Fmt {
         return Fmt{
-            .constants_manager = self.constants_manager,
             .instruction = instruction,
+            //
+            .constants_manager = self.constants_manager,
             .string_manager = self.string_manager,
+            .base_constant_id = self.base_constant_id,
         };
     }
 
@@ -301,6 +337,7 @@ pub const InstructionFormatter = struct {
         string_manager: *StringManager,
         constants_manager: *ConstantsManager,
         instruction: Instruction,
+        base_constant_id: ConstantId,
 
         pub fn format(self: @This(), writer: *Writer) Writer.Error!void {
             const tag_name: []const u8 = @tagName(self.instruction.tag());
@@ -308,8 +345,10 @@ pub const InstructionFormatter = struct {
 
             switch (self.instruction) {
                 .load_constant => |load_constant| {
-                    try writer.print(" id={d} ", .{load_constant.id.idx});
-                    try self.print_constant(writer, self.constants_manager.get_constant(load_constant.id));
+                    const relative_id = load_constant.id;
+                    const absolute_id = relative_id.to_absolute(self.base_constant_id);
+                    try writer.print(" id({d:03}+{d:03}={d:03}) ", .{ self.base_constant_id.idx, relative_id.idx, absolute_id.idx });
+                    try self.print_constant(writer, self.constants_manager.get_constant(absolute_id));
                 },
                 .send_message => |send_message| {
                     const message_name = self.string_manager.string_with_id(send_message.message_name);
@@ -347,10 +386,15 @@ pub const InstructionFormatter = struct {
 pub fn print_bytecode(
     string_manager: *StringManager,
     constants_manager: *ConstantsManager,
+    base_constant_id: ConstantId,
     bytecode: Bytecode,
     writer: *std.io.Writer,
 ) std.io.Writer.Error!void {
-    const f = InstructionFormatter{ .constants_manager = constants_manager, .string_manager = string_manager };
+    const f = InstructionFormatter{
+        .constants_manager = constants_manager,
+        .string_manager = string_manager,
+        .base_constant_id = base_constant_id,
+    };
     var decoder = InstructionDecoder.new(bytecode);
     var instruction_idx: InstructionId = decoder.id_of_next_instruction();
 
@@ -382,8 +426,6 @@ pub const Instruction = union(InstructionTag) {
     print, // TODO: remove this after development
 
     pub const SendMessage = struct {
-        // TODO(consultation): The `send_message` is the most common operation in SOM
-        //                     Maybe store some id that is local to the method?
         message_name: StringId,
 
         /// Number of arguments to pop from stack
@@ -392,7 +434,7 @@ pub const Instruction = union(InstructionTag) {
         /// For example, unary message has this field set to 0 and binary to 1.
         aditional_args_count: u8,
     };
-    pub const LoadConstant = struct { id: ConstantId };
+    pub const LoadConstant = struct { id: RelativeConstantId };
 
     const Self = @This();
     pub fn tag(self: Self) Tag {
@@ -462,20 +504,20 @@ test InstructionEncoder {
     );
 
     id = try encoder.add_instruction(allocator, Instruction{
-        .load_constant = .{ .id = ConstantId{ .idx = 42 } },
+        .load_constant = .{ .id = RelativeConstantId{ .idx = 42 } },
     });
     try std.testing.expectEqual(5, id.idx);
     try std.testing.expectEqualSlices(
         u8,
-        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 0 },
+        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0 },
         encoder.view_bytecode().bytes,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
-    try std.testing.expectEqual(10, id.idx);
+    try std.testing.expectEqual(8, id.idx);
     try std.testing.expectEqualSlices(
         u8,
-        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 0, 0 },
+        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0 },
         encoder.view_bytecode().bytes,
     );
 
@@ -483,16 +525,16 @@ test InstructionEncoder {
         .message_name = StringId.new(68),
         .aditional_args_count = 97,
     } });
-    try std.testing.expectEqual(11, id.idx);
+    try std.testing.expectEqual(9, id.idx);
     try std.testing.expectEqualSlices(
         u8,
-        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 },
+        &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 },
         encoder.view_bytecode().bytes,
     );
 }
 
 test InstructionDecoder {
-    const bytes = [_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 };
+    const bytes = [_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0, 0, 0, 0, 0, 0 };
     const expected_instructions = [_]Instruction{
         .no_op,
         .no_op,
@@ -500,7 +542,7 @@ test InstructionDecoder {
         .halt,
         .duplicate,
         Instruction{
-            .load_constant = .{ .id = ConstantId{ .idx = 42 } },
+            .load_constant = .{ .id = RelativeConstantId{ .idx = 42 } },
         },
         .no_op,
         Instruction{ .send_message = .{

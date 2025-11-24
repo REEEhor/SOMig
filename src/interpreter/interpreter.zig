@@ -18,6 +18,8 @@ const codegen_module = @import("../frontend/codegen.zig");
 const InstructionDecoder = codegen_module.InstructionDecoder;
 const Instruction = codegen_module.Instruction;
 const ConstantsManager = codegen_module.ConstantsManager;
+const ConstantId = codegen_module.ConstantId;
+const RelativeConstantId = codegen_module.RelativeConstantId;
 const InstructionId = codegen_module.InstructionId;
 
 pub const stack_size = 4096;
@@ -38,6 +40,9 @@ pub const Interpreter = struct {
 
     /// Mapping: `name_of_the_class` -> `class`
     class_map: std.AutoHashMap(StringId, Class),
+
+    // TODO: here will be an `current_class: *Class` I think
+    current_class_constant_base_id: ConstantId,
 
     const Self = @This();
 
@@ -68,6 +73,7 @@ pub const Interpreter = struct {
             .strings_manager = strings_manager,
             .class_map = std.AutoHashMap(StringId, Class).init(allocator),
             .primitive_methods = primitive_methods,
+            .current_class_constant_base_id = ConstantId{ .idx = 0 },
         };
     }
 
@@ -110,6 +116,7 @@ pub const Interpreter = struct {
         return .{ .is_already_registered = false };
     }
 
+    // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) Error!void {
         while (true) {
             const instruction: Instruction = self.decoder.next_instruction() orelse {
@@ -136,7 +143,8 @@ pub const Interpreter = struct {
                     try self.push_stack(object);
                 },
                 .load_constant => |constant_info| {
-                    const constant = self.constants_manager.get_constant(constant_info.id);
+                    const constant_id: ConstantId = constant_info.id.to_absolute(self.current_class_constant_base_id);
+                    const constant = self.constants_manager.get_constant(constant_id);
                     const object: SomObject = switch (constant) {
                         .integer => |value| .{ .integer = value },
                         .float => |value| .{ .double = value },

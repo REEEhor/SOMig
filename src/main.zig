@@ -156,7 +156,7 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Print bytecode
     try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
-    try codegen.print_bytecode(&string_interning_manager, &constants_manager, bytecode, stdout);
+    try codegen.print_bytecode(&string_interning_manager, &constants_manager, constants_manager.current_base_id, bytecode, stdout);
 
     // Setup interpreter
     var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
