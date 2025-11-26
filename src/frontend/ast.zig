@@ -90,18 +90,18 @@ pub const TokenSpanIterator = struct {
     }
 };
 
-pub const ClassDefinition = struct {
+pub const ClassAst = struct {
     span: TokenSpan,
     class_name: TokenId,
 
-    instance_portion: ClassDefinitionPortion,
-    class_portion: ClassDefinitionPortion,
+    instance_portion: ClassAstPortion,
+    class_portion: ClassAstPortion,
 
     // TODO:
     //  - Add superclass
 };
 
-pub const ClassDefinitionPortion = struct {
+pub const ClassAstPortion = struct {
     const Self = @This();
     methods: []MethodDefinition,
     fields: ?TokenSpan,

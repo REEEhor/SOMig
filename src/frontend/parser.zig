@@ -35,7 +35,7 @@ const ast = @import("ast.zig");
 const Expression = ast.Expression;
 const ExpressionList = ast.ExpressionList;
 const Extras = ast.Extras;
-const ClassDefinition = ast.ClassDefinition;
+const ClassAst = ast.ClassAst;
 const ExprId = ast.ExprId;
 const MethodDefinition = ast.MethodDefinition;
 const TokenSpan = ast.TokenSpan;
@@ -44,7 +44,7 @@ const FunctionBodyId = ast.FunctionBodyId;
 const MethodHeader = ast.MethodHeader;
 const TokenId = ast.TokenId;
 const ArrayLiteral = ast.ArrayLiteral;
-const ClassDefinitionPortion = ast.ClassDefinitionPortion;
+const ClassAstPortion = ast.ClassAstPortion;
 const KeywordMethodHeader = ast.KeywordMethodHeader;
 const BlockLiteral = ast.BlockLiteral;
 const RawBinaryMessageCall = ast.RawBinaryMessageCall;
@@ -113,20 +113,20 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Self) ParserError!ClassDefinition {
+    pub fn parse(self: *Self) ParserError!ClassAst {
         const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
         _ = try self.eat_binary_message("=");
         // TODO: parse a potential super class here
         _ = try self.eat_token(.open_parenthesis);
 
-        const instance_portion = try self.parse_class_definition_portion(true);
+        const instance_portion = try self.parse_class_ast_portion(true);
         const class_portion = try self.parse_maybe_class_portion();
 
         const closing_parenthesis_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.close_parenthesis);
 
-        return ClassDefinition{
+        return ClassAst{
             .class_name = class_name_token,
             .instance_portion = instance_portion,
             .class_portion = class_portion,
@@ -134,7 +134,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parse_maybe_class_portion(self: *Self) ParserError!ClassDefinitionPortion {
+    fn parse_maybe_class_portion(self: *Self) ParserError!ClassAstPortion {
         const expected_str = "Expected either a separator `-----`, a method definition, or a closing parenthesis `)`";
         const maybe_separator = self.peek_next_token() orelse {
             self.reporter.report_unexpected_eof(expected_str, .{});
@@ -144,9 +144,9 @@ pub const Parser = struct {
         switch (maybe_separator.tag()) {
             .separator => {
                 _ = self.next_token();
-                return try self.parse_class_definition_portion(false);
+                return try self.parse_class_ast_portion(false);
             },
-            .close_parenthesis => return ClassDefinitionPortion.empty(),
+            .close_parenthesis => return ClassAstPortion.empty(),
             else => |tag| {
                 self.reporter.report_error(.{ .pos = maybe_separator.pos }, "Unexpected token: '{t}'. " ++ expected_str, .{tag});
                 return ParserError.unexpected_token;
@@ -154,7 +154,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parse_class_definition_portion(self: *Self, comptime instance: bool) ParserError!ClassDefinitionPortion {
+    fn parse_class_ast_portion(self: *Self, comptime instance: bool) ParserError!ClassAstPortion {
         // Parse fields
         //
         // NOTE: We have to check if the current character is a symbol *and* if it is not a definition of a field.
@@ -1120,7 +1120,7 @@ fn print_expression_recursive(
 
 fn print_portion(
     parser: *Parser,
-    portion: *const ClassDefinitionPortion,
+    portion: *const ClassAstPortion,
     span_formatter: SpanFormatter,
     writer: *std.io.Writer,
 ) !void {
@@ -1178,7 +1178,7 @@ fn print_portion(
     }
 }
 
-pub fn print_class_definition(
+pub fn print_class_ast(
     input: []const u8,
     gpa: std.mem.Allocator,
     writer: *std.io.Writer,
@@ -1202,7 +1202,7 @@ pub fn print_class_definition(
         try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
         return;
     };
-    const class_definition = parser.parse() catch |parse_error| {
+    const class_ast = parser.parse() catch |parse_error| {
         try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
         return;
     };
@@ -1210,14 +1210,14 @@ pub fn print_class_definition(
     const span_formatter = SpanFormatter{ .tokens = parser.tokens };
 
     try writer.print("AST of the class {f}'{s}'\n", .{
-        span_formatter.fmt(class_definition.span), parser.text_at(class_definition.class_name),
+        span_formatter.fmt(class_ast.span), parser.text_at(class_ast.class_name),
     });
 
     try writer.print("==== Instance specific part ====\n", .{});
-    try print_portion(&parser, &class_definition.instance_portion, span_formatter, writer);
+    try print_portion(&parser, &class_ast.instance_portion, span_formatter, writer);
 
     try writer.print("==== Class specific part ====\n", .{});
-    try print_portion(&parser, &class_definition.class_portion, span_formatter, writer);
+    try print_portion(&parser, &class_ast.class_portion, span_formatter, writer);
 }
 
 test "snapshot test on example files" {
@@ -1227,6 +1227,6 @@ test "snapshot test on example files" {
     try snapshot_testing.do_snapshot_tests(.{
         .snapshots_directory = opts.snapshots_path ++ "/parser",
         .tested_files_directory = opts.test_files_path,
-        .output_producer = print_class_definition,
+        .output_producer = print_class_ast,
     }, "Parsing");
 }

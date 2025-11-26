@@ -119,7 +119,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     const parser_allocator = parser_arena.allocator();
     //
     var parser = try Parser.create(&lexer, reporter, parser_allocator);
-    var class_definition = try parser.parse();
+    var class_ast = try parser.parse();
 
     // Setup string internining
     var interning_arenas = .{
@@ -143,7 +143,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     var bytecode_generator = codegen.BytecodeGenerator{
         .allocator = bytecode_generator_allocator,
         .builder = &instruction_encoder,
-        .class_definition = &class_definition,
+        .class_ast = &class_ast,
         .parser = &parser,
         .reporter = &reporter,
         .constants_manager = &constants_manager,

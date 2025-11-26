@@ -109,12 +109,12 @@ pub const BytecodeGenerator = struct {
     reporter: *ErrorReporter,
 
     parser: *Parser,
-    class_definition: *ast.ClassDefinition,
+    class_ast: *ast.ClassAst,
 
     pub fn compile(self: *Self) !void {
         _ = self.constants_manager.new_base_id_for_class();
 
-        const instance_portion = self.class_definition.instance_portion;
+        const instance_portion = self.class_ast.instance_portion;
         const run_method: ast.MethodDefinition = for (instance_portion.methods) |method| {
             const method_name: []const u8 = blk: switch (method.header) {
                 .unary => |method_header| break :blk self.parser.text_at(method_header.method_name),
