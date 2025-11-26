@@ -13,6 +13,7 @@ const dbgx = debug_module.dbgx;
 const interning_module = @import("../interning/symbols_manager.zig");
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
+const SymbolArrayMap = @import("../interning/symbol_array_map.zig").SymbolArrayMap;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const InstructionDecoder = codegen_module.InstructionDecoder;
@@ -82,25 +83,21 @@ pub const Interpreter = struct {
     /// primitive methods during the loading of a class
     /// TODO: remove this once we can load individial classes and their definitions
     pub fn TODO_REMOVE_THIS__add_implementations_of_primitive_classes(self: *Self) Error!void {
-        for (self.primitive_methods.sorted_classes) |primitive_class| {
-            var vm_class = ClassDefinition.empty;
-            for (primitive_class.sorted_methods) |primitive_method| {
-                vm_class.add_method(self.allocator, .instance_method, primitive_method.method_name, Method{
-                    .number_of_aditional_args = primitive_method.args_cnt - 1,
+        for (self.primitive_methods.sorted_classes.items) |primitive_class| {
+            const methods = try self.allocator.alloc(Method, primitive_class.methods.len());
+            for (primitive_class.methods.items, 0..) |primitive_method, idx| {
+                methods[idx] = Method{
+                    .method_name = primitive_method.method_name,
                     .body = MethodBody{ .primitive = primitive_method.function },
-                }) catch |err| switch (err) {
-                    error.duplicate => {
-                        std.debug.print(
-                            "A duplicate method inside a primary class was found: `{s}` (id={d})\n",
-                            .{ self.symbols_manager.symbol_with_id(primitive_method.method_name), primitive_method.method_name.idx },
-                        );
-                        std.debug.print("This should not happen, but we are not handeling that since this method will get remove :D\n", .{});
-                        unreachable;
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
+                    .number_of_aditional_args = primitive_method.args_cnt - 1,
                 };
             }
-            const register_result = try self.register_class(primitive_class.class_name, vm_class);
+            const sorted_methods = ClassDefinition.MethodMap.from_slice(methods).ok; // NOTE: we can use `.ok` here, since the primitive methods were parsed from a struct definition, if not and there is a duplicate method name, we crash :D
+            const class_definition = ClassDefinition{
+                .class_name = primitive_class.class_name,
+                .instance_methods = sorted_methods,
+            };
+            const register_result = try self.register_class(primitive_class.class_name, class_definition);
             assert(!register_result.is_already_registered);
         }
     }
@@ -167,7 +164,7 @@ pub const Interpreter = struct {
             // and don't do this lookup in the `self.strings_manager`
             self.symbols_manager.id_of(target_object.class_name()).?,
         );
-        const method: *const Method = class.instance_methods.getPtr(call_info.message_name) orelse {
+        const method: *const Method = class.get_method(call_info.message_name) orelse {
             // TODO: also check the parent classes (multiple!) if the method exists or no
             // TODO(consultation): what about copying the implementation into the child classes from the parent classes
             //  idea from Crafting interpreters:  https://craftinginterpreters.com/superclasses.html
@@ -264,68 +261,48 @@ pub const Interpreter = struct {
     }
 };
 
+pub const PrimitiveMethodImplementation = *const fn (target_object: SomObject, interpreter: *Interpreter) Interpreter.Error!SomObject;
+
 pub const ClassDefinition = struct {
+    class_name: SymbolId,
     instance_methods: MethodMap,
-    class_methods: MethodMap,
 
     // TODO: add pointer to parent class
     // TODO: add pointer to the singleton SOM object of class `Class`
-    // TODO: remove `class_methods`
-
-    pub const empty = ClassDefinition{ .instance_methods = .empty, .class_methods = .empty };
 
     const Self = @This();
+    pub const MethodMap = SymbolArrayMap(Method, "method_name");
 
-    /// TODO(cleanup): use sorted array (not even ArrayList) with binary search on top
-    pub const MethodMap = std.AutoHashMapUnmanaged(SymbolId, Method);
-    pub const InitPair = struct { method_name_id: SymbolId, method: Method };
-
-    pub const AddMethodError = error{duplicate} || Allocator.Error;
-    pub fn add_method(
-        self: *Self,
-        allocator: Allocator,
-        instance_or_class: enum { instance_method, class_method },
-        method_name: SymbolId,
-        method: Method,
-    ) AddMethodError!void {
-        const map_to_update: *MethodMap = switch (instance_or_class) {
-            .instance_method => &self.instance_methods,
-            .class_method => &self.class_methods,
-        };
-        const entry = try map_to_update.getOrPut(allocator, method_name);
-        if (entry.found_existing) {
-            return error.duplicate;
-        }
-        entry.value_ptr.* = method;
+    pub fn get_method(self: Self, method_name: SymbolId) ?*const Method {
+        const idx = self.instance_methods.get_idx(method_name) orelse return null;
+        return &self.instance_methods.items[idx];
     }
 };
 
 pub const PrimitiveMethodsMap = struct {
+    sorted_classes: SortedClasses,
+    all_methods: []PrimitiveMethod,
+
     const Self = @This();
+    pub const SortedClasses = SymbolArrayMap(PrimitiveClass, "class_name");
+    pub const SortedMethods = SymbolArrayMap(PrimitiveMethod, "method_name");
 
     /// Stores a list of primitive methods in a class.
     pub const PrimitiveClass = struct {
         class_name: SymbolId,
-        /// This is a slice of the `PrimitiveMethodsMap.all_methods` array
-        sorted_methods: []PrimitiveMethod,
 
-        pub fn get_method(self: Self, method_name: SymbolId) ?*const PrimitiveMethod {
-            const maybe_idx: ?usize = std.sort.binarySearch(PrimitiveMethod, self.sorted_methods, method_name, struct {
-                fn compare(method_name_id: SymbolId, method: PrimitiveMethod) std.math.Order {
-                    return std.math.order(method_name_id, method.method_name);
-                }
-            }.compare);
+        /// This contains a slice of the `PrimitiveMethodsMap.all_methods` array
+        methods: SortedMethods,
 
-            if (maybe_idx) |idx| {
-                return &self.sorted_methods[idx];
-            }
-            return null;
+        pub fn get_method(self: *@This(), method_name: SymbolId) ?*const PrimitiveMethod {
+            return self.methods.get_ptr(method_name);
         }
     };
-    const PrimitiveMethod = struct { method_name: SymbolId, function: PrimitiveMethodImplementation, args_cnt: u8 };
-
-    sorted_classes: []PrimitiveClass,
-    all_methods: []PrimitiveMethod,
+    const PrimitiveMethod = struct {
+        method_name: SymbolId,
+        function: PrimitiveMethodImplementation,
+        args_cnt: u8,
+    };
 
     ///
     /// Creates a new instance of `PrimitiveMethodsMap` via doing a comptime reflection on `primitives_module` argument.
@@ -335,17 +312,17 @@ pub const PrimitiveMethodsMap = struct {
     ///     pub const some_primitives_module = struct {
     ///         pub const SomePrimitiveClassInSom = struct {
     ///             pub fn someMethod__somig_arity = 2; // or some other number
-    ///             pub fn someSomMethod__somig_primitive_fn {...} // signature as `PrimitiveMethodImplementation`
+    ///             pub fn someSomMethod__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
     ///
     ///             pub fn someOtherMethod__somig_arity = 1; // or some other number
-    ///             pub fn someOtherSomMethod__somig_primitive_fn {...} // signature as `PrimitiveMethodImplementation`
+    ///             pub fn someOtherSomMethod__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
     ///
     ///             ... // other methods and their arities
     ///         }
     ///
     ///         pub const AnotherClass = struct {
     ///             pub fn somMethod1__somig_arity = 2; // or some other number
-    ///             pub fn somMethod1__somig_primitive_fn {...} // signature as `PrimitiveMethodImplementation`
+    ///             pub fn somMethod1__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
     ///
     ///             ... // other methods and their arities
     ///         }
@@ -405,30 +382,23 @@ pub const PrimitiveMethodsMap = struct {
             // Sort the methods by their symbol id so they can be looked up later using binary sort
             const methods_end = methods.items.len;
             const methods_slice = methods.items[methods_start..methods_end];
-            std.sort.pdq(PrimitiveMethod, methods_slice, {}, primitive_method_less_than_fn);
+            // We can assume there will be no duplicates, since the methods got parsed from a `struct` definition
+            const sorted_methods_slice = SortedMethods.from_slice(methods_slice).ok;
 
             const class = PrimitiveClass{
                 .class_name = (try strings_manager.id_or_intern(primitive_type_name)).id,
-                .sorted_methods = methods_slice,
+                .methods = sorted_methods_slice,
             };
             classes.appendAssumeCapacity(class);
-        }
-
-        // Sort the classes by their symbol id so they can be looked up later using binary sort
-        std.sort.pdq(PrimitiveClass, classes.items, {}, primitive_class_less_than_fn);
-
-        // TODO: remove this, once there are tests, that would catch the error that the assert below is trying to catch
-        // Sanity check - there is no big cost to this, there are not many primitive methods and classses
-        for (classes.items) |class| {
-            const is_sorted = std.sort.isSorted(PrimitiveMethod, class.sorted_methods, {}, primitive_method_less_than_fn);
-            assert(is_sorted);
         }
 
         assert(classes.items.len == classes.capacity);
         assert(methods.items.len == methods.capacity);
 
+        const sorted_classes = SortedClasses.from_slice(classes.items).ok;
+
         return PrimitiveMethodsMap{
-            .sorted_classes = classes.items,
+            .sorted_classes = sorted_classes,
             .all_methods = methods.items,
         };
     }
@@ -456,6 +426,7 @@ pub const PrimitiveMethodsMap = struct {
 };
 
 pub const Method = struct {
+    method_name: SymbolId,
     /// Number of arguments to pop from stack
     /// (**excluding** the first argument which is the message target object).
     ///
@@ -467,8 +438,6 @@ pub const Method = struct {
     number_of_aditional_args: u8,
     body: MethodBody,
 };
-
-pub const PrimitiveMethodImplementation = *const fn (target_object: SomObject, interpreter: *Interpreter) Interpreter.Error!SomObject;
 
 pub const MethodBody = union(enum) {
     primitive: PrimitiveMethodImplementation,
