@@ -39,7 +39,7 @@ pub const Interpreter = struct {
     stack: [4096]SomObject = undefined,
 
     /// Mapping: `name_of_the_class` -> `class`
-    class_map: std.AutoHashMap(SymbolId, Class),
+    class_map: std.AutoHashMap(SymbolId, ClassDefinition),
 
     // TODO: here will be an `current_class: *Class` I think
     current_class_constant_base_id: ConstantId,
@@ -71,7 +71,7 @@ pub const Interpreter = struct {
             .stderr = stderr,
             .constants_manager = constants_manager,
             .symbols_manager = strings_manager,
-            .class_map = std.AutoHashMap(SymbolId, Class).init(allocator),
+            .class_map = std.AutoHashMap(SymbolId, ClassDefinition).init(allocator),
             .primitive_methods = primitive_methods,
             .current_class_constant_base_id = ConstantId{ .idx = 0 },
         };
@@ -83,7 +83,7 @@ pub const Interpreter = struct {
     /// TODO: remove this once we can load individial classes and their definitions
     pub fn TODO_REMOVE_THIS__add_implementations_of_primitive_classes(self: *Self) Error!void {
         for (self.primitive_methods.sorted_classes) |primitive_class| {
-            var vm_class = Class.empty;
+            var vm_class = ClassDefinition.empty;
             for (primitive_class.sorted_methods) |primitive_method| {
                 vm_class.add_method(self.allocator, .instance_method, primitive_method.method_name, Method{
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
@@ -107,7 +107,7 @@ pub const Interpreter = struct {
 
     // TODO: for a better error reporting, store where a class is defined (for example the filepath to its file)
     // and return it in an optional string here.
-    pub fn register_class(self: *Self, class_name: SymbolId, class: Class) Error!struct { is_already_registered: bool } {
+    pub fn register_class(self: *Self, class_name: SymbolId, class: ClassDefinition) Error!struct { is_already_registered: bool } {
         const entry = try self.class_map.getOrPut(class_name);
         if (entry.found_existing) {
             return .{ .is_already_registered = true };
@@ -162,7 +162,7 @@ pub const Interpreter = struct {
 
     inline fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: SomObject = self.pop_stack();
-        const class: *const Class = try self.fetch_class(
+        const class: *const ClassDefinition = try self.fetch_class(
             // TODO(for SomClass): probably don't store the name of the class but just the `SymbolId`
             // and don't do this lookup in the `self.strings_manager`
             self.symbols_manager.id_of(target_object.class_name()).?,
@@ -201,7 +201,7 @@ pub const Interpreter = struct {
         }
     }
 
-    inline fn fetch_class(self: *Self, class_name_id: SymbolId) Error!*const Class {
+    inline fn fetch_class(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {
         // TODO: if the class is not found, the interpreter should go and find the class definition
         const class = self.class_map.getPtr(class_name_id) orelse {
             std.debug.print("Could not find the class `{s}`\n", .{self.symbols_manager.symbol_with_id(class_name_id)});
@@ -264,7 +264,7 @@ pub const Interpreter = struct {
     }
 };
 
-pub const Class = struct {
+pub const ClassDefinition = struct {
     instance_methods: MethodMap,
     class_methods: MethodMap,
 
@@ -272,7 +272,7 @@ pub const Class = struct {
     // TODO: add pointer to the singleton SOM object of class `Class`
     // TODO: remove `class_methods`
 
-    pub const empty = Class{ .instance_methods = .empty, .class_methods = .empty };
+    pub const empty = ClassDefinition{ .instance_methods = .empty, .class_methods = .empty };
 
     const Self = @This();
 
