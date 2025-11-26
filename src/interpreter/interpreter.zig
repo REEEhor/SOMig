@@ -268,6 +268,10 @@ pub const Class = struct {
     instance_methods: MethodMap,
     class_methods: MethodMap,
 
+    // TODO: add pointer to parent class
+    // TODO: add pointer to the singleton SOM object of class `Class`
+    // TODO: remove `class_methods`
+
     pub const empty = Class{ .instance_methods = .empty, .class_methods = .empty };
 
     const Self = @This();
