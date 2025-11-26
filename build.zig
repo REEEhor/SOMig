@@ -59,6 +59,17 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    const exe_check = b.addExecutable(.{
+        .name = "somig",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const check = b.step("check", "Check if Somig even compiles :D (this can be used by ZLS - Zig LSP!)");
+    check.dependOn(&exe_check.step);
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
