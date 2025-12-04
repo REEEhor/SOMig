@@ -35,10 +35,19 @@ pub const Interpreter = struct {
     stderr: *Writer,
     allocator: Allocator,
     primitive_methods: PrimitiveMethodsMap,
+    primitive_class_definitions: std.EnumMap(PrimitiveClasses, *ClassDefinition),
 
     stack_top: usize = 0,
     stack: [4096]VmObject = undefined,
 
+    //
+    // TODO(crashing): Store `ClassDefinition` elsewhere, otherwise when we insert a new class
+    //                 into this map, all the pointers that point into this hashmap will get invalidated.
+    //                 Store `*ClassDefinition` instead probably.
+    //
+    // TODO(speed): Consider making this a `SymbolArrayMap(ClassDefinition)`
+    //              It would require the implementation to also include insertion, which is O(n)
+    //
     /// Mapping: `name_of_the_class` -> `class`
     class_map: std.AutoHashMap(SymbolId, ClassDefinition),
 
@@ -75,6 +84,7 @@ pub const Interpreter = struct {
             .class_map = std.AutoHashMap(SymbolId, ClassDefinition).init(allocator),
             .primitive_methods = primitive_methods,
             .current_class_constant_base_id = ConstantId{ .idx = 0 },
+            .primitive_class_definitions = std.EnumMap(PrimitiveClasses, *ClassDefinition){},
         };
     }
 
@@ -83,6 +93,10 @@ pub const Interpreter = struct {
     /// primitive methods during the loading of a class
     /// TODO: remove this once we can load individial classes and their definitions
     pub fn TODO_REMOVE_THIS__add_implementations_of_primitive_classes(self: *Self) Error!void {
+        const integer_symbol_id = self.symbols_manager.id_of("Integer").?;
+        const double_symbol_id = self.symbols_manager.id_of("Double").?;
+        const string_symbol_id = self.symbols_manager.id_of("String").?;
+
         for (self.primitive_methods.sorted_classes.items) |primitive_class| {
             const methods = try self.allocator.alloc(Method, primitive_class.methods.len());
             for (primitive_class.methods.items, 0..) |primitive_method, idx| {
@@ -97,27 +111,42 @@ pub const Interpreter = struct {
                 .class_name = primitive_class.class_name,
                 .instance_methods = sorted_methods,
             };
+
             const register_result = try self.register_class(primitive_class.class_name, class_definition);
             assert(!register_result.is_already_registered);
+
+            if (class_definition.class_name.idx == integer_symbol_id.idx) {
+                self.primitive_class_definitions.put(.integer, register_result.ptr_to_class);
+            } else if (class_definition.class_name.idx == double_symbol_id.idx) {
+                self.primitive_class_definitions.put(.double, register_result.ptr_to_class);
+            } else if (class_definition.class_name.idx == string_symbol_id.idx) {
+                self.primitive_class_definitions.put(.string, register_result.ptr_to_class);
+            }
         }
     }
 
     pub fn put_on_heap(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
         const bytes_needed = @sizeOf(HeapData.Header) + header.bytes_needed_after_header();
-        const alignment = std.mem.Alignment.fromByteUnits(64);
+        const alignment = comptime std.mem.Alignment.fromByteUnits(64);
         const ptr: *HeapData = @ptrCast(try self.allocator.alignedAlloc(u8, alignment, bytes_needed));
+        ptr.header = header;
         return ptr;
     }
 
+    pub const ResultOfRegisterClass = struct {
+        is_already_registered: bool,
+        ptr_to_class: *ClassDefinition,
+    };
+
     // TODO: for a better error reporting, store where a class is defined (for example the filepath to its file)
     // and return it in an optional string here.
-    pub fn register_class(self: *Self, class_name: SymbolId, class: ClassDefinition) Error!struct { is_already_registered: bool } {
+    pub fn register_class(self: *Self, class_name: SymbolId, class: ClassDefinition) Error!ResultOfRegisterClass {
         const entry = try self.class_map.getOrPut(class_name);
         if (entry.found_existing) {
-            return .{ .is_already_registered = true };
+            return .{ .is_already_registered = true, .ptr_to_class = entry.value_ptr };
         }
         entry.value_ptr.* = class;
-        return .{ .is_already_registered = false };
+        return .{ .is_already_registered = false, .ptr_to_class = entry.value_ptr };
     }
 
     // TODO: here will be argument for an entire class that is being run.. I think
@@ -139,7 +168,7 @@ pub const Interpreter = struct {
                     switch (to_print.data.kind()) {
                         .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
                         .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
-                        .string => |accessor| try self.stdout.print("{s}\n", .{accessor.get_length(to_print.data)}),
+                        .string => |accessor| try self.stdout.print("{s}\n", .{accessor.contents(to_print.data)}),
                         else => {
                             return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{to_print.data.header.tag});
                         },
@@ -152,10 +181,30 @@ pub const Interpreter = struct {
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.current_class_constant_base_id);
                     const constant = self.constants_manager.get_constant(constant_id);
-                    const object: VmObject = switch (constant) {
-                        .integer => |value| .{ .integer = value },
-                        .float => |value| .{ .double = value },
-                        .string => |value| .{ .string = value },
+                    const object: VmObject = blk: switch (constant) {
+                        .integer => |value| {
+                            // TODO(hack): consider whether making the integers smaller or arbitrary in size or something
+                            const value_i48: i48 = @intCast(value);
+
+                            const header = HeapData.Header.new_undefined_with_tag(.integer);
+                            const result_object_data: *HeapData = try self.put_on_heap(header);
+                            (primitives.Integer.Accessor{}).set_value(result_object_data, value_i48);
+                            break :blk result_object_data.as_vm_object();
+                        },
+                        .float => |value| {
+                            const header = HeapData.Header.new_undefined_with_tag(.double);
+                            const result_object_data: *HeapData = try self.put_on_heap(header);
+                            (primitives.Double.Accessor{}).set_value(result_object_data, value);
+                            break :blk result_object_data.as_vm_object();
+                        },
+                        .string => |value| {
+                            var header = HeapData.Header.new_undefined_with_tag(.string);
+                            (primitives.String.Accessor{}).set_length(header.as_heap_data(), @intCast(value.len));
+                            const result_object_data: *HeapData = try self.put_on_heap(header);
+                            // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
+                            @memcpy((primitives.String.Accessor{}).contents(result_object_data), value);
+                            break :blk result_object_data.as_vm_object();
+                        },
                     };
                     try self.push_stack(object);
                 },
@@ -169,18 +218,14 @@ pub const Interpreter = struct {
 
     inline fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: VmObject = self.pop_stack();
-        const class: *const ClassDefinition = try self.fetch_class(
-            // TODO(for SomClass): probably don't store the name of the class but just the `SymbolId`
-            // and don't do this lookup in the `self.strings_manager`
-            self.symbols_manager.id_of(target_object.class_name()).?,
-        );
+        const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const Method = class.get_method(call_info.message_name) orelse {
             // TODO: also check the parent classes (multiple!) if the method exists or no
-            // TODO(consultation): what about copying the implementation into the child classes from the parent classes
+            // TODO(consultation): (resolved with: do that) what about copying the implementation into the child classes from the parent classes
             //  idea from Crafting interpreters:  https://craftinginterpreters.com/superclasses.html
             self.report_runtime_error(
                 "Tried to call the method `{s}` on an instance of a class `{s}`, but that does not exist.",
-                .{ self.symbols_manager.symbol_with_id(call_info.message_name), target_object.class_name() },
+                .{ self.symbols_manager.symbol_with_id(call_info.message_name), self.symbols_manager.symbol_with_id(class.class_name) },
             );
             // TODO: maybe also print the methods that exist on that class?
             return Error.method_not_found;
@@ -199,7 +244,7 @@ pub const Interpreter = struct {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
                         "Error happened in the primitive method `{s}` of class `{s}`",
-                        .{ self.symbols_manager.symbol_with_id(call_info.message_name), target_object.class_name() },
+                        .{ self.symbols_manager.symbol_with_id(call_info.message_name), self.symbols_manager.symbol_with_id(class.class_name) },
                     ) catch {};
                     return err;
                 };
@@ -208,13 +253,26 @@ pub const Interpreter = struct {
         }
     }
 
-    inline fn fetch_class(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {
+    inline fn fetch_class_by_name(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {
         // TODO: if the class is not found, the interpreter should go and find the class definition
         const class = self.class_map.getPtr(class_name_id) orelse {
             std.debug.print("Could not find the class `{s}`\n", .{self.symbols_manager.symbol_with_id(class_name_id)});
             unreachable;
         };
         return class;
+    }
+
+    inline fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
+        // TODO: if the class is not found, the interpreter should go and find the class definition
+        return switch (object.data.kind()) {
+            .integer => self.primitive_class_definitions.getAssertContains(.integer),
+            .double => self.primitive_class_definitions.getAssertContains(.double),
+            .string => self.primitive_class_definitions.getAssertContains(.string),
+            .object => unreachable,
+            .array => unreachable,
+            .empty_heap_segment => unreachable,
+            .nil => unreachable,
+        };
     }
 
     inline fn get_stack_top(self: *Self) VmObject {
@@ -541,14 +599,14 @@ pub const HeapData = struct {
             return @fieldParentPtr("header", self);
         }
 
-        pub inline fn bytes_needed_after_header(self: Header) usize {
+        pub inline fn bytes_needed_after_header(self: *const Header) usize {
             return switch (self.kind()) {
                 .integer => |accessor| accessor.get_bytes_count_after_header(),
                 .double => |accessor| accessor.get_bytes_count_after_header(),
-                .string => |accessor| accessor.get_bytes_count_after_header(),
+                .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
                 .nil => 0,
-                .object => |accessor| accessor.get_bytes_count_after_header(self.as_heap_data()),
-                .array => |accessor| accessor.get_bytes_count_after_header(self.as_heap_data()),
+                .object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
+                .array => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
                 .empty_heap_segment => |accessor| accessor.get_bytes_count_after_header(),
             };
         }
@@ -560,10 +618,10 @@ pub const HeapData = struct {
             double: primitives.Double.Accessor,
             string: primitives.String.Accessor,
             nil,
+            array: InstanceVariablesAccessor,
             // TODO: rest of the primitives
 
             object: InstanceVariablesAccessor,
-            array: InstanceVariablesAccessor,
             empty_heap_segment: EmptyHeapSegmentAccessor,
 
             pub inline fn tag(self: Kind) Tag {
@@ -620,13 +678,13 @@ pub const EmptyHeapSegmentAccessor = struct {
 };
 
 pub const InstanceVariablesAccessor = struct {
-    pub inline fn get_bytes_count_after_header(self: InstanceVariablesAccessor, heap_data: *const HeapData) usize {
+    pub inline fn get_bytes_count_after_header(self: InstanceVariablesAccessor, heap_data: HeapData) usize {
         const instance_vars_cnt = self.get_instance_variables_count(heap_data);
         const total_size_in_bytes = @sizeOf(VmObject) * instance_vars_cnt;
         return total_size_in_bytes;
     }
 
-    pub inline fn get_instance_variables_count(self: InstanceVariablesAccessor, heap_data: *const HeapData) u32 {
+    pub inline fn get_instance_variables_count(self: InstanceVariablesAccessor, heap_data: HeapData) u32 {
         _ = self;
         return @truncate(heap_data.header.payload);
     }
@@ -647,6 +705,15 @@ pub const InstanceVariablesAccessor = struct {
 // But then, private methods on `Interpreter` will not be accesible from here... eh, doesn't matter probably
 //
 // TODO: split the classes definitions into "instance" and "class" parts
+
+pub const PrimitiveClasses = enum {
+    integer,
+    double,
+    string,
+    nil,
+    array,
+    // TODO: remaining primitive classes
+};
 
 pub const primitives = struct {
     pub const Integer = struct {
@@ -742,16 +809,19 @@ pub const primitives = struct {
             const lhs_int = (Accessor{}).get_value(target_object.data);
 
             const rhs_object = interpreter.pop_stack();
-            const rhs_int = switch (rhs_object.data.kind()) {
+            const rhs_int: i48 = switch (rhs_object.data.kind()) {
                 .integer => |accessor| accessor.get_value(rhs_object.data),
+                // TODO: check the size of the integer
+                // TODO: use `asInteger` primitive method in the `Double` class
+                .double => |accessor| @intFromFloat(accessor.get_value(rhs_object.data)),
                 // TODO: better error reporting
                 else => return Interpreter.Error.primitive_type_error,
             };
             const result_int = try op(lhs_int, rhs_int);
 
-            var header = HeapData.Header.new_undefined_with_tag(.integer);
-            (Accessor{}).set_value(header.as_heap_data(), result_int);
+            const header = HeapData.Header.new_undefined_with_tag(.integer);
             const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            (Accessor{}).set_value(result_object_data, result_int);
             const result_object = result_object_data.as_vm_object();
 
             return result_object;
@@ -770,7 +840,10 @@ pub const primitives = struct {
                 return ptr;
             }
             pub inline fn get_value(self: Accessor, heap_data: *const HeapData) f64 {
-                return self.value_ptr(heap_data).*;
+                _ = self;
+                const ptr: *f64 = heap_data.get_after_header_ptr(*f64);
+                const value = ptr.*;
+                return value;
             }
             pub inline fn set_value(self: Accessor, heap_data: *HeapData, value: f64) void {
                 self.value_ptr(heap_data).* = value;
@@ -815,10 +888,21 @@ pub const primitives = struct {
 
         pub const asString__somig_arity = 2;
         pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
-            const receiver_as_double: f64 = target_object.double;
-            // TODO: use interpter string allocator
+            const receiver_as_double: f64 = (Accessor{}).get_value(target_object.data);
+
+            // TODO: use interpter string allocator (??? i don't know what that means :D)
             const receiver_as_str: []u8 = try std.fmt.allocPrint(interpreter.allocator, "{d}", .{receiver_as_double});
-            return VmObject{ .string = receiver_as_str };
+            const length: i48 = @intCast(receiver_as_str.len);
+
+            var header = HeapData.Header.new_undefined_with_tag(.string);
+            (String.Accessor{}).set_length(header.as_heap_data(), length);
+            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
+            @memcpy((String.Accessor{}).contents(result_object_data), receiver_as_str);
+
+            const result_object = result_object_data.as_vm_object();
+
+            return result_object;
         }
 
         fn binary_method(
@@ -826,39 +910,56 @@ pub const primitives = struct {
             interpreter: *Interpreter,
             comptime op: fn (f64, f64) Interpreter.Error!f64,
         ) Interpreter.Error!VmObject {
-            const lhs_double = target_object.double;
+            const lhs_double = (Accessor{}).get_value(target_object.data);
+
             const rhs_object = interpreter.pop_stack();
+
             // TODO: better error reporting
-            const rhs_double = rhs_object.to_double() orelse return Interpreter.Error.primitive_type_error;
-            const result_double = try op(lhs_double, rhs_double);
-            const result_object = VmObject{ .double = result_double };
+            const rhs_double: f64 = switch (rhs_object.data.kind()) {
+                .integer => |accessor| @floatFromInt(accessor.get_value(rhs_object.data)),
+                .double => |accessor| accessor.get_value(rhs_object.data),
+                else => return Interpreter.Error.primitive_type_error,
+            };
+            const result_double: f64 = try op(lhs_double, rhs_double);
+
+            const header = HeapData.Header.new_undefined_with_tag(.double);
+            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            (Accessor{}).set_value(result_object_data, result_double);
+            const result_object = result_object_data.as_vm_object();
+
             return result_object;
         }
     };
 
     pub const String = struct {
         pub const Accessor = packed struct {
-            pub fn get_length(self: Accessor, heap_data: *const HeapData) i48 {
+            pub fn get_length(self: Accessor, heap_data: HeapData) i48 {
                 _ = self;
                 const raw: u48 = @truncate(heap_data.header.payload);
                 const length: i48 = @bitCast(raw);
                 return length;
             }
 
-            pub fn set_length(self: Accessor, heap_data: *const HeapData, new_length: i48) void {
+            pub fn get_length_usize(self: Accessor, heap_data: HeapData) usize {
+                const length_signed: i48 = self.get_length(heap_data);
+                return @intCast(length_signed);
+            }
+
+            pub fn set_length(self: Accessor, heap_data: *HeapData, new_length: i48) void {
                 _ = self;
                 const raw: u48 = @bitCast(new_length);
                 heap_data.header.payload = raw;
             }
 
-            pub fn get_bytes_count_after_header(self: Accessor) usize {
-                return self.get_length();
+            pub fn get_bytes_count_after_header(self: Accessor, heap_data: HeapData) usize {
+                return @intCast(self.get_length(heap_data));
             }
 
-            pub fn contents(self: Accessor, data: *HeapData) []u8 {
+            pub fn contents(self: Accessor, heap_data: *HeapData) []u8 {
                 // TODO: check that this works even when `self.length == 0`
-                const ptr: [*]u8 = data.get_after_header_ptr([*]u8);
-                const slice: []u8 = ptr[0..self.get_length()];
+                const ptr: [*]u8 = heap_data.get_after_header_ptr([*]u8);
+                const length: usize = self.get_length_usize(heap_data.*);
+                const slice: []u8 = ptr[0..length];
                 return slice;
             }
         };
@@ -874,17 +975,29 @@ pub const primitives = struct {
         // NOTE: Implementing `concatenate:` should be easier, since the argument it takes in is a string
         pub const @"+__somig_arity" = 1;
         pub fn @"+__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
-            const receiver = target_object.string;
+            const receiver_str = switch (target_object.data.kind()) {
+                .string => |accessor| accessor.contents(target_object.data),
+                else => return Interpreter.Error.primitive_type_error,
+            };
 
             const rhs_obj = interpreter.pop_stack();
-            const rhs_str = switch (rhs_obj) {
+            const rhs_string_obj = switch (rhs_obj.data.header.tag) {
                 .integer => try Integer.asString__somig_primitive_fn(rhs_obj, interpreter),
                 .double => try Double.asString__somig_primitive_fn(rhs_obj, interpreter),
                 .string => rhs_obj,
+                else => return interpreter.report_TODO("The `+` method on String does not support having `{t}` as an argument.", .{rhs_obj.data.kind()}),
             };
+            const rhs_str = (Accessor{}).contents(rhs_string_obj.data);
 
-            const concatenated_result = try std.fmt.allocPrint(interpreter.allocator, "{s}{s}", .{ receiver, rhs_str.string });
-            return VmObject{ .string = concatenated_result };
+            const concatenated_result = try std.fmt.allocPrint(interpreter.allocator, "{s}{s}", .{ receiver_str, rhs_str });
+
+            var header = HeapData.Header.new_undefined_with_tag(.string);
+            (String.Accessor{}).set_length(header.as_heap_data(), @intCast(concatenated_result.len));
+            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
+            @memcpy((String.Accessor{}).contents(result_object_data), concatenated_result);
+
+            return result_object_data.as_vm_object();
         }
     };
 };
