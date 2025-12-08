@@ -269,7 +269,6 @@ pub const Interpreter = struct {
             .double => self.primitive_class_definitions.getAssertContains(.double),
             .string => self.primitive_class_definitions.getAssertContains(.string),
             .object => unreachable,
-            .array => unreachable,
             .empty_heap_segment => unreachable,
             .nil => unreachable,
         };
@@ -299,7 +298,7 @@ pub const Interpreter = struct {
     }
 
     fn report_info(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
-        try self.stderr.print(colors.GREEN ++ "[runtime-info] " ++ colors.RESET ++ fmt ++ "\n", args);
+        try self.stderr.print(colors.CYAN ++ "[runtime-info] " ++ colors.RESET ++ fmt ++ "\n", args);
     }
 
     // TODO: remove this once all the major features are implemented
@@ -330,7 +329,9 @@ pub const Interpreter = struct {
 };
 
 pub const PrimitiveMethodImplementation = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
-pub const Lol = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
+/// Same as `PrimitiveMethodImplementation`, but made into a different type, because of circular dependency reasons.
+/// (Having two aliases for these function pointers remove the circular depenedency errors, maybe in future versions of Zig, they will not be a problem.)
+pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
 
 pub const ClassDefinition = struct {
     class_name: SymbolId,
@@ -510,7 +511,7 @@ pub const Method = struct {
 };
 
 pub const MethodBody = union(enum) {
-    primitive: Lol,
+    primitive: PrimitiveMethodImplementation_,
     user_land: struct { start_instruction: InstructionId },
 };
 
@@ -606,7 +607,6 @@ pub const HeapData = struct {
                 .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
                 .nil => 0,
                 .object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
-                .array => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
                 .empty_heap_segment => |accessor| accessor.get_bytes_count_after_header(),
             };
         }
@@ -618,10 +618,9 @@ pub const HeapData = struct {
             double: primitives.Double.Accessor,
             string: primitives.String.Accessor,
             nil,
-            array: InstanceVariablesAccessor,
             // TODO: rest of the primitives
 
-            object: InstanceVariablesAccessor,
+            object: GenericObjectAccessor,
             empty_heap_segment: EmptyHeapSegmentAccessor,
 
             pub inline fn tag(self: Kind) Tag {
@@ -677,27 +676,46 @@ pub const EmptyHeapSegmentAccessor = struct {
     }
 };
 
-pub const InstanceVariablesAccessor = struct {
-    pub inline fn get_bytes_count_after_header(self: InstanceVariablesAccessor, heap_data: HeapData) usize {
+pub const GenericObjectAccessor = struct {
+    pub const Self = @This();
+
+    pub inline fn get_bytes_count_after_header(self: Self, heap_data: HeapData) usize {
         const instance_vars_cnt = self.get_instance_variables_count(heap_data);
-        const total_size_in_bytes = @sizeOf(VmObject) * instance_vars_cnt;
+        const total_size_in_bytes = (@sizeOf(VmObject) * instance_vars_cnt) + @sizeOf(*ClassDefinition);
         return total_size_in_bytes;
     }
 
-    pub inline fn get_instance_variables_count(self: InstanceVariablesAccessor, heap_data: HeapData) u32 {
+    pub inline fn get_instance_variables_count(self: Self, heap_data: HeapData) u32 {
         _ = self;
         return @truncate(heap_data.header.payload);
     }
 
-    /// WARN: This does not affect the actual number of items, just sets the field describing the number
-    ///       of variables the object holds.
-    pub inline fn set_instance_variables_count(
-        self: InstanceVariablesAccessor,
-        heap_data: *HeapData,
-        new_count: u32,
-    ) void {
+    /// WARN: This does not affect the actual number of items, just sets the field describing the number of variables the object holds.
+    pub inline fn set_instance_variables_count(self: Self, heap_data: *HeapData, new_count: u32) void {
         _ = self;
         heap_data.header.payload = new_count;
+    }
+
+    pub inline fn get_class_definition(self: Self, heap_data: *const HeapData) *ClassDefinition {
+        _ = self;
+        return heap_data.get_after_header_ptr(**ClassDefinition).*;
+    }
+
+    pub inline fn set_class_definition(self: Self, heap_data: *HeapData, class: *ClassDefinition) void {
+        _ = self;
+        heap_data.get_after_header_ptr(**ClassDefinition).* = class;
+    }
+
+    pub inline fn get_instance_var_with_idx(self: Self, heap_data: *const HeapData, instance_var_idx: u32) VmObject {
+        assert(instance_var_idx < self.get_instance_variables_count(heap_data));
+        const instances = heap_data.get_after_header_ptr([*]VmObject);
+        return instances[instance_var_idx + 1]; // `+1` since we store the `*ClassDefinition` at the index 0
+    }
+
+    pub inline fn set_instance_var_with_idx(self: Self, heap_data: *HeapData, instance_var_idx: u32, new_object: VmObject) void {
+        assert(instance_var_idx < self.get_instance_variables_count(heap_data));
+        const instances = heap_data.get_after_header_ptr([*]VmObject);
+        instances[instance_var_idx + 1] = new_object; // `+1` since we store the `*ClassDefinition` at the index 0
     }
 };
 
