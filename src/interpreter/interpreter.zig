@@ -158,6 +158,11 @@ pub const Interpreter = struct {
             };
             switch (instruction) {
                 .no_op => {},
+                // .push_global => |global_object_id: SymbolId| {
+                //      const maybe_global_object: ?VmObject = self.get_global(global_object_id);
+                //      const global_object = if (maybe_global_object) |obj| obj
+                //                            else try self.load_class(global_object_id);
+                // }
                 .halt => {
                     try self.report_info("The halt instruction has been encountered.", .{});
                     return;
@@ -338,7 +343,7 @@ pub const ClassDefinition = struct {
     instance_methods: MethodMap,
 
     // TODO: add instance variables
-    // TODO: add pointer to parent class
+    // TODO: add !!optional!! pointer to parent class
     // TODO: add pointer to the singleton SOM object of class `Class`
 
     const Self = @This();
@@ -513,18 +518,6 @@ pub const Method = struct {
 pub const MethodBody = union(enum) {
     primitive: PrimitiveMethodImplementation_,
     user_land: struct { start_instruction: InstructionId },
-};
-
-pub const SomObjectPtr = struct {
-    pointee: [*]VmObject,
-
-    const Self = @This();
-    pub fn extras_ptr(self: Self) [*]u8 {
-        const ptr_as_int = @intFromPtr(self.pointee);
-        const offset = @bitSizeOf(VmObject) / 8;
-        const ptr_to_extras: [*]u8 = @ptrFromInt(ptr_as_int + offset);
-        return ptr_to_extras;
-    }
 };
 
 pub fn SmallPtr(comptime Ptr: type) type {
