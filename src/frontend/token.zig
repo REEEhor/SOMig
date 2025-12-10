@@ -43,18 +43,18 @@ pub const CodePosition = struct {
         };
     }
 
-    pub fn offset_start_by(self: *const Self, offset: usize) CodePosition {
+    pub fn offset_start_by(self: Self, offset: usize) CodePosition {
         return CodePosition.from_start_and_end(
             self.start_idx + offset,
             self.end_idx_inclusive(),
         );
     }
 
-    pub fn end_idx_inclusive(self: *const Self) uint {
+    pub fn end_idx_inclusive(self: Self) uint {
         return self.start_idx + self.length - 1;
     }
 
-    pub fn slice_from(self: *const Self, text: []const u8) []const u8 {
+    pub fn slice_from(self: Self, text: []const u8) []const u8 {
         return text[self.start_idx .. self.end_idx_inclusive() + 1];
     }
 
@@ -66,19 +66,11 @@ pub const CodePosition = struct {
 pub const IntegerRepresentation = i64;
 pub const FloatRepresentation = f64;
 
-pub const TokenKind = union(enum) {
+pub const TokenKind = enum(u8) {
     const Self = @This();
 
     /// The `^` character
     exit,
-
-    /// Line `------`
-    separator,
-
-    /// The symbol `|`.
-    /// Used in the syntax of the language (field declaration, for example),
-    /// but can also be defined as a custom binary message.
-    pipe,
 
     /// The symbol `.`.
     /// Used for separating statements or expressions.
@@ -97,8 +89,11 @@ pub const TokenKind = union(enum) {
     /// The symbol `]`
     close_bracket,
 
-    integer: IntegerRepresentation,
-    float: FloatRepresentation,
+    /// Integer literal
+    integer,
+
+    /// Float literal
+    float,
 
     /// The symbol `#(`
     array_literal_begin,
@@ -107,15 +102,9 @@ pub const TokenKind = union(enum) {
     hashtag,
 
     /// String literal is enclosed in 'single quotes'.
-    /// It is actually important to store also the contents of the string
-    /// because of escape sequences like `\n` which are translated into
-    /// corresponding ASCII values in the string.
-    ///
-    /// TODO: Consider allocating all string into an array so the token has to store only an index into that array.
-    ///
-    string_literal: []u8,
+    string_literal,
 
-    /// Identifier consisting of: `&@,/=<-\>~|%+*`
+    /// Identifier which consists of: &@,/=<-\>~|%+*
     binary_message,
 
     /// String in the form of `someIdentifier:`
@@ -126,20 +115,12 @@ pub const TokenKind = union(enum) {
 
     /// String in the form of `:someIdentifier`
     block_param,
-
-    pub fn tag(self: *const Self) std.meta.Tag(Self) {
-        return std.meta.activeTag(self.*);
-    }
 };
 
 pub const Token = struct {
     const Self = @This();
     kind: TokenKind,
     pos: CodePosition,
-
-    pub fn tag(self: *const Self) std.meta.Tag(TokenKind) {
-        return self.kind.tag();
-    }
 };
 
 test "slice_from" {
