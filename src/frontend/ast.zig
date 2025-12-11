@@ -3,71 +3,74 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const token_module = @import("token.zig");
-const FloatRepresentation = token_module.FloatRepresentation;
-const IntegerRepresentation = token_module.IntegerRepresentation;
-const Token = token_module.Token;
-const CodePosition = token_module.CodePosition;
+pub const FloatRepresentation = token_module.FloatRepresentation;
+pub const IntegerRepresentation = token_module.IntegerRepresentation;
+pub const Token = token_module.Token;
+pub const CodePosition = token_module.CodePosition;
+pub const TokenId = token_module.TokenId;
+pub const TokenKind = token_module.TokenKind;
+pub const TokenSpan = token_module.TokenSpan;
+pub const TokenSpanIterator = token_module.TokenSpanIterator;
+pub const TokenizedFile = token_module.TokenizedFile;
 
-/// Index into the list of all tokens.
-pub const TokenId = struct {
-    idx: u32,
+/// Abstract syntax tree of a single file that was parsed.
+pub const ParsedFile = struct {
+    tokens: std.MultiArrayList(Token).Slice,
+    source_code: []const u8,
 
-    pub fn create(idx: u32) TokenId {
-        return TokenId{ .idx = idx };
-    }
+    /// List of expressions in the parsed program.
+    /// Expressions use `ExprId` (an integer) to refer to their sub-expressions.
+    /// This `ExprId` is an index into this array-list.
+    expressions: ExpressionList,
 
-    pub fn minus(self: @This(), offset: u32) TokenId {
-        return TokenId{ .idx = self.idx - offset };
-    }
+    extras: Extras,
+    class_ast: ClassAst,
 
-    pub fn plus(self: @This(), offset: u32) TokenId {
-        return TokenId{ .idx = self.idx + offset };
-    }
-};
-
-/// Span of tokens which represent different pieces of the AST
-pub const TokenSpan = struct {
     const Self = @This();
 
-    pub fn create(start_idx: u32, end_idx: u32) Self {
-        return Self.create_or_null(start_idx, end_idx).?;
+    pub fn span_of(self: Self, expr_id: ExprId) TokenSpan {
+        return self.expressions.span_of(expr_id);
     }
 
-    pub fn at(token_id: TokenId) Self {
-        return TokenSpan{ .start_id = token_id, .end_id = token_id };
-    }
-
-    pub fn create_or_null(start_idx: u32, end_idx: u32) ?Self {
-        if (end_idx < start_idx) return null;
-        return TokenSpan{
-            .start_id = TokenId.create(start_idx),
-            .end_id = TokenId.create(end_idx),
+    pub fn pos_of(self: Self, id: anytype) CodePosition {
+        return switch (@TypeOf(id)) {
+            CodePosition => id,
+            ExprId => self.pos_of(self.span_of(id)),
+            TokenId => self.tokens.items(.pos)[id.idx],
+            *Token, Token, *const Token => id.pos,
+            *TokenSpan, TokenSpan, *const TokenSpan => {
+                const start_pos: CodePosition = self.pos_of(id.start_id);
+                const end_pos: CodePosition = self.pos_of(id.end_id);
+                return CodePosition.from_start_and_end(
+                    start_pos.start_idx,
+                    end_pos.end_idx_inclusive(),
+                );
+            },
+            else => |T| @compileError(
+                "The method `pos_of` takes either `Token`, `*Token`, `TokenId`, `TokenSpan`, `CodePosition` or `ExprId`. Got: `" ++ @typeName(T) ++ "`",
+            ),
         };
     }
 
-    /// Index into the token array where the first token is.
-    start_id: TokenId,
-    /// Index into the token array where the last (including) token is.
-    end_id: TokenId,
-
-    pub fn number_of_tokens(self: Self) u32 {
-        return self.end_id.idx - self.start_id.idx + 1;
+    pub fn text_at(self: Self, id: anytype) []const u8 {
+        const code_position = self.pos_of(id);
+        return code_position.slice_from(self.source_code);
     }
 
-    pub fn to_pos(self: Self, tokens: []Token) CodePosition {
-        const start_token = tokens[self.start_id.idx];
-        const end_token = tokens[self.end_id.idx];
-        return CodePosition.from_start_and_end(
-            start_token.pos.start_idx,
-            end_token.pos.end_idx_inclusive(),
-        );
+    pub fn get_token(self: Self, id: TokenId) Token {
+        return self.tokens.get(id.idx);
     }
 
-    pub fn iter(self: Self) TokenSpanIterator {
-        return TokenSpanIterator{
-            .current = self.start_id,
-            .last = self.end_id,
-        };
+    pub fn get_expr(self: Self, id: ExprId) Expression {
+        return self.expressions.get(id);
+    }
+
+    pub fn kind_of(self: Self, id: TokenId) TokenKind {
+        return self.tokens.items(.kind)[id.idx];
+    }
+
+    pub fn tag_of(self: Self, id: ExprId) Expression.Tag {
+        return self.expressions.tag_of(id);
     }
 };
 
@@ -77,18 +80,6 @@ pub fn Spanned(comptime Inner: type) type {
         span: TokenSpan,
     };
 }
-
-pub const TokenSpanIterator = struct {
-    const Self = @This();
-    current: TokenId,
-    last: TokenId,
-    pub fn next(self: *Self) ?TokenId {
-        if (self.current.idx > self.last.idx) return null;
-        const result = self.current;
-        self.current.idx += 1;
-        return result;
-    }
-};
 
 pub const ClassAst = struct {
     span: TokenSpan,
@@ -212,7 +203,7 @@ pub const ExpressionList = struct {
         };
     }
 
-    pub fn tag_of(self: Self, id: ExprId) std.meta.Tag(Expression) {
+    pub fn tag_of(self: Self, id: ExprId) Expression.Tag {
         return self.expr_list.items(.tags)[id.idx];
     }
 };
@@ -330,7 +321,7 @@ pub const Extras = struct {
     }
 
     /// See `add_function_body` for more info how the storage layout is implemented.
-    pub fn function_body_of(self: *Self, id: FunctionBodyId) FunctionBody {
+    pub fn function_body_of(self: Self, id: FunctionBodyId) FunctionBody {
         const span: ?TokenSpan = blk: {
             const span_idx = id.idx;
             const raw_span = TokenSpan.create(
@@ -375,25 +366,19 @@ pub const SpannedExpr = struct {
 // TODO:
 //  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
 pub const Expression = union(enum) {
-    /// The exact text of the identifier of this variable
-    /// can be extracted from the span of this expression.
-    ///
-    /// TODO(speed): it could actually be stored here as `TokenId`.
-    /// That way, we wouldn't have to look up span and it could stay out of the cache.
-    /// Since variable access is really common, this could speed up compilation.
-    variable,
+    /// The payload of this is guaranteed to be an `.identifier`
+    variable: TokenId,
 
-    integer_literal: IntegerRepresentation,
-    float_literal: FloatRepresentation,
+    /// The payload of this is guaranteed to be an `.integer`
+    integer_literal: TokenId,
+    /// The payload of this is guaranteed to be an `.float`
+    float_literal: TokenId,
+    /// The payload of this is guaranteed to be an `.string_literal`
     string_literal: TokenId,
+    ///
     array_literal: ArrayLiteral,
 
-    /// The exact text of the identifier of this variable
-    /// can be extracted from the span of this expression.
-    ///
-    /// TODO(speed): it could actually be stored here as a `TokenSpan`.
-    /// That way, we wouldn't have to look up span and it could stay out of the cache.
-    symbol,
+    symbol: TokenSpan,
 
     exit_expression: struct { return_value: ExprId },
     assignment: struct { variable: TokenId, target_value: ExprId },
@@ -406,7 +391,9 @@ pub const Expression = union(enum) {
 
     const Self = @This();
 
-    pub fn tag(self: Self) std.meta.Tag(Self) {
+    pub const Tag = std.meta.Tag(Self);
+
+    pub fn tag(self: Self) Tag {
         return std.meta.activeTag(self);
     }
 };
@@ -506,14 +493,14 @@ pub const ArrayLiteral = struct {
 pub const BlockParameterIterator = struct {
     const Self = @This();
     next_token_id: TokenId,
-    tokens: []Token,
+    tokens: std.MultiArrayList(Token).Slice,
 
-    pub fn next(self: *Self) ?*Token {
+    pub fn next(self: *Self) ?Token {
         if (self.next_token_id.idx >= self.tokens.len) {
             return null;
         }
-        const token: *Token = &self.tokens[self.next_token_id.idx];
-        if (token.tag() != .block_param) {
+        const token: Token = self.tokens.get(self.next_token_id.idx);
+        if (token.kind != .block_param) {
             return null;
         }
         self.next_token_id.idx += 1;
@@ -546,14 +533,14 @@ pub const BlockLiteral = struct {
         return self.impl_of_paremeters_start;
     }
 
-    pub fn iter_parameters(self: Self, tokens: []Token) BlockParameterIterator {
+    pub fn iter_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) BlockParameterIterator {
         return BlockParameterIterator{
             .tokens = tokens,
             .next_token_id = self.impl_of_paremeters_start,
         };
     }
 
-    pub fn get_parameters(self: Self, tokens: []Token) ?TokenSpan {
+    pub fn get_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) ?TokenSpan {
         var iter = self.iter_parameters(tokens);
         const start_token = self.impl_of_paremeters_start;
         _ = iter.next() orelse return null;

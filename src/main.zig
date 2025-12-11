@@ -1,4 +1,7 @@
 const std = @import("std");
+
+const parser_module = @import("frontend/parser.zig");
+
 const lexer_module = @import("frontend/lexer.zig");
 const Lexer = lexer_module.Lexer;
 const reporter_module = @import("frontend/reporter.zig");
@@ -14,6 +17,11 @@ pub fn main() !void {
         return;
     }
 
+    if (args.len == 3 and std.mem.eql(u8, args[1], "-parse")) {
+        try parse(allocator, args);
+        return;
+    }
+
     std.debug.print(
         "This will be an amazing SOMig project!\n\nUsage (so far):\n\t- `somig -lex <path/to/file.som>` | prints tokens and exits\n\n",
         .{},
@@ -21,6 +29,36 @@ pub fn main() !void {
 
     // This cannot be used for a while now :D
     // try playground(allocator);
+}
+
+fn parse(allocator: std.mem.Allocator, args: [][:0]u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const filepath = args[2];
+    var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
+        std.debug.print("Could not open the file '{s}'\n", .{filepath});
+        return err;
+    };
+    defer file.close();
+    const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
+        std.debug.print("Could not read the entire file due to size limits\n", .{});
+        return err;
+    };
+    defer gpa.free(file_contents);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout = &stdout_writer.interface;
+    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
+
+    var stderr_buffer: [4096]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr = &stderr_writer.interface;
+    defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
+
+    try parser_module.print_class_ast(file_contents, gpa, stdout, stderr);
 }
 
 fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
@@ -170,7 +208,7 @@ fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 // Forcing for `zig build test` to run tests in all files that
 // are recursively imported from here.
 test {
-    // _ = @import("frontend/parser.zig");
+    _ = @import("frontend/parser.zig");
     // _ = @import("frontend/codegen.zig");
     // _ = @import("interning/symbols_manager.zig");
     std.testing.refAllDeclsRecursive(@This());

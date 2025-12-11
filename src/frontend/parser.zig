@@ -24,37 +24,41 @@ const dbgx = debug_module.dbgx;
 
 const lexer_module = @import("lexer.zig");
 const Lexer = lexer_module.Lexer;
-const LexerError = lexer_module.LexerError;
+const LexerError = lexer_module.Lexer.Error;
 
 const token_module = @import("token.zig");
+const can_be_separator = token_module.can_be_separator;
+const is_pipe = token_module.is_pipe;
 const Token = token_module.Token;
 const TokenKind = token_module.TokenKind;
 const CodePosition = token_module.CodePosition;
+const TokenizedFile = token_module.TokenizedFile;
 
-const ast = @import("ast.zig");
-const Expression = ast.Expression;
-const ExpressionList = ast.ExpressionList;
-const Extras = ast.Extras;
-const ClassAst = ast.ClassAst;
-const ExprId = ast.ExprId;
-const MethodDefinition = ast.MethodDefinition;
-const TokenSpan = ast.TokenSpan;
-const FunctionBody = ast.FunctionBody;
-const FunctionBodyId = ast.FunctionBodyId;
-const MethodHeader = ast.MethodHeader;
-const TokenId = ast.TokenId;
-const ArrayLiteral = ast.ArrayLiteral;
-const ClassAstPortion = ast.ClassAstPortion;
-const KeywordMethodHeader = ast.KeywordMethodHeader;
-const BlockLiteral = ast.BlockLiteral;
-const RawBinaryMessageCall = ast.RawBinaryMessageCall;
-const BinaryMessageCall = ast.BinaryMessageCall;
-const KeywordMessage = ast.KeywordMessage;
-const KeywordMessageArgs = ast.KeywordMessageArgs;
-const ExprSpanId = ast.ExprSpanId;
-const FixedExprSpanId = ast.FixedExprSpanId;
-const SpannedExpr = ast.SpannedExpr;
-const Spanned = ast.Spanned;
+const ast_module = @import("ast.zig");
+const Expression = ast_module.Expression;
+const ExpressionList = ast_module.ExpressionList;
+const Extras = ast_module.Extras;
+const ClassAst = ast_module.ClassAst;
+const ExprId = ast_module.ExprId;
+const MethodDefinition = ast_module.MethodDefinition;
+const TokenSpan = ast_module.TokenSpan;
+const FunctionBody = ast_module.FunctionBody;
+const FunctionBodyId = ast_module.FunctionBodyId;
+const MethodHeader = ast_module.MethodHeader;
+const TokenId = ast_module.TokenId;
+const ArrayLiteral = ast_module.ArrayLiteral;
+const ClassAstPortion = ast_module.ClassAstPortion;
+const KeywordMethodHeader = ast_module.KeywordMethodHeader;
+const BlockLiteral = ast_module.BlockLiteral;
+const RawBinaryMessageCall = ast_module.RawBinaryMessageCall;
+const BinaryMessageCall = ast_module.BinaryMessageCall;
+const KeywordMessage = ast_module.KeywordMessage;
+const KeywordMessageArgs = ast_module.KeywordMessageArgs;
+const ExprSpanId = ast_module.ExprSpanId;
+const FixedExprSpanId = ast_module.FixedExprSpanId;
+const SpannedExpr = ast_module.SpannedExpr;
+const Spanned = ast_module.Spanned;
+const ParsedFile = ast_module.ParsedFile;
 
 const reporter_module = @import("reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
@@ -72,51 +76,53 @@ const ParserError = error{
 
     /// TODO: remove this once all features are supposed to be parsed. This is just for testing (so that the parser does not panic)
     TODO,
-} || LexerError;
-const TokenKindTag = std.meta.Tag(TokenKind);
+} || LexerError || std.mem.Allocator.Error;
 
+///
+/// Example usage:
+/// ```zig
+///     var parser = Parser.create(...);
+///     const ast: ParsedFile = try parser.parse();
+/// ```
+///
 pub const Parser = struct {
     const Self = @This();
-    reporter: ErrorReporter,
+    reporter: *ErrorReporter,
     allocator: std.mem.Allocator,
-    tokens: []Token,
     next_token_id: TokenId,
-    text: []const u8,
-    extras: Extras,
 
-    /// List of expressions in the parsed program.
-    /// Expressions use `ExprId` (an integer) to refer to their sub-expressions.
-    /// This `ExprId` is an index into this array-list.
-    expressions: ExpressionList,
+    ///
+    /// Abstract syntax tree that is at the output of the `parse` method.
+    ///
+    /// After a parser is created, not all fields of `ast: ParsedFile` are initialised.
+    /// During parsing, this field gets filled up with parsed expression and only
+    /// after parsing, this field can be considered immutable and fully initialised.
+    ast: ParsedFile,
 
-    pub fn create(lexer: *Lexer, error_reporter: ErrorReporter, allocator: std.mem.Allocator) ParserError!Parser {
-        // Lex all the tokens
-        // TODO(cleanup): Arbitrary choice. Empirically choose the length
-        // TODO(cleanup): If we end up lexing all tokens ahead of time, than it makes sense to remove `.peek_token(...)` from `Lexer`
-        const assumed_number_of_tokens = lexer.text.len / 8;
-        var tokens = try std.ArrayList(Token).initCapacity(allocator, assumed_number_of_tokens);
-        while (try lexer.next_token()) |token| {
-            try tokens.append(allocator, token);
-        }
+    pub fn create(tokenized_input: TokenizedFile, error_reporter: *ErrorReporter, allocator: std.mem.Allocator) Parser {
 
         // TODO(speed): Initialize `ExpressionList` with some assumed capacity
         // TODO(speed): Initialize `Extras` with some assumed capacity
+        const ast = ParsedFile{
+            .class_ast = undefined,
+            .expressions = ExpressionList.empty,
+            .extras = Extras.empty,
+            .source_code = tokenized_input.source_code,
+            .tokens = tokenized_input.tokens,
+        };
 
         return Parser{
             .reporter = error_reporter,
-            .expressions = ExpressionList.empty,
             .allocator = allocator,
-            .tokens = tokens.items,
-            .text = lexer.text,
-            .extras = Extras.empty,
             .next_token_id = TokenId.create(0),
+            .ast = ast,
         };
     }
 
-    pub fn parse(self: *Self) ParserError!ClassAst {
+    pub fn parse(self: *Self) ParserError!ParsedFile {
         const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
-        _ = try self.eat_binary_message("=");
+        _ = try self.eat_token_match_string(.binary_message, "=");
         // TODO: parse a potential super class here
         _ = try self.eat_token(.open_parenthesis);
 
@@ -126,12 +132,15 @@ pub const Parser = struct {
         const closing_parenthesis_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.close_parenthesis);
 
-        return ClassAst{
+        const class_ast = ClassAst{
             .class_name = class_name_token,
             .instance_portion = instance_portion,
             .class_portion = class_portion,
             .span = TokenSpan.create(class_name_token.idx, closing_parenthesis_token.idx),
         };
+
+        self.ast.class_ast = class_ast;
+        return self.ast;
     }
 
     fn parse_maybe_class_portion(self: *Self) ParserError!ClassAstPortion {
@@ -141,7 +150,7 @@ pub const Parser = struct {
             return ParserError.unexpected_eof;
         };
         // TODO: remove `separator` from token and make it a regular binary message token
-        switch (maybe_separator.tag()) {
+        switch (maybe_separator.kind) {
             .separator => {
                 _ = self.next_token();
                 return try self.parse_class_ast_portion(false);
@@ -165,7 +174,7 @@ pub const Parser = struct {
             const token_2_text = self.text_at(token_2);
             const is_token_2_equal_sign: bool = std.mem.eql(u8, "=", token_2_text);
 
-            if (token_1.tag() == .pipe and !is_token_2_equal_sign) {
+            if (self.is_token_pipe(token_1) and !is_token_2_equal_sign) {
                 const what_is_being_parsed = if (instance) "instance" else "class" ++ " fields";
                 fields = try self.parse_locals(what_is_being_parsed);
             }
@@ -174,13 +183,13 @@ pub const Parser = struct {
         // Parse method definitions
         var method_definitions = std.ArrayList(MethodDefinition).empty;
         while (self.peek_next_token()) |token| {
-            const method_header: MethodHeader = switch (token.tag()) {
+            const method_header: MethodHeader = switch (token.kind) {
                 .identifier => self.parse_unary_method_header(),
-                .binary_message, .pipe => try self.parse_binary_method_header(),
+                .binary_message => try self.parse_binary_method_header(),
                 .keyword_message => try self.parse_keyword_method_header(),
                 else => break,
             };
-            _ = try self.eat_binary_message("=");
+            _ = try self.eat_token_match_string(.binary_message, "=");
             _ = try self.eat_token(.open_parenthesis);
             const method_body = try self.parse_function_body();
             const end_token: TokenId = self.next_token_id;
@@ -230,10 +239,10 @@ pub const Parser = struct {
 
             // Parse the keyword
             const expected_keyword_str = "Unexpected token: '{t}'. Expected a keyword (an identifier with `:` at the end) or a method body `= ( \"some code\" )`.";
-            switch (maybe_keyword_token.tag()) {
+            switch (maybe_keyword_token.kind) {
                 .keyword_message => _ = self.next_token(),
                 .identifier => {
-                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.kind});
                     const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive() + 1);
                     self.reporter.add_note(.{ .pos = hint_pos }, "You probably wanted to put a `:` here.", .{});
                     return ParserError.unexpected_token;
@@ -242,23 +251,23 @@ pub const Parser = struct {
                     const token_text = self.text_at(maybe_keyword_token);
                     const is_equal_sign: bool = std.mem.eql(u8, token_text, "=");
                     if (is_equal_sign) break maybe_keyword_token_id.minus(1); // `maybe_keyword_token_id` is poiting at the equal sign and we want a token before that
-                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.kind});
                     return ParserError.unexpected_token;
                 },
                 else => {
-                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.tag()});
+                    self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.kind});
                     return ParserError.unexpected_token;
                 },
             }
 
             // Parse the identifier
-            const maybe_param_token: *Token = self.peek_next_token() orelse {
+            const maybe_param_token: Token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected a parameter", .{});
                 self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "Parameter is expected because of this keyword here.", .{});
                 return ParserError.unexpected_eof;
             };
 
-            switch (maybe_param_token.tag()) {
+            switch (maybe_param_token.kind) {
                 .identifier => _ = self.next_token(),
                 else => |tag| {
                     self.reporter.report_error(.{ .pos = maybe_param_token.pos }, "Unexpected token: '{t}'. Expected a parameter (which is an identifier).", .{tag});
@@ -299,19 +308,19 @@ pub const Parser = struct {
                 self.reporter.report_unexpected_eof("Expected more block parameters or a `|`.", .{});
                 return ParserError.unexpected_eof;
             };
-            switch (token.tag()) {
+            switch (token.kind) {
                 .block_param => result_span.end_id.idx += 1,
-                .pipe => {
-                    _ = self.next_token();
-                    return result_span;
-                },
                 else => |tag| {
+                    if (self.is_token_pipe(token)) {
+                        _ = self.next_token();
+                        return result_span;
+                    }
                     self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: '{t}'. Expected to see another block parameter or a `|`.", .{tag});
                     if (tag == .identifier) {
                         const hint_pos = CodePosition.at(token.pos.start_idx - 1);
                         self.reporter.add_note(.{ .pos = hint_pos }, "You might have forgotten a `:` here to make it a block parameter.", .{});
                     } else if (tag == .keyword_message) {
-                        const parameter_text = self.text_at_pos(token.pos.offset_start_by(1));
+                        const parameter_text = self.text_at(token.pos.offset_start_by(1));
                         self.reporter.add_note(.{ .pos = token.pos }, "You probably might have wanted a block parameter, which would be '{s}:'", .{parameter_text});
                     }
                     return ParserError.unexpected_token;
@@ -323,7 +332,7 @@ pub const Parser = struct {
 
     fn parse_block_literal(self: *Self) ParserError!Spanned(BlockLiteral) {
         const open_bracket_token: TokenId = self.next_token_id;
-        const open_bracket_pos = (try self.eat_token(.open_bracket)).pos.*;
+        const open_bracket_pos = try self.eat_token(.open_bracket);
 
         const first_token = self.peek_next_token() orelse {
             self.reporter.report_unexpected_eof("Expected a block literal after a `[`", .{});
@@ -331,7 +340,7 @@ pub const Parser = struct {
         };
 
         const parameters: ?TokenSpan = get_params: {
-            if (first_token.tag() == .block_param) {
+            if (first_token.kind == .block_param) {
                 break :get_params try self.parse_block_parameters();
             }
             break :get_params null;
@@ -339,7 +348,7 @@ pub const Parser = struct {
         const first_parameter_token: ?TokenId = if (parameters) |p| p.start_id else null;
 
         const body = try self.parse_function_body();
-        const body_id = try self.extras.add_function_body(self.allocator, body);
+        const body_id = try self.ast.extras.add_function_body(self.allocator, body);
 
         const close_bracket_token: TokenId = self.next_token_id;
         _ = self.eat_token(.close_bracket) catch |err| {
@@ -366,22 +375,22 @@ pub const Parser = struct {
     ///
     fn parse_locals(self: *Self, comptime structure_name: []const u8) ParserError!?TokenSpan {
         // Consume the pipe token
-        const start_pos = (try self.eat_token(.pipe)).pos;
+        const start_pos = self.next_token().?.pos;
         const first_var_token_idx = self.next_token_id.idx;
 
         while (true) {
             const token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected `|` to close the list of " ++ structure_name ++ ".", .{});
-                self.reporter.add_note(.{ .pos = start_pos.* }, "The list of " ++ structure_name ++ " starts here.", .{});
+                self.reporter.add_note(.{ .pos = start_pos }, "The list of " ++ structure_name ++ " starts here.", .{});
                 return ParserError.unmatched_pipe;
             };
             switch (token.kind) {
                 .identifier => _ = self.next_token(),
-                .pipe => {
-                    _ = self.next_token();
-                    break;
-                },
                 else => {
+                    if (self.is_token_pipe(token)) {
+                        _ = self.next_token();
+                        break;
+                    }
                     self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {any}. Expected either a `|` or an identifier.", .{token.kind});
                     return ParserError.unmatched_pipe;
                 },
@@ -406,7 +415,7 @@ pub const Parser = struct {
                 self.reporter.report_unexpected_eof("Expected body of function or a closing parenthesis.", .{});
                 return ParserError.unexpected_eof;
             };
-            if (token.tag() == .pipe) {
+            if (self.is_token_pipe(token)) {
                 break :parse_locals try self.parse_locals("locals of a function body");
             } else {
                 break :parse_locals null;
@@ -455,7 +464,7 @@ pub const Parser = struct {
             // Skip all dot tokens and set `saw_dot` to true if we see at least one dot.
             try expressions.append(self.allocator, expr_id);
             while (self.peek_next_token()) |maybe_dot| {
-                if (maybe_dot.tag() != .dot) break;
+                if (maybe_dot.kind != .dot) break;
                 saw_dot = true;
                 _ = self.next_token();
             } else saw_dot = false;
@@ -479,8 +488,8 @@ pub const Parser = struct {
         const token = self.peek_next_token() orelse return primary_expr_id;
 
         // Check whether this expression is an assignment or not
-        if (token.tag() == .assign) {
-            const lhs_identifier: TokenId = blk: switch (self.expressions.tag_of(primary_expr_id)) {
+        if (token.kind == .assign) {
+            const lhs_identifier: TokenId = blk: switch (self.ast.tag_of(primary_expr_id)) {
                 .variable => {
                     const identifier_token = self.span_of(primary_expr_id).start_id;
                     break :blk identifier_token;
@@ -522,7 +531,7 @@ pub const Parser = struct {
 
         // Parse keyword message calls
         while (self.peek_next_token()) |token| {
-            if (token.tag() != .keyword_message) break;
+            if (token.kind != .keyword_message) break;
             const keyword_token_id = self.next_token_id;
             _ = self.next_token();
             const error_str = "Because of this, an argument to this keyword message could have not been parsed.";
@@ -554,7 +563,7 @@ pub const Parser = struct {
         if (keyword_arguments.items.len == 0) return first_argument_id;
 
         const args_slice: []ExprId = try keyword_arguments.toOwnedSlice(self.allocator);
-        const args_id: ExprSpanId = try self.extras.add_variable_span(self.allocator, args_slice);
+        const args_id: ExprSpanId = try self.ast.extras.add_variable_span(self.allocator, args_slice);
 
         const expression = Expression{ .keyword_message_call = .{
             .first_argument = first_argument_id,
@@ -571,7 +580,7 @@ pub const Parser = struct {
         var result_expr_id: ExprId = try self.parse_maybe_unary_messages(lhs_expr_id);
 
         while (self.peek_next_token()) |message_token| {
-            if (message_token.tag() != .binary_message and message_token.tag() != .pipe) break;
+            if (message_token.kind != .binary_message) break;
             const message_token_id = self.next_token_id;
             _ = self.next_token();
 
@@ -591,7 +600,7 @@ pub const Parser = struct {
                 .message = message_token_id,
                 .rhs = rhs_expr_id,
             };
-            const raw_binary_call: RawBinaryMessageCall = try binary_call.compress_allocating(self.allocator, &self.extras);
+            const raw_binary_call: RawBinaryMessageCall = try binary_call.compress_allocating(self.allocator, &self.ast.extras);
             const expression = Expression{ .binary_message_call = raw_binary_call };
             const span = TokenSpan.create(
                 self.span_of(binary_call.lhs).start_id.idx,
@@ -606,7 +615,7 @@ pub const Parser = struct {
         const start_token_id: TokenId = self.span_of(primary_expr_id).start_id;
         var result_expr_id = primary_expr_id;
         while (self.peek_next_token()) |unary_message_name| {
-            if (unary_message_name.tag() != .identifier) break;
+            if (unary_message_name.kind != .identifier) break;
             const unary_message_name_id = self.next_token_id;
             _ = self.next_token();
 
@@ -623,14 +632,18 @@ pub const Parser = struct {
         return result_expr_id;
     }
 
-    pub fn pos_of(self: *Self, id: anytype) CodePosition {
-        return switch (@TypeOf(id)) {
-            *TokenSpan, TokenSpan => id.to_pos(self.tokens),
-            *Token, Token => id.pos,
-            *ExprId, ExprId => self.span_of(id).to_pos(self.tokens),
-            *TokenId, TokenId => self.tokens[id.idx].pos,
-            else => |T| @compileError(
-                "The method `pos_of` takes either `ExprId`, `TokenId` or `TokenSpan`. Got: `" ++ @typeName(T) ++ "`",
+    inline fn pos_of(self: *Self, id: anytype) CodePosition {
+        return self.pos_of_typed(@TypeOf(id), id);
+    }
+
+    inline fn pos_of_typed(self: *Self, comptime T: type, id: T) CodePosition {
+        return switch (T) {
+            ExprId => self.pos_of_typed(TokenSpan, self.span_of(id)),
+            *const Token, *Token, Token => id.pos,
+            TokenId => self.ast.tokens.items(.pos)[id.idx],
+            TokenSpan => id.to_pos(self.ast.tokens),
+            else => @compileError(
+                "The method `pos_of` takes either `Token`, `*(const) Token`, `TokenId`, `TokenSpan` or `ExprId`. Got: `" ++ @typeName(T) ++ "`",
             ),
         };
     }
@@ -645,19 +658,19 @@ pub const Parser = struct {
         const expression: SpannedExpr = get_expression: switch (token.kind) {
             .identifier => {
                 break :get_expression SpannedExpr{
-                    .expr = .variable,
+                    .expr = .{ .variable = token_id },
                     .span = TokenSpan.at(token_id),
                 };
             },
-            .integer => |value| {
+            .integer => {
                 break :get_expression SpannedExpr{
-                    .expr = .{ .integer_literal = value },
+                    .expr = .{ .integer_literal = token_id },
                     .span = TokenSpan.at(token_id),
                 };
             },
-            .float => |value| {
+            .float => {
                 break :get_expression SpannedExpr{
-                    .expr = .{ .float_literal = value },
+                    .expr = .{ .float_literal = token_id },
                     .span = TokenSpan.at(token_id),
                 };
             },
@@ -680,7 +693,7 @@ pub const Parser = struct {
                 // Adjust the span of the inner expression, since it is surrounded by parenthesis
                 const original_span = self.span_of(inner_expression);
                 const new_span = TokenSpan.create(original_span.start_id.idx - 1, original_span.end_id.idx + 1);
-                self.expressions.set_span_of(inner_expression, new_span);
+                self.ast.expressions.set_span_of(inner_expression, new_span);
 
                 return inner_expression;
             },
@@ -696,7 +709,7 @@ pub const Parser = struct {
             .hashtag => {
                 self.unget_token();
                 const symbol_span: TokenSpan = try self.parse_som_symbol();
-                const symbol_expr = SpannedExpr{ .expr = .symbol, .span = symbol_span };
+                const symbol_expr = SpannedExpr{ .expr = .{ .symbol = symbol_span }, .span = symbol_span };
                 break :get_expression symbol_expr;
             },
 
@@ -709,8 +722,8 @@ pub const Parser = struct {
                 return ParserError.unmatched_bracket;
             },
             // List all the tokens so if there is a change to the list of token options, we catch it here
-            .exit, .separator, .pipe, .dot, .assign, .binary_message, .keyword_message, .block_param => {
-                self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.tag()});
+            .exit, .separator, .dot, .assign, .binary_message, .keyword_message, .block_param => {
+                self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.kind});
                 return ParserError.unexpected_token;
             },
         };
@@ -718,9 +731,13 @@ pub const Parser = struct {
         return self.add_expression(expression);
     }
 
+    inline fn is_token_pipe(self: Self, token: Token) bool {
+        return is_pipe(token, self.ast.source_code);
+    }
+
     fn parse_som_symbol(self: *Self) ParserError!TokenSpan {
         const hashtag_token_id: TokenId = self.next_token_id;
-        const hashtag_pos = (try self.eat_token(.hashtag)).pos.*;
+        const hashtag_pos = try self.eat_token(.hashtag);
 
         const expected_str = "The character `#` is expected to have one of these after it: a string, an identifier, a binary message or a list of keywords (for example `#some:keywords:`).";
         const token_id = self.next_token_id;
@@ -735,25 +752,24 @@ pub const Parser = struct {
             print_hint: {
                 // Check if the user might wants to remove spaces before the next token
                 const t = self.peek_next_token() orelse break :print_hint;
-                switch (t.tag()) {
-                    .string_literal, .identifier, .binary_message, .pipe, .keyword_message => {},
+                switch (t.kind) {
+                    .string_literal, .identifier, .binary_message, .keyword_message => {},
                     else => break :print_hint,
                 }
                 const note_pos = CodePosition.from_start_and_end(token.pos.end_idx_inclusive() + 1, t.pos.start_idx - 1);
                 self.reporter.add_note(
                     .{ .pos = note_pos },
                     "Since the next token after the hashtag is '{t}', consider removing this space between the tokens.",
-                    .{t.tag()},
+                    .{t.kind},
                 );
             }
             return ParserError.alone_hashtag;
         }
 
-        const end_token_id: TokenId = blk: switch (token.tag()) {
+        const end_token_id: TokenId = blk: switch (token.kind) {
             .string_literal,
             .identifier,
             .binary_message,
-            .pipe, // pipe is also a binary message
             => break :blk token_id,
 
             .keyword_message => {
@@ -764,7 +780,7 @@ pub const Parser = struct {
                 while (self.peek_next_token()) |current_token| {
                     const current_start_idx = current_token.pos.start_idx;
                     const token_is_right_after_previous: bool = (current_start_idx == previous_end_idx + 1);
-                    if (!token_is_right_after_previous or current_token.tag() != .keyword_message) {
+                    if (!token_is_right_after_previous or current_token.kind != .keyword_message) {
                         break :blk TokenId.create(end_token_idx);
                     }
                     _ = self.next_token();
@@ -786,7 +802,7 @@ pub const Parser = struct {
 
     fn parse_array_literal(self: *Self) ParserError!Spanned(ArrayLiteral) {
         const start_token = self.next_token_id;
-        const start_pos = (try self.eat_token(.array_literal_begin)).pos;
+        const start_pos = try self.eat_token(.array_literal_begin);
 
         var elements_list = std.ArrayList(ExprId).empty;
         var end_token = start_token;
@@ -794,10 +810,10 @@ pub const Parser = struct {
             end_token = self.next_token_id;
             const token = self.peek_next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected closing parenthesis for an array literal.", .{});
-                self.reporter.add_note(.{ .pos = start_pos.* }, "Array literal starts here.", .{});
+                self.reporter.add_note(.{ .pos = start_pos }, "Array literal starts here.", .{});
                 return ParserError.unexpected_eof;
             };
-            if (token.tag() == .close_parenthesis) {
+            if (token.kind == .close_parenthesis) {
                 _ = self.next_token();
                 break;
             }
@@ -806,7 +822,7 @@ pub const Parser = struct {
             try elements_list.append(self.allocator, array_element);
         }
         const elements: []ExprId = try elements_list.toOwnedSlice(self.allocator);
-        const elements_id: ExprSpanId = try self.extras.add_variable_span(self.allocator, elements);
+        const elements_id: ExprSpanId = try self.ast.extras.add_variable_span(self.allocator, elements);
 
         const spanned_literal = Spanned(ArrayLiteral){
             .inner = ArrayLiteral{ .elements = elements_id },
@@ -816,102 +832,68 @@ pub const Parser = struct {
     }
 
     fn add_expression(self: *Self, new_expression: SpannedExpr) ParserError!ExprId {
-        const new_expr_id: ExprId = try self.expressions.add(self.allocator, new_expression);
+        const new_expr_id: ExprId = try self.ast.expressions.add(self.allocator, new_expression);
         return new_expr_id;
     }
 
-    fn eat_binary_message(self: *Self, expected_contents: []const u8) ParserError!PayloadWithPos(.binary_message) {
-        const binary_message = self.eat_token(.binary_message) catch |err| {
-            if (err == ParserError.unexpected_token) {
-                self.reporter.add_note(.no_location, "Expected binary message was \"{s}\"", .{expected_contents});
-            }
-            return err;
-        };
-
-        const actual_contents = self.text_at_pos(binary_message.pos.*);
-        if (std.mem.eql(u8, actual_contents, expected_contents)) {
-            return binary_message;
-        }
-
-        return self.report_unexpected_token(binary_message.to_token(), .binary_message);
-    }
-
     fn span_of(self: Self, id: ExprId) TokenSpan {
-        return self.expressions.span_of(id);
+        return self.ast.expressions.span_of(id);
     }
 
-    pub fn text_at(self: *Self, id: anytype) []const u8 {
-        const pos = self.pos_of(id);
-        return self.text_at_pos(pos);
+    inline fn text_at(self: Self, id: anytype) []const u8 {
+        return self.ast.text_at(id);
     }
 
-    fn text_at_pos(self: *Self, pos: CodePosition) []const u8 {
-        return pos.slice_from(self.text);
-    }
-
-    // NOTE(epic-zig): Nice compile time checked return value
-    fn PayloadWithPos(comptime tag: TokenKindTag) type {
-        return struct {
-            pos: *const CodePosition,
-            payload: *const @FieldType(TokenKind, @tagName(tag)),
-            pub fn to_token(self: *const @This()) Token {
-                return Token{
-                    .pos = self.pos.*,
-                    .kind = @unionInit(TokenKind, @tagName(tag), self.payload.*),
-                };
-            }
-        };
-    }
-    fn assert_token(self: *Self, actual_token: *Token, comptime expected_tag: TokenKindTag) ParserError!PayloadWithPos(expected_tag) {
-        switch (actual_token.kind) {
-            inline else => |*payload, actual_tag| {
-                if (actual_tag != expected_tag) {
-                    return self.report_unexpected_token(actual_token.*, expected_tag);
-                }
-                return .{ .pos = &actual_token.pos, .payload = payload };
-            },
-        }
-        unreachable;
-    }
-    fn eat_token(self: *Self, comptime expected_tag: TokenKindTag) ParserError!PayloadWithPos(expected_tag) {
+    fn eat_token_match_string(self: *Self, comptime expected_kind: TokenKind, comptime expected_text: []const u8) ParserError!CodePosition {
         const actual_token = self.next_token() orelse {
-            // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
-            self.reporter.report_unexpected_eof("Expected '{t}'", .{expected_tag});
+            self.reporter.report_unexpected_eof("Expected token '{s}'.", .{expected_text});
             return ParserError.unexpected_eof;
         };
-        return self.assert_token(actual_token, expected_tag);
-    }
 
-    pub fn token_payload(self: *Self, id: TokenId, comptime token_tag: TokenKindTag) PayloadWithPos(token_tag) {
-        const token: *Token = &self.tokens[id.idx];
-
-        switch (token.kind) {
-            inline else => |*payload, tag| {
-                if (tag == token_tag) {
-                    return PayloadWithPos(token_tag){
-                        .payload = payload,
-                        .pos = &token.pos,
-                    };
-                } else unreachable;
-            },
+        const kind_matches = actual_token.kind == expected_kind;
+        const actual_text = self.text_at(actual_token);
+        const text_matches = std.mem.eql(u8, actual_text, expected_text);
+        //
+        if (text_matches) {
+            assert(kind_matches);
+            return actual_token.pos;
         }
-    }
 
-    fn report_unexpected_token(self: *Self, actual_token: Token, expected_tag: TokenKindTag) ParserError {
-        // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
         self.reporter.report_error(
             .{ .pos = actual_token.pos },
-            "Unexpected token {t} '{s}'. Expected token '{t}'.",
-            .{ actual_token.tag(), self.text_at_pos(actual_token.pos), expected_tag },
+            "Unexpected token '{s}'. Expected token '{s}'.",
+            .{ actual_text, expected_text },
         );
         return ParserError.unexpected_token;
     }
 
-    fn peek_next_token(self: *Self) ?*Token {
-        if (@as(usize, self.next_token_id.idx) >= self.tokens.len) {
+    fn eat_token(self: *Self, comptime expected_kind: TokenKind) ParserError!CodePosition {
+        const actual_token = self.next_token() orelse {
+            // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
+            self.reporter.report_unexpected_eof("Expected token of kind '{t}'.", .{expected_kind});
+            return ParserError.unexpected_eof;
+        };
+        if (actual_token.kind != expected_kind) {
+            return self.report_unexpected_token(actual_token, expected_kind);
+        }
+        return actual_token.pos;
+    }
+
+    fn report_unexpected_token(self: *Self, actual_token: Token, expected_kind: TokenKind) ParserError {
+        // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
+        self.reporter.report_error(
+            .{ .pos = actual_token.pos },
+            "Unexpected token {t} '{s}'. Expected token '{t}'.",
+            .{ actual_token.kind, self.text_at(actual_token), expected_kind },
+        );
+        return ParserError.unexpected_token;
+    }
+
+    fn peek_next_token(self: Self) ?Token {
+        if (@as(usize, self.next_token_id.idx) >= self.ast.tokens.len) {
             return null;
         }
-        return &self.tokens[self.next_token_id.idx];
+        return self.ast.get_token(self.next_token_id);
     }
 
     fn unget_token(self: *Self) void {
@@ -919,24 +901,24 @@ pub const Parser = struct {
         self.next_token_id.idx -= 1;
     }
 
-    fn next_token(self: *Self) ?*Token {
+    fn next_token(self: *Self) ?Token {
         const token = self.peek_next_token();
-        if (token != null) self.next_token_id.idx += 1;
+        self.next_token_id.idx += 1;
         return token;
     }
 
-    fn peek_token_at_offset(self: *Self, offset: i32) ?*Token {
+    fn peek_token_at_offset(self: *Self, offset: i32) ?Token {
         if (self.next_token_id.idx < offset) return null;
         const idx = self.next_token_id.idx + @abs(std.math.sign(offset) * offset);
-        if (idx >= self.tokens.len) return null;
-        return &self.tokens[idx];
+        if (idx >= self.ast.tokens.len) return null;
+        return self.ast.tokens.get(idx);
     }
 };
 
 const SpanFormatter = struct {
-    tokens: []Token,
+    tokens: std.MultiArrayList(Token).Slice,
     const Fmt = struct {
-        tokens: []Token,
+        tokens: std.MultiArrayList(Token).Slice,
         span: ?TokenSpan,
 
         pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
@@ -983,7 +965,7 @@ fn print_function_body(
     writer: *std.io.Writer,
     function_body: FunctionBody,
     formatter: SpanFormatter,
-    parser: *Parser,
+    ast: ParsedFile,
     indent: Indent,
 ) PrintFunctionBodyError!void {
     try writer.print("{f}\t{f}Body:\n", .{ indent, formatter.fmt(function_body.span) });
@@ -992,8 +974,8 @@ fn print_function_body(
         var iter = span_locals.iter();
         var idx: usize = 1;
         while (iter.next()) |token_id| : (idx += 1) {
-            assert(parser.tokens[token_id.idx].tag() == .identifier);
-            const local = parser.text_at(token_id);
+            assert(ast.kind_of(token_id) == .identifier);
+            const local = ast.text_at(token_id);
             try writer.print("{f}\t\t\t#{d}: '{s}'\n", .{ indent, idx, local });
         }
     } else {
@@ -1009,7 +991,7 @@ fn print_function_body(
         try writer.print("{f}\t\t\tExpression #{d}:\n", .{ indent, idx });
 
         const new_indent = indent.plus(4); // because we want at least 4 tabulators before each expression
-        try print_expression_recursive(writer, formatter, expr, parser, new_indent);
+        try print_expression_recursive(writer, formatter, expr, ast, new_indent);
     }
 }
 
@@ -1017,109 +999,114 @@ fn print_expression_recursive(
     writer: *std.io.Writer,
     formatter: SpanFormatter,
     expr_id: ExprId,
-    parser: *Parser,
+    ast: ParsedFile,
     indent: Indent,
 ) !void {
-    const expression = parser.expressions.get(expr_id);
+    const expression = ast.expressions.get(expr_id);
 
     try writer.print("{f}- {f}(id={d}) ", .{
         indent,
-        formatter.fmt(parser.span_of(expr_id)),
+        formatter.fmt(ast.span_of(expr_id)),
         expr_id.idx,
     });
     switch (expression) {
-        .variable => try writer.print("Variable({s})\n", .{parser.text_at(expr_id)}),
-        .integer_literal => |value| {
-            try writer.print("Integer literal({d})\n", .{value});
+        .variable => try writer.print("Variable({s})\n", .{ast.text_at(expr_id)}),
+        .integer_literal => |token_id| {
+            const value_str = ast.text_at(token_id);
+            try writer.print("Integer literal({s})\n", .{value_str});
         },
-        .float_literal => |value| {
-            try writer.print("Float literal({d})\n", .{value});
+        .float_literal => |token_id| {
+            const value_str = ast.text_at(token_id);
+            try writer.print("Float literal({s})\n", .{value_str});
         },
         .string_literal => |token_id| {
-            const value = parser.token_payload(token_id, .string_literal).payload.*;
-            try writer.print("String literal({s})\n", .{value});
+            const value = ast.text_at(token_id);
+            // Strip the leading and trailing `'`
+            assert(value.len >= 2); // It should be, since the shortest string literal is `''` (two `'` characters)
+            const stripped = value[1 .. value.len - 1];
+            try writer.print("String literal({s})\n", .{stripped});
         },
         .array_literal => |array_literal| {
-            const elements: []const ExprId = parser.extras.variable_span_of(array_literal.elements);
+            const elements: []const ExprId = ast.extras.variable_span_of(array_literal.elements);
 
             switch (elements.len) {
                 0 => try writer.print("Array literal (empty)\n", .{}),
                 1 => {
                     try writer.print("Array literal (with 1 element):\n", .{});
                     const element = elements[0];
-                    try print_expression_recursive(writer, formatter, element, parser, indent.plus(1));
+                    try print_expression_recursive(writer, formatter, element, ast, indent.plus(1));
                 },
                 else => {
                     try writer.print("Array literal (with {d} elements):\n", .{elements.len});
                     for (elements) |element| {
-                        try print_expression_recursive(writer, formatter, element, parser, indent.plus(1));
+                        try print_expression_recursive(writer, formatter, element, ast, indent.plus(1));
                     }
                 },
             }
         },
         .symbol => {
-            const text: []const u8 = parser.text_at(expr_id);
+            const text: []const u8 = ast.text_at(expr_id);
             try writer.print("Symbol '{s}'\n", .{text});
         },
 
         .exit_expression => |exit| {
             try writer.print("Exit expression with return value:\n", .{});
-            try print_expression_recursive(writer, formatter, exit.return_value, parser, indent.plus(1));
+            try print_expression_recursive(writer, formatter, exit.return_value, ast, indent.plus(1));
         },
         .assignment => |assignment| {
-            try writer.print("Assignment of '{s}' to:\n", .{parser.text_at(assignment.variable)});
-            try print_expression_recursive(writer, formatter, assignment.target_value, parser, indent.plus(1));
+            try writer.print("Assignment of '{s}' to:\n", .{ast.text_at(assignment.variable)});
+            try print_expression_recursive(writer, formatter, assignment.target_value, ast, indent.plus(1));
         },
 
         .block_literal => |info| {
-            try writer.print("{f} Block literal", .{formatter.fmt(parser.span_of(expr_id))});
-            const parameters = info.get_parameters(parser.tokens);
+            try writer.print("{f} Block literal", .{formatter.fmt(ast.span_of(expr_id))});
+            const parameters = info.get_parameters(ast.tokens);
             if (parameters) |span_parameters| {
                 try writer.print(" with {d} parameters:\n", .{span_parameters.number_of_tokens()});
                 var iter = span_parameters.iter();
                 while (iter.next()) |parameter_token| {
-                    const parameter_text = parser.text_at(parameter_token);
+                    const parameter_text = ast.text_at(parameter_token);
                     try writer.print("{f}- '{s}'\n", .{ indent.plus(1), parameter_text });
                 }
             } else {
                 try writer.print(" with no parameters\n", .{});
             }
 
-            const body = parser.extras.function_body_of(info.body_id);
-            try print_function_body(writer, body, formatter, parser, indent);
+            const body = ast.extras.function_body_of(info.body_id);
+            try print_function_body(writer, body, formatter, ast, indent);
         },
 
         .unary_message_call => |unary_call| {
-            try writer.print("Unary message '{s}' to the object:\n", .{parser.text_at(unary_call.message)});
-            try print_expression_recursive(writer, formatter, unary_call.argument, parser, indent.plus(1));
+            try writer.print("Unary message '{s}' to the object:\n", .{ast.text_at(unary_call.message)});
+            try print_expression_recursive(writer, formatter, unary_call.argument, ast, indent.plus(1));
         },
         .binary_message_call => |raw_binary_call| {
-            const binary_call = raw_binary_call.decompress(parser.extras);
+            const binary_call = raw_binary_call.decompress(ast.extras);
 
-            try writer.print("Binary message call '{s}', with lhs:\n", .{parser.text_at(binary_call.message)});
-            try print_expression_recursive(writer, formatter, binary_call.lhs, parser, indent.plus(1));
+            try writer.print("Binary message call '{s}', with lhs:\n", .{ast.text_at(binary_call.message)});
+            try print_expression_recursive(writer, formatter, binary_call.lhs, ast, indent.plus(1));
 
             try writer.print("{f}  and rhs:\n", .{indent});
-            try print_expression_recursive(writer, formatter, binary_call.rhs, parser, indent.plus(1));
+            try print_expression_recursive(writer, formatter, binary_call.rhs, ast, indent.plus(1));
         },
         .keyword_message_call => |keyword_call| {
             try writer.print("Keyword message call on object:\n", .{});
-            try print_expression_recursive(writer, formatter, keyword_call.first_argument, parser, indent.plus(1));
+            try print_expression_recursive(writer, formatter, keyword_call.first_argument, ast, indent.plus(1));
 
             try writer.print("{f}  and argument pairs:\n", .{indent});
 
-            const args = keyword_call.get_args(parser.extras);
+            const args = keyword_call.get_args(ast.extras);
             for (0..args.number_of_args()) |idx_usize| {
                 const idx: u32 = @truncate(idx_usize);
-                try writer.print("{f}- Keyword '{s}' and arg:\n", .{ indent.plus(1), parser.text_at(args.nth_keyword(idx)) });
-                try print_expression_recursive(writer, formatter, args.nth_argument(idx), parser, indent.plus(2));
+                try writer.print("{f}- Keyword '{s}' and arg:\n", .{ indent.plus(1), ast.text_at(args.nth_keyword(idx)) });
+                try print_expression_recursive(writer, formatter, args.nth_argument(idx), ast, indent.plus(2));
             }
         },
     }
 }
 
 fn print_portion(
-    parser: *Parser,
+    ast: ParsedFile,
     portion: *const ClassAstPortion,
     span_formatter: SpanFormatter,
     writer: *std.io.Writer,
@@ -1128,8 +1115,8 @@ fn print_portion(
         try writer.print("\tFields:\n", .{});
         var iter = span_fields.iter();
         while (iter.next()) |token_id| {
-            assert(parser.tokens[token_id.idx].tag() == .identifier);
-            const text = parser.text_at(token_id);
+            assert(ast.kind_of(token_id) == .identifier);
+            const text = ast.text_at(token_id);
             try writer.print("\t\t- '{s}'\n", .{text});
         }
     } else {
@@ -1147,18 +1134,18 @@ fn print_portion(
         try writer.print("\t{f}Header: ", .{span_formatter.fmt(header.span())});
         switch (header) {
             .unary => |info| {
-                try writer.print("(unary-method) '{s}'\n", .{parser.text_at(info.method_name)});
+                try writer.print("(unary-method) '{s}'\n", .{ast.text_at(info.method_name)});
             },
             .binary => |info| {
                 try writer.print("(binary-method) '{s}' with parameter '{s}'\n", .{
-                    parser.text_at(info.method_name), parser.text_at(info.parameter),
+                    ast.text_at(info.method_name), ast.text_at(info.parameter),
                 });
             },
             .keyword => |info| {
                 try writer.print("(keyword-method) ", .{});
                 for (0..info.number_of_args()) |idx| {
-                    const keyword = parser.text_at(info.nth_keyword(@truncate(idx)));
-                    const parameter = parser.text_at(info.nth_parameter(@truncate(idx)));
+                    const keyword = ast.text_at(info.nth_keyword(@truncate(idx)));
+                    const parameter = ast.text_at(info.nth_parameter(@truncate(idx)));
                     if (idx != 0) try writer.print(" | ", .{});
                     try writer.print("'{s}' '{s}'", .{ keyword, parameter });
                 }
@@ -1166,13 +1153,7 @@ fn print_portion(
             },
         }
         switch (method.body) {
-            .impl => |function_body| try print_function_body(
-                writer,
-                function_body,
-                span_formatter,
-                parser,
-                Indent.create(0),
-            ),
+            .impl => |function_body| try print_function_body(writer, function_body, span_formatter, ast, Indent.create(0)),
             .primitive => try writer.print("\t\t- (primitive)\n", .{}),
         }
     }
@@ -1184,40 +1165,40 @@ pub fn print_class_ast(
     writer: *std.io.Writer,
     err_writer: *std.io.Writer,
 ) !void {
-    const StringLiteralsManager = @import("string_literals_manager.zig").StringLiteralsManager;
-
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var string_literals_manager = try StringLiteralsManager.create(allocator, allocator, 0);
-    var lexer = Lexer.create(input, ErrorReporter{
+    var reporter = ErrorReporter{
         .writer = err_writer,
         .use_color = false,
         .source = input,
         .source_path = null,
-    }, &string_literals_manager);
-
-    var parser = Parser.create(&lexer, lexer.reporter, allocator) catch |init_error| {
+    };
+    const tokenized_file: TokenizedFile = lexer_module.tokenize(allocator, input, &reporter) catch |init_error| {
         try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
         return;
     };
-    const class_ast = parser.parse() catch |parse_error| {
-        try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
-        return;
+    const parsed_file: ParsedFile = blk: {
+        var parser = Parser.create(tokenized_file, &reporter, allocator);
+        break :blk parser.parse() catch |parse_error| {
+            try err_writer.print("Failed with parse error: '{t}'\n", .{parse_error});
+            return;
+        };
     };
+    const class_ast: ClassAst = parsed_file.class_ast;
 
-    const span_formatter = SpanFormatter{ .tokens = parser.tokens };
+    const span_formatter = SpanFormatter{ .tokens = parsed_file.tokens };
 
     try writer.print("AST of the class {f}'{s}'\n", .{
-        span_formatter.fmt(class_ast.span), parser.text_at(class_ast.class_name),
+        span_formatter.fmt(class_ast.span), parsed_file.text_at(class_ast.class_name),
     });
 
     try writer.print("==== Instance specific part ====\n", .{});
-    try print_portion(&parser, &class_ast.instance_portion, span_formatter, writer);
+    try print_portion(parsed_file, &class_ast.instance_portion, span_formatter, writer);
 
     try writer.print("==== Class specific part ====\n", .{});
-    try print_portion(&parser, &class_ast.class_portion, span_formatter, writer);
+    try print_portion(parsed_file, &class_ast.class_portion, span_formatter, writer);
 }
 
 test "snapshot test on example files" {

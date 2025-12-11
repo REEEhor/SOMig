@@ -73,6 +73,7 @@ pub const TokenKind = enum(u8) {
     /// The `^` character
     exit,
 
+    /// An identifier consiting only from `-` with length at least 4. For example: `-----`.
     separator,
 
     /// The symbol `.`.
@@ -128,6 +129,10 @@ pub const Token = struct {
 
 pub const minimal_separator_length = 4;
 
+pub inline fn is_pipe(token: Token, source_code: []const u8) bool {
+    return source_code[token.pos.start_idx] == '|';
+}
+
 /// Index into the list of all tokens in `Tokenized`
 pub const TokenId = struct {
     idx: u32,
@@ -147,16 +152,24 @@ pub const TokenId = struct {
 
 /// Span of tokens which represent different pieces of the AST
 pub const TokenSpan = struct {
+    /// Index into the token array where the first token is.
+    start_id: TokenId,
+    /// Index into the token array where the last (including) token is.
+    end_id: TokenId,
+
     const Self = @This();
 
+    /// Factory method
     pub fn create(start_idx: u32, end_idx: u32) Self {
         return Self.create_or_null(start_idx, end_idx).?;
     }
 
+    /// Factory method
     pub fn at(token_id: TokenId) Self {
         return TokenSpan{ .start_id = token_id, .end_id = token_id };
     }
 
+    /// Factory method
     pub fn create_or_null(start_idx: u32, end_idx: u32) ?Self {
         if (end_idx < start_idx) return null;
         return TokenSpan{
@@ -165,22 +178,17 @@ pub const TokenSpan = struct {
         };
     }
 
-    /// Index into the token array where the first token is.
-    start_id: TokenId,
-    /// Index into the token array where the last (including) token is.
-    end_id: TokenId,
+    pub fn to_pos(self: Self, tokens: std.MultiArrayList(Token).Slice) CodePosition {
+        const start_pos: CodePosition = tokens.items(.pos)[self.start_id.idx];
+        const end_pos: CodePosition = tokens.items(.pos)[self.end_id.idx];
+        return CodePosition.from_start_and_end(
+            start_pos.start_idx,
+            end_pos.end_idx_inclusive(),
+        );
+    }
 
     pub fn number_of_tokens(self: Self) u32 {
         return self.end_id.idx - self.start_id.idx + 1;
-    }
-
-    pub fn to_pos(self: Self, tokens: []Token) CodePosition {
-        const start_token = tokens[self.start_id.idx];
-        const end_token = tokens[self.end_id.idx];
-        return CodePosition.from_start_and_end(
-            start_token.pos.start_idx,
-            end_token.pos.end_idx_inclusive(),
-        );
     }
 
     pub fn iter(self: Self) TokenSpanIterator {
@@ -218,14 +226,7 @@ pub const TokenizedFile = struct {
         return switch (@TypeOf(id)) {
             *Token, Token => id.pos,
             TokenId => self.tokens.items(.pos)[id.idx],
-            TokenSpan => {
-                const start_pos: CodePosition = self.pos_of(id.start_id);
-                const end_pos: CodePosition = self.pos_of(id.end_id);
-                return CodePosition.from_start_and_end(
-                    start_pos.start_idx,
-                    end_pos.end_idx_inclusive(),
-                );
-            },
+            TokenSpan => id.to_pos(self.ast.tokens),
             else => |T| @compileError(
                 "The method `pos_of` takes either `Token`, `*Token`, `TokenId` or `TokenSpan`. Got: `" ++ @typeName(T) ++ "`",
             ),
