@@ -73,6 +73,8 @@ pub const TokenKind = enum(u8) {
     /// The `^` character
     exit,
 
+    separator,
+
     /// The symbol `.`.
     /// Used for separating statements or expressions.
     dot,
@@ -123,6 +125,8 @@ pub const Token = struct {
     kind: TokenKind,
     pos: CodePosition,
 };
+
+pub const minimal_separator_length = 4;
 
 /// Index into the list of all tokens in `Tokenized`
 pub const TokenId = struct {

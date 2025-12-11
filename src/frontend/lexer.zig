@@ -21,6 +21,7 @@ const string_literals_manager = @import("string_literals_manager.zig");
 const StringLiteralsManager: type = string_literals_manager.StringLiteralsManager;
 
 pub const token_module = @import("token.zig");
+pub const minimal_separator_length = token_module.minimal_separator_length;
 pub const Token = token_module.Token;
 pub const TokenKind = token_module.TokenKind;
 pub const CodePosition = token_module.CodePosition;
@@ -38,6 +39,7 @@ const State = enum {
     saw_colon,
     lexing_binary_message,
     saw_dash,
+    saw_multiple_dashes,
     lexing_string_literal,
 };
 
@@ -147,6 +149,10 @@ pub const Lexer = struct {
                     // Encountered a negative number literal
                     return try self.lex_number(token_start_idx);
                 },
+                '-' => {
+                    self.current_char_idx += 1;
+                    continue :loop .saw_multiple_dashes;
+                },
                 else => |chr| if (is_binary_message_char(chr)) {
                     self.current_char_idx += 1;
                     continue :loop .lexing_binary_message;
@@ -155,6 +161,20 @@ pub const Lexer = struct {
                         .pos = CodePosition.at(token_start_idx),
                         .kind = .binary_message,
                     };
+                },
+            },
+            .saw_multiple_dashes => switch (try self.current_char()) {
+                '-' => {
+                    self.current_char_idx += 1;
+                    continue :loop .saw_multiple_dashes;
+                },
+                else => |chr| if (is_binary_message_char(chr)) {
+                    self.current_char_idx += 1;
+                    continue :loop .lexing_binary_message;
+                } else {
+                    const pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1);
+                    const kind: TokenKind = if (pos.length < minimal_separator_length) .binary_message else .separator;
+                    return Token{ .kind = kind, .pos = pos };
                 },
             },
             .saw_colon => switch (try self.eat_char()) {
@@ -326,6 +346,12 @@ pub const Lexer = struct {
             }
         }
         unreachable;
+    }
+
+    inline fn binary_message_or_separator(start_token_idx: usize, end_token_idx: usize) Token {
+        const pos = CodePosition.from_start_and_end(start_token_idx, end_token_idx);
+        const kind = if (pos.length >= minimal_separator_length) .separator else .binary_message;
+        return Token{ .pos = pos, .kind = kind };
     }
 
     inline fn eat_unchecked_byte(self: *Self) u8 {
@@ -775,6 +801,23 @@ test "lex snapshot code" {
     }, null);
 }
 
+test "🤮 lex separators 🤮" {
+    // Indexes into the input string:
+    //                       10        20
+    //             012345678901234567890123456
+    const input = " - -- --- ---- ----- ------";
+
+    const e = testing.e;
+    try testing.test_lexer(input, &[_]testing.ExpectedToken{
+        e(.binary_message, "-", 1),
+        e(.binary_message, "--", 3),
+        e(.binary_message, "---", 6),
+        e(.separator, "----", 10),
+        e(.separator, "-----", 15),
+        e(.separator, "------", 21),
+    }, null);
+}
+
 pub fn print_tokens(
     input: []const u8,
     gpa: std.mem.Allocator,
@@ -792,12 +835,6 @@ pub fn print_tokens(
         return;
     };
     defer tokenized_file.deinit(gpa);
-
-    // TODO: remove this
-    // for (0..tokenized_file.tokens.len) |idx| {
-    //     const t: Token = tokenized_file.tokens.get(idx);
-    //     dbg(@src(), "{}", .{t});
-    // }
 
     const maybe_span = tokenized_file.total_token_span();
     if (maybe_span == null) {

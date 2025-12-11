@@ -78,7 +78,7 @@ Position   Token                      String (according to position of the token
 [616..641] string_literal           | "'Still not a separator :)'"
 [643..647] identifier               | "print"
 [649..649] close_parenthesis        | ")"
-[653..656] binary_message           | "----"
+[653..656] separator                | "----"
 [660..662] binary_message           | "---"
 [664..664] identifier               | "_"
 [666..666] binary_message           | "="

@@ -2,7 +2,7 @@ Position   Token                      String (according to position of the token
 [  0..  6] identifier               | "Example"
 [  8..  8] binary_message           | "="
 [ 10.. 10] open_parenthesis         | "("
-[ 13.. 16] binary_message           | "----"
+[ 13.. 16] separator                | "----"
 [ 19.. 19] binary_message           | "|"
 [ 21.. 35] identifier               | "staticVariable1"
 [ 37.. 51] identifier               | "staticVariable2"

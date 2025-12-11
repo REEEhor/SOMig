@@ -2,7 +2,7 @@ Position   Token                      String (according to position of the token
 [  0.. 17] identifier               | "NamespaceLikeClass"
 [ 19.. 19] binary_message           | "="
 [ 21.. 21] open_parenthesis         | "("
-[ 24.. 27] binary_message           | "----"
+[ 24.. 27] separator                | "----"
 [ 31.. 31] binary_message           | "|"
 [ 33.. 40] identifier               | "global_1"
 [ 42.. 49] identifier               | "global_2"

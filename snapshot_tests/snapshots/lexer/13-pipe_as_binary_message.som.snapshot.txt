@@ -28,7 +28,7 @@ Position   Token                      String (according to position of the token
 [178..180] identifier               | "nil"
 [181..181] dot                      | "."
 [184..184] close_parenthesis        | ")"
-[188..191] binary_message           | "----"
+[188..191] separator                | "----"
 [194..194] binary_message           | "|"
 [196..199] identifier               | "haha"
 [201..201] binary_message           | "="
