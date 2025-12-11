@@ -2,6 +2,7 @@
 // https://github.com/SOM-st/SOM/blob/a721b4ff6ecb1ade54e0afe0bd15a8e80e41af17/specification/SOM.g4
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const int = i64;
 const uint = u64;
 
@@ -123,6 +124,130 @@ pub const Token = struct {
     pos: CodePosition,
 };
 
+/// Index into the list of all tokens in `Tokenized`
+pub const TokenId = struct {
+    idx: u32,
+
+    pub fn create(idx: u32) TokenId {
+        return TokenId{ .idx = idx };
+    }
+
+    pub fn minus(self: @This(), offset: u32) TokenId {
+        return TokenId{ .idx = self.idx - offset };
+    }
+
+    pub fn plus(self: @This(), offset: u32) TokenId {
+        return TokenId{ .idx = self.idx + offset };
+    }
+};
+
+/// Span of tokens which represent different pieces of the AST
+pub const TokenSpan = struct {
+    const Self = @This();
+
+    pub fn create(start_idx: u32, end_idx: u32) Self {
+        return Self.create_or_null(start_idx, end_idx).?;
+    }
+
+    pub fn at(token_id: TokenId) Self {
+        return TokenSpan{ .start_id = token_id, .end_id = token_id };
+    }
+
+    pub fn create_or_null(start_idx: u32, end_idx: u32) ?Self {
+        if (end_idx < start_idx) return null;
+        return TokenSpan{
+            .start_id = TokenId.create(start_idx),
+            .end_id = TokenId.create(end_idx),
+        };
+    }
+
+    /// Index into the token array where the first token is.
+    start_id: TokenId,
+    /// Index into the token array where the last (including) token is.
+    end_id: TokenId,
+
+    pub fn number_of_tokens(self: Self) u32 {
+        return self.end_id.idx - self.start_id.idx + 1;
+    }
+
+    pub fn to_pos(self: Self, tokens: []Token) CodePosition {
+        const start_token = tokens[self.start_id.idx];
+        const end_token = tokens[self.end_id.idx];
+        return CodePosition.from_start_and_end(
+            start_token.pos.start_idx,
+            end_token.pos.end_idx_inclusive(),
+        );
+    }
+
+    pub fn iter(self: Self) TokenSpanIterator {
+        return TokenSpanIterator{
+            .current = self.start_id,
+            .last = self.end_id,
+        };
+    }
+};
+
+pub const TokenSpanIterator = struct {
+    const Self = @This();
+    current: TokenId,
+    last: TokenId,
+    pub fn next(self: *Self) ?TokenId {
+        if (self.current.idx > self.last.idx) return null;
+        const result = self.current;
+        self.current.idx += 1;
+        return result;
+    }
+};
+
+// TODO: think about also storing the filepath to this file
+pub const TokenizedFile = struct {
+    tokens: std.MultiArrayList(Token).Slice,
+    source_code: []const u8,
+
+    const Self = @This();
+
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.tokens.deinit(allocator);
+    }
+
+    pub fn pos_of(self: Self, id: anytype) CodePosition {
+        return switch (@TypeOf(id)) {
+            *Token, Token => id.pos,
+            TokenId => self.tokens.items(.pos)[id.idx],
+            TokenSpan => {
+                const start_pos: CodePosition = self.pos_of(id.start_id);
+                const end_pos: CodePosition = self.pos_of(id.end_id);
+                return CodePosition.from_start_and_end(
+                    start_pos.start_idx,
+                    end_pos.end_idx_inclusive(),
+                );
+            },
+            else => |T| @compileError(
+                "The method `pos_of` takes either `Token`, `*Token`, `TokenId` or `TokenSpan`. Got: `" ++ @typeName(T) ++ "`",
+            ),
+        };
+    }
+
+    pub fn text_at(self: Self, id: anytype) []const u8 {
+        const position = self.pos_of(id);
+        return position.slice_from(self.source_code);
+    }
+
+    pub fn kind_of(self: Self, id: TokenId) TokenKind {
+        return self.tokens.items(.kind)[id.idx];
+    }
+
+    pub fn get_token(self: Self, id: TokenId) Token {
+        return self.tokens.get(id.idx);
+    }
+
+    pub fn total_token_span(self: Self) ?TokenSpan {
+        if (self.tokens.len == 0) {
+            return null;
+        }
+        return TokenSpan.create(0, @intCast(self.tokens.len - 1));
+    }
+};
 test "slice_from" {
     const text = "0123456789";
     var buffer: [20]u8 = undefined;
