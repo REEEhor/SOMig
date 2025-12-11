@@ -489,6 +489,10 @@ pub const TokenizedFile = struct {
 
     const Self = @This();
 
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.tokens.deinit(allocator);
+    }
+
     pub fn pos_of(self: Self, id: anytype) CodePosition {
         return switch (@TypeOf(id)) {
             *Token, Token => id.pos,
@@ -524,7 +528,7 @@ pub const TokenizedFile = struct {
         if (self.tokens.len == 0) {
             return null;
         }
-        return TokenSpan.create(0, @intCast(self.tokens.len));
+        return TokenSpan.create(0, @intCast(self.tokens.len - 1));
     }
 };
 
@@ -540,8 +544,8 @@ pub fn tokenize(allocator: Allocator, source_code: []const u8, reporter: *ErrorR
     try tokens.ensureTotalCapacity(allocator, assumed_number_of_tokens);
     var idx: usize = 0;
     while (try lexer.next_token()) |t| : (idx += 1) {
-        if (idx >= assumed_number_of_tokens) break;
         tokens.appendAssumeCapacity(t);
+        if (idx >= assumed_number_of_tokens) break;
     }
     while (try lexer.next_token()) |t| {
         try tokens.append(allocator, t);
@@ -860,6 +864,38 @@ test "lex a string literals with escape codes" {
     }, null);
 }
 
+test "lex code" {
+    // Indexes into the input string:
+    //                       10        20        30        40
+    //             01234567890123456789012345678901234567890123456789
+    const input = "  SomeClass =( hi :D )  ";
+
+    const e = testing.e;
+    try testing.test_lexer(input, &[_]testing.ExpectedToken{
+        e(.identifier, "SomeClass", 2),
+        e(.binary_message, "=", 12),
+        e(.open_parenthesis, "(", 13),
+        e(.identifier, "hi", 15),
+        e(.block_param, ":D", 18),
+        e(.close_parenthesis, ")", 21),
+    }, null);
+}
+
+test "lex snapshot code" {
+    // Indexes into the input string:
+    //                       10        20        30        40
+    //             01234567890123456789012345678901234567890123456789
+    const input = "Example = ( )\n";
+
+    const e = testing.e;
+    try testing.test_lexer(input, &[_]testing.ExpectedToken{
+        e(.identifier, "Example", 0),
+        e(.binary_message, "=", 8),
+        e(.open_parenthesis, "(", 10),
+        e(.close_parenthesis, ")", 12),
+    }, null);
+}
+
 pub fn print_tokens(
     input: []const u8,
     gpa: std.mem.Allocator,
@@ -872,10 +908,17 @@ pub fn print_tokens(
         .source = input,
         .source_path = null,
     };
-    const tokenized_file: TokenizedFile = tokenize(gpa, input, &reporter) catch |lex_error| {
+    var tokenized_file: TokenizedFile = tokenize(gpa, input, &reporter) catch |lex_error| {
         try err_writer.print("Failed with lexing error: '{t}'\n", .{lex_error});
         return;
     };
+    defer tokenized_file.deinit(gpa);
+
+    // TODO: remove this
+    // for (0..tokenized_file.tokens.len) |idx| {
+    //     const t: Token = tokenized_file.tokens.get(idx);
+    //     dbg(@src(), "{}", .{t});
+    // }
 
     const maybe_span = tokenized_file.total_token_span();
     if (maybe_span == null) {
@@ -884,27 +927,34 @@ pub fn print_tokens(
     }
     var iter = maybe_span.?.iter();
 
+    var line_buffer: [4096]u8 = undefined;
+    var line_writer: std.io.Writer = std.io.Writer.fixed(&line_buffer);
+
     try writer.print("Position   Token                      String (according to position of the token)\n", .{});
     while (iter.next()) |token_id| {
         const pos = tokenized_file.pos_of(token_id);
         const kind = tokenized_file.kind_of(token_id);
         const text = tokenized_file.text_at(token_id);
-        try writer.print("[{d:3}..{d:3}] {t} \t \"{s}\"", .{
+        try line_writer.print("[{d:3}..{d:3}] {t}", .{
             pos.start_idx,
             pos.end_idx_inclusive(),
             kind,
-            text,
+        });
+        const line_so_far = line_buffer[0..line_writer.end];
+        _ = line_writer.consumeAll();
+        try writer.print("{s:<36}| \"{s}\"\n", .{
+            line_so_far, text,
         });
     }
 }
 
-// test "snapshot test on example files" {
-//     const snapshot_testing = @import("snapshot_testing.zig");
-//     // TODO: check if the path is not empty to ignore the test
-//     const opts = snapshot_testing.opts;
-//     try snapshot_testing.do_snapshot_tests(.{
-//         .snapshots_directory = opts.snapshots_path ++ "/lexer",
-//         .tested_files_directory = opts.test_files_path,
-//         .output_producer = print_tokens,
-//     }, "Lexing");
-//
+test "snapshot test on example files" {
+    const snapshot_testing = @import("snapshot_testing.zig");
+    // TODO: check if the path is not empty to ignore the test
+    const opts = snapshot_testing.opts;
+    try snapshot_testing.do_snapshot_tests(.{
+        .snapshots_directory = opts.snapshots_path ++ "/lexer",
+        .tested_files_directory = opts.test_files_path,
+        .output_producer = print_tokens,
+    }, "Lexing");
+}
