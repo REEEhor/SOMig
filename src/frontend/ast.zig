@@ -114,11 +114,19 @@ pub const MethodHeader = union(enum) {
     keyword: KeywordMethodHeader,
 
     const Self = @This();
-    pub fn span(self: *const Self) TokenSpan {
-        return switch (self.*) {
+    pub fn span(self: Self) TokenSpan {
+        return switch (self) {
             .unary => |info| TokenSpan.at(info.method_name),
             .binary => |info| TokenSpan.create(info.method_name.idx, info.parameter.idx),
             .keyword => |info| info.argument_pairs,
+        };
+    }
+
+    pub fn number_of_arguments_including_self(self: Self) u32 {
+        return switch (self) {
+            .unary => 1,
+            .binary => 2,
+            .keyword => |info| info.number_of_args(),
         };
     }
 };
@@ -137,17 +145,17 @@ pub const KeywordMethodHeader = struct {
     }
 
     /// Keywords are parsed together with `:` at the end
-    pub fn nth_keyword(self: *const Self, n: u32) TokenId {
+    pub fn nth_keyword(self: Self, n: u32) TokenId {
         assert(n < self.number_of_args());
         return self.argument_pairs.start_id.plus(n * 2);
     }
 
-    pub fn nth_parameter(self: *const Self, n: u32) TokenId {
+    pub fn nth_parameter(self: Self, n: u32) TokenId {
         assert(n < self.number_of_args());
         return self.argument_pairs.start_id.plus(n * 2 + 1);
     }
 
-    pub fn number_of_args(self: *const Self) u32 {
+    pub fn number_of_args(self: Self) u32 {
         return self.argument_pairs.number_of_tokens() / 2;
     }
 };
