@@ -197,18 +197,26 @@ pub const TokenSpan = struct {
             .last = self.end_id,
         };
     }
+
+    pub fn iterator(span: ?TokenSpan) TokenSpanIterator {
+        if (span) |s| return s.iter();
+        return TokenSpanIterator.empty;
+    }
 };
 
 pub const TokenSpanIterator = struct {
-    const Self = @This();
     current: TokenId,
     last: TokenId,
+
+    const Self = @This();
     pub fn next(self: *Self) ?TokenId {
         if (self.current.idx > self.last.idx) return null;
         const result = self.current;
         self.current.idx += 1;
         return result;
     }
+
+    pub const empty = TokenSpanIterator{ .current = TokenId.create(1), .last = TokenId.create(0) };
 };
 
 // TODO: think about also storing the filepath to this file
