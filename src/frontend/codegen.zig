@@ -110,7 +110,7 @@ pub const ScopeStack = struct {
     pub const Variable = struct { identifier: SymbolId, idx: u32 };
     pub const VariableId = union(enum) {
         instance: Instruction.InstanceVarId,
-        local_or_method_argument: Instruction.LocalId,
+        local_or_method_argument: Instruction.LocalVarId,
         global,
     };
     pub const ScopeSymbolMap = SymbolArrayMap(Variable, "identifier");
@@ -421,7 +421,7 @@ pub const InstructionDecoder = struct {
     }
 
     /// return null -> decoder is at the end of the bytecode
-    pub fn next_instruction(self: *Self) ?Instruction {
+    pub inline fn next_instruction(self: *Self) ?Instruction {
         if (self.is_at_end()) {
             // Since in the practical VM code,
             // we will use `halt` to end fetching of the next_instruction
@@ -433,7 +433,7 @@ pub const InstructionDecoder = struct {
         const tag: Instruction.Tag = @enumFromInt(tag_byte);
         return sw: switch (tag) {
             .load_local => {
-                const local_id = self.read_id(Instruction.LocalId);
+                const local_id = self.read_id(Instruction.LocalVarId);
                 break :sw Instruction{ .load_local = local_id };
             },
             .load_instance_var => {
@@ -443,6 +443,10 @@ pub const InstructionDecoder = struct {
             .load_constant => {
                 const id = self.read_id(RelativeConstantId);
                 break :sw Instruction{ .load_constant = .{ .id = id } };
+            },
+            .load_global => {
+                const identifier = self.read_id(SymbolId);
+                break :sw Instruction{ .load_global = identifier };
             },
             .send_message => {
                 const ArgsCount = @FieldType(Instruction.SendMessage, "aditional_args_count");
@@ -468,6 +472,14 @@ pub const InstructionDecoder = struct {
     }
 
     pub inline fn read_id(self: *Self, comptime IdType: type) IdType {
+        const should_error = comptime switch (@typeInfo(IdType)) {
+            .@"struct" => |info| (info.fields.len != 1 or !std.mem.eql(u8, info.fields[0].name, "idx")),
+            else => true,
+        };
+        if (comptime should_error) {
+            @compileError(std.fmt.comptimePrint("Expected a struct with exactly one field named `idx`. Got type `{s}`.", .{@typeName(IdType)}));
+        }
+
         const Idx = @FieldType(IdType, "idx");
         const idx = self.read_integer(Idx);
         return IdType{ .idx = idx };
@@ -511,6 +523,9 @@ pub const InstructionEncoder = struct {
             },
             .load_constant => |info| {
                 try self.write_integer(allocator, info.id.idx);
+            },
+            .load_global => |info| {
+                try self.write_integer(allocator, info.idx);
             },
             .send_message => |info| {
                 try self.write_integer(allocator, info.aditional_args_count);
@@ -586,6 +601,10 @@ pub const InstructionFormatter = struct {
                 .load_instance_var => |instance_var_id| {
                     try writer.print(" id({d})\n", .{instance_var_id.idx});
                 },
+                .load_global => |global_var_id| {
+                    const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
+                    try writer.print(" symbol=\"{s}\" id({d})", .{ identifier, global_var_id.idx });
+                },
                 // NOTE(epic-zig): comptime assert
                 inline else => |payload, tag| {
                     if (@TypeOf(payload) != void) {
@@ -649,10 +668,12 @@ pub const Instruction = union(enum(u8)) {
     halt = 4,
 
     /// Pushes either a local variable or a method argument onto the stack.
-    load_local: LocalId = 5,
+    load_local: LocalVarId = 5,
 
-    /// Pushes an instance variable of the current `sefl` object onto the stack.
+    /// Pushes an instance variable of the current `self` object onto the stack.
     load_instance_var: InstanceVarId = 6,
+
+    load_global: SymbolId = 7,
 
     print, // TODO: remove this after development
 
@@ -677,7 +698,7 @@ pub const Instruction = union(enum(u8)) {
     ///
     /// To access the `method_argument[1]`, you would need `LocalId{.idx = 1}`.
     /// To access the `local_variable[0]`, you would need `LocalId{.idx = 4}` (4 = <number-of-arguments> + <index-of-local>)
-    pub const LocalId = struct { idx: u32 };
+    pub const LocalVarId = struct { idx: u32 };
 
     pub const InstanceVarId = struct { idx: u32 };
 

@@ -158,11 +158,6 @@ pub const Interpreter = struct {
             };
             switch (instruction) {
                 .no_op => {},
-                // .load_global => |global_object_id: SymbolId| {
-                //      const maybe_global_object: ?VmObject = self.get_global(global_object_id);
-                //      const global_object = if (maybe_global_object) |obj| obj
-                //                            else try self.load_class(global_object_id);
-                // }
                 .halt => {
                     try self.report_info("The halt instruction has been encountered.", .{});
                     return;
@@ -172,6 +167,12 @@ pub const Interpreter = struct {
                 },
                 .load_instance_var => |instance_var_id| {
                     return self.report_TODO("Execution of instruction 'load_instance_var' (id is {d})", .{instance_var_id.idx});
+                },
+                .load_global => |global_var_id| {
+                    return self.report_TODO("Execution of instruction 'load_global' (id is {d})", .{global_var_id.idx});
+                    //      const maybe_global_object: ?VmObject = self.get_global(global_object_id);
+                    //      const global_object = if (maybe_global_object) |obj| obj
+                    //                            else try self.load_class(global_object_id);
                 },
                 .print => {
                     const to_print: VmObject = self.pop_stack();
