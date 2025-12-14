@@ -123,7 +123,31 @@ pub const Parser = struct {
         const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
         _ = try self.eat_token_match_string(.binary_message, "=");
-        // TODO: parse a potential super class here
+
+        const maybe_super_class: ?TokenId = get_super_class: {
+            const expected_str = "Expected a name of the super class or the class definition.";
+            const token_id = self.next_token_id;
+            const token: Token = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof(expected_str, .{});
+                return ParserError.unexpected_eof;
+            };
+            switch (token.kind) {
+                .identifier => {
+                    _ = self.next_token();
+                    break :get_super_class token_id;
+                },
+                .open_parenthesis => break :get_super_class null,
+                else => {
+                    self.reporter.report_error(
+                        .{ .pos = token.pos },
+                        "Unexpected token {t} '{s}'. " ++ expected_str,
+                        .{ token.kind, self.text_at(token) },
+                    );
+                    return ParserError.unexpected_token;
+                },
+            }
+        };
+
         _ = try self.eat_token(.open_parenthesis);
 
         const instance_portion = try self.parse_class_ast_portion(true);
@@ -134,6 +158,7 @@ pub const Parser = struct {
 
         const class_ast = ClassAst{
             .class_name = class_name_token,
+            .super_class_name = maybe_super_class,
             .instance_portion = instance_portion,
             .class_portion = class_portion,
             .span = TokenSpan.create(class_name_token.idx, closing_parenthesis_token.idx),
@@ -1190,9 +1215,14 @@ pub fn print_class_ast(
 
     const span_formatter = SpanFormatter{ .tokens = parsed_file.tokens };
 
-    try writer.print("AST of the class {f}'{s}'\n", .{
+    try writer.print("AST of the class {f}'{s}'", .{
         span_formatter.fmt(class_ast.span), parsed_file.text_at(class_ast.class_name),
     });
+    if (class_ast.super_class_name) |super_name| {
+        try writer.print(" (super = '{s}')\n", .{parsed_file.text_at(super_name)});
+    } else {
+        try writer.print("\n", .{});
+    }
 
     try writer.print("==== Instance specific part ====\n", .{});
     try print_portion(parsed_file, &class_ast.instance_portion, span_formatter, writer);

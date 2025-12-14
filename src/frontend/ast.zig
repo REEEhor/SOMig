@@ -84,12 +84,10 @@ pub fn Spanned(comptime Inner: type) type {
 pub const ClassAst = struct {
     span: TokenSpan,
     class_name: TokenId,
+    super_class_name: ?TokenId,
 
     instance_portion: ClassAstPortion,
     class_portion: ClassAstPortion,
-
-    // TODO:
-    //  - Add superclass
 };
 
 pub const ClassAstPortion = struct {

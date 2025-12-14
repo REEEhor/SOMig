@@ -1,9 +1,7 @@
-
-======== ERROR OUTPUT FROM THE PROGRAM ========
-
-[ERROR at line:1 column:11]
-Unexpected token identifier 'ExampleBase'. Expected token 'open_parenthesis'.
-         |
- line: 1 |Example = ExampleBase
-         |          ^^^^^^^^^^^
-Failed with parse error: 'unexpected_token'
+AST of the class [  0.. 24]'Example' (super = 'ExampleBase')
+==== Instance specific part ====
+	(no fields)
+	(no methods)
+==== Class specific part ====
+	(no fields)
+	(no methods)
