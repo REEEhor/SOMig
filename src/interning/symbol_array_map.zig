@@ -1,13 +1,29 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
 const SymbolId = @import("symbols_manager.zig").SymbolId;
 
+///
 /// A wrapper around the slice `[]Item`.
 ///
-/// The slice of items is sorted according to the `SymbolId`: `Item.symbol_field_name_in_item`.
+/// The `SymbolArrayMap` represents the mapping:
+/// ```
+///     unique_id: SymbolId  ->  item: ?Item
+/// where:
+///      @field(item, symbol_field_name_in_item) == unique_id
+/// ```
+///
+/// The slice of `Item`s is sorted according to the `SymbolId`: `Item.symbol_field_name_in_item`.
 ///
 /// This enables `O(log n)` lookup where `n` is the length of the inner `[]Item`.
 ///
 /// This struct also asserts, that the inner slice has no two `Item`s with the same `SymbolId`.
+///
+/// This struct is generally immutable. If you want to modify it, take the inner slice, do some
+/// operation on it and create a new instance of `SymbolArrayMap`.
+/// If you are sure, that the new slice is sorted and contains no duplicates,
+/// you can use the `fn from_slice_assert_sorted_no_duplicates(slice: []Item) Self` function.
 ///
 pub fn SymbolArrayMap(
     comptime Item: type,
@@ -66,6 +82,90 @@ pub fn SymbolArrayMap(
             return InitResult{ .ok = Self{ .items = slice } };
         }
 
+        pub fn from_slice_assert_sorted_no_duplicates(slice: []Item) Self {
+            if (slice.len == 0) {
+                return Self{ .items = slice };
+            }
+            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+                return Self{ .items = slice };
+            }
+            for (1..slice.len) |idx| {
+                const prev_key = key_of(slice[idx - 1]);
+                const current_key = key_of(slice[idx]);
+                if (prev_key.idx >= current_key.idx) unreachable;
+            }
+            return Self{ .items = slice };
+        }
+
+        /// Creates a new instance of `SymbolArrayMap` via combining two existing instances.
+        /// This operation can be thought of as doing a set-like union on two sets `left` and `right`.
+        ///
+        /// In case of items, which have the same key in `left` and `right`, the item from `left` will get put into the result.
+        ///
+        /// This function allocates only once and it does not allocate more space than it needs for the result.
+        ///
+        pub fn from_merge_of(left: Self, right: Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!Self {
+            var total_cnt: usize = 0;
+            var left_idx: usize = 0;
+            var right_idx: usize = 0;
+
+            // First we calculate the number of items which will have to be allocated at the end.
+            while (true) : (total_cnt += 1) {
+                if (left_idx >= left.items.len) break;
+                const left_top = key_of(left.items[left_idx]);
+                if (right_idx >= right.items.len) break;
+                const right_top = key_of(right.items[right_idx]);
+                //
+                switch (std.math.order(left_top.idx, right_top.idx)) {
+                    .eq => {
+                        left_idx += 1;
+                        right_idx += 1;
+                    },
+                    .lt => left_idx += 1,
+                    .gt => right_idx += 1,
+                }
+            }
+            total_cnt += (left.items.len - left_idx);
+            total_cnt += (right.items.len - right_idx);
+
+            left_idx = 0;
+            right_idx = 0;
+
+            const merged_slice: []Item = try allocator.alloc(Item, total_cnt);
+
+            // Now we do a second pass, which is almost the same, but this time we actually copy elements.
+            var idx: usize = 0;
+            while (true) : (idx += 1) {
+                if (left_idx >= left.items.len) break;
+                const left_top = key_of(left.items[left_idx]);
+                if (right_idx >= right.items.len) break;
+                const right_top = key_of(right.items[right_idx]);
+                //
+                switch (std.math.order(left_top.idx, right_top.idx)) {
+                    .eq => {
+                        merged_slice[idx] = left.items[left_idx];
+                        left_idx += 1;
+                        right_idx += 1;
+                    },
+                    .lt => {
+                        merged_slice[idx] = left.items[left_idx];
+                        left_idx += 1;
+                    },
+                    .gt => {
+                        merged_slice[idx] = right.items[right_idx];
+                        right_idx += 1;
+                    },
+                }
+            }
+            @memcpy(merged_slice[idx..].ptr, left.items[left_idx..]);
+            idx += (left.items.len - left_idx);
+            @memcpy(merged_slice[idx..].ptr, right.items[right_idx..]);
+            idx += (right.items.len - right_idx);
+            assert(idx == total_cnt);
+
+            return Self.from_slice_assert_sorted_no_duplicates(merged_slice);
+        }
+
         ///
         /// Creates a new instance of `SortedArrayMap`.
         ///
@@ -73,6 +173,19 @@ pub fn SymbolArrayMap(
         ///
         /// If the `slice` contains duplicate values, they will be
         /// moved to the end of the `slice` and they will not be included in the constructed `SortedArrayMap`.
+        ///
+        /// To find out, which items were duplicates, you can do something similiar to this:
+        /// ```zig
+        ///     const slice_with_maybe_duplicates: []Item = ...;
+        ///     const map = SymbolArrayMap(Item, "id").from_slice_remove_duplicates(slice_with_maybe_duplicates);
+        ///     const duplicates: []Item = slice_with_maybe_duplicates[map.items.len..];
+        ///
+        ///     // Example usage:
+        ///     const has_duplicates: bool = duplicates.len > 0;
+        ///     if (has_duplicates) {
+        ///         return error.has_duplicates;
+        ///     }
+        /// ```
         ///
         pub fn from_slice_remove_duplicates(slice: []Item) Self {
             // Needed for unordered removal below
@@ -103,13 +216,13 @@ pub fn SymbolArrayMap(
             return Self{ .items = slice_with_unique_values };
         }
 
+        /// Sorts the slice according to the keys in items
         fn sort_slice(slice: []Item) void {
-            // Sort the slice according to the keys in items
-            std.sort.pdq(Item, slice, {}, struct {
-                pub fn less_than(_: void, lhs: Item, rhs: Item) bool {
-                    return key_of(lhs).idx < key_of(rhs).idx;
-                }
-            }.less_than);
+            std.sort.pdq(Item, slice, {}, less_than);
+        }
+
+        pub fn less_than(_: void, lhs: Item, rhs: Item) bool {
+            return key_of(lhs).idx < key_of(rhs).idx;
         }
 
         inline fn key_of(item: Item) SymbolId {
@@ -214,6 +327,66 @@ pub const testing = struct {
             std.debug.print("\t - actual:    {any}\n", .{remaining_part_of_actual_items});
             std.debug.print("\t - expected:  {any}\n", .{remaining_part_of_expected_items});
             return error.FailTest;
+        }
+    }
+
+    pub fn from_merge_test(
+        comptime T: type,
+        comptime symbol_field: []const u8,
+        left_: anytype,
+        right_: anytype,
+        expected_: anytype,
+    ) !void {
+        const Map = SymbolArrayMap(T, symbol_field);
+
+        const left_items: []T = try std.testing.allocator.alloc(T, left_.len);
+        defer std.testing.allocator.free(left_items);
+        inline for (0..left_.len) |idx| left_items[idx] = left_[idx];
+        const left = Map.from_slice_assert_sorted_no_duplicates(left_items);
+        //
+        const right_items: []T = try std.testing.allocator.alloc(T, right_.len);
+        defer std.testing.allocator.free(right_items);
+        inline for (0..right_.len) |idx| right_items[idx] = right_[idx];
+        const right = Map.from_slice_assert_sorted_no_duplicates(right_items);
+        //
+        const expected_items: []T = try std.testing.allocator.alloc(T, expected_.len);
+        defer std.testing.allocator.free(expected_items);
+        inline for (0..expected_.len) |idx| expected_items[idx] = expected_[idx];
+
+        var buffer: []u8 = try std.testing.allocator.alloc(u8, expected_items.len * @sizeOf(T));
+        defer std.testing.allocator.free(buffer);
+        var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
+        //
+        const actual: Map = try Map.from_merge_of(left, right, fixed.allocator());
+
+        errdefer {
+            std.debug.print(ERR ++ "\n[FAILED TEST]" ++ RESET ++ " Merge differs from expected!\n", .{});
+            const min_length = @min(actual.items.len, expected_items.len);
+            std.debug.print("Actual         Expected\n", .{});
+            for (actual.items[0..min_length], expected_items[0..min_length]) |actual_item, expected_item| {
+                if (!std.meta.eql(actual_item, expected_item)) {
+                    std.debug.print(ERR, .{});
+                } else {
+                    std.debug.print(HIGHLIGHT ++ FAINT, .{});
+                }
+                std.debug.print("{any} | {any}\n", .{ actual_item, expected_item });
+                std.debug.print(RESET, .{});
+            }
+            for (actual.items[min_length..]) |item| {
+                std.debug.print(ERR ++ "(actual) {any}\n" ++ RESET, .{item});
+            }
+            for (expected_items[min_length..]) |item| {
+                std.debug.print(ERR ++ "(expected) {any}\n" ++ RESET, .{item});
+            }
+        }
+
+        if (actual.len() != expected_items.len) {
+            return error.different_length;
+        }
+        for (actual.items, expected_items) |actual_item, expected_item| {
+            if (!std.meta.eql(actual_item, expected_item)) {
+                return error.item_missmatch;
+            }
         }
     }
 };
@@ -380,4 +553,176 @@ test "from_slice_remove_duplicates" {
         i(80),
         i(90),
     }, 7);
+}
+
+test "merge" {
+    const Item = struct {
+        id: SymbolId,
+        secret: i32,
+    };
+    const i = struct {
+        fn i(id: u24, secret: i32) Item {
+            return Item{ .id = SymbolId.new(id), .secret = secret };
+        }
+    }.i;
+    const i_ = struct {
+        fn i_(id: u24) Item {
+            return Item{ .id = SymbolId.new(id), .secret = -1 };
+        }
+    }.i_;
+
+    try testing.from_merge_test(Item, "id", .{}, .{}, .{});
+
+    try testing.from_merge_test(Item, "id", .{i_(10)}, .{}, .{i_(10)});
+    try testing.from_merge_test(Item, "id", .{}, .{i_(10)}, .{i_(10)});
+
+    try testing.from_merge_test(Item, "id", .{i_(10)}, .{}, .{i_(10)});
+
+    try testing.from_merge_test(Item, "id", .{}, .{
+        i_(10),
+        i_(20),
+        i_(30),
+    }, .{
+        i_(10),
+        i_(20),
+        i_(30),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i_(10),
+    }, .{
+        i_(20),
+    }, .{
+        i_(10),
+        i_(20),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i_(20),
+    }, .{
+        i_(10),
+    }, .{
+        i_(10),
+        i_(20),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(10, -11),
+    }, .{
+        i(10, -22),
+    }, .{
+        i(10, -11),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(10, -11),
+        i(20, -11),
+        i(30, -11),
+    }, .{
+        i(20, -22),
+    }, .{
+        i(10, -11),
+        i(20, -11),
+        i(30, -11),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(20, -11),
+    }, .{
+        i(10, -22),
+        i(20, -22),
+        i(30, -22),
+    }, .{
+        i(10, -22),
+        i(20, -11),
+        i(30, -22),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(30, -11),
+        i(40, -11),
+        i(70, -11),
+        i(80, -11),
+    }, .{
+        i(10, -22),
+        i(20, -22),
+        i(30, -22),
+        i(40, -22),
+        i(50, -22),
+        i(60, -22),
+        i(70, -22),
+        i(80, -22),
+        i(90, -22),
+    }, .{
+        i(10, -22),
+        i(20, -22),
+        i(30, -11),
+        i(40, -11),
+        i(50, -22),
+        i(60, -22),
+        i(70, -11),
+        i(80, -11),
+        i(90, -22),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(60, -11),
+        i(70, -11),
+        i(80, -11),
+        i(90, -11),
+    }, .{
+        i(30, -22),
+        i(40, -22),
+        i(70, -22),
+        i(80, -22),
+    }, .{
+        i(30, -22),
+        i(40, -22),
+        i(60, -11),
+        i(70, -11),
+        i(80, -11),
+        i(90, -11),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(60, -11),
+        i(70, -11),
+        i(80, -11),
+        i(90, -11),
+    }, .{
+        i(10, -22),
+        i(20, -22),
+        i(30, -22),
+        i(40, -22),
+    }, .{
+        i(10, -22),
+        i(20, -22),
+        i(30, -22),
+        i(40, -22),
+        i(60, -11),
+        i(70, -11),
+        i(80, -11),
+        i(90, -11),
+    });
+
+    try testing.from_merge_test(Item, "id", .{
+        i(10, -11),
+        i(20, -11),
+        i(30, -11),
+        i(40, -11),
+    }, .{
+        i(60, -22),
+        i(70, -22),
+        i(80, -22),
+        i(90, -22),
+    }, .{
+        i(10, -11),
+        i(20, -11),
+        i(30, -11),
+        i(40, -11),
+        i(60, -22),
+        i(70, -22),
+        i(80, -22),
+        i(90, -22),
+    });
 }
