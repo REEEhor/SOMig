@@ -76,7 +76,9 @@ pub const Interpreter = struct {
     stderr: *Writer,
 
     primitive_methods: PrimitiveMethodsMap,
-    primitive_class_definitions: std.EnumMap(PrimitiveClasses, *ClassDefinition),
+    primitive_class_definitions: std.EnumMap(PrimitiveClassType, *ClassDefinition),
+
+    source_code_files: *SourceCodeFiles,
 
     stack_top: usize = 0,
     stack: [4096]VmObject = undefined,
@@ -92,6 +94,7 @@ pub const Interpreter = struct {
         stack_overflow,
         class_declared_multiple_times,
         division_by_zero,
+        compilation_error,
         TODO,
     } || Allocator.Error || Writer.Error;
 
@@ -102,6 +105,7 @@ pub const Interpreter = struct {
         stdout: *Writer,
         stderr: *Writer,
         statics: *Statics,
+        source_code_files: *SourceCodeFiles,
         primitive_methods: PrimitiveMethodsMap,
     ) Interpreter {
         return Interpreter{
@@ -113,6 +117,7 @@ pub const Interpreter = struct {
             .primitive_methods = primitive_methods,
             .current_class_constant_base_id = ConstantId{ .idx = 0 },
             .globals = .init(allocator_for_globals),
+            .source_code_files = source_code_files,
             .primitive_class_definitions = .{},
         };
     }
@@ -203,6 +208,7 @@ pub const Interpreter = struct {
                     const constant = self.statics.constants_manager.get_constant(constant_id);
                     const object: VmObject = blk: switch (constant) {
                         .integer => |value| {
+                            try self.ensure_primitive_class_is_loaded(.integer);
                             // TODO(hack): consider whether making the integers smaller or arbitrary in size or something
                             const value_i48: i48 = @intCast(value);
 
@@ -212,12 +218,14 @@ pub const Interpreter = struct {
                             break :blk result_object_data.as_vm_object();
                         },
                         .float => |value| {
+                            try self.ensure_primitive_class_is_loaded(.double);
                             const header = HeapData.Header.new_undefined_with_tag(.double);
                             const result_object_data: *HeapData = try self.heap.allocate(header);
                             (primitives.Double.Accessor{}).set_value(result_object_data, value);
                             break :blk result_object_data.as_vm_object();
                         },
                         .string => |value| {
+                            try self.ensure_primitive_class_is_loaded(.string);
                             var header = HeapData.Header.new_undefined_with_tag(.string);
                             (primitives.String.Accessor{}).set_length(header.as_heap_data(), @intCast(value.len));
                             const result_object_data: *HeapData = try self.heap.allocate(header);
@@ -235,7 +243,27 @@ pub const Interpreter = struct {
         unreachable;
     }
 
-    inline fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
+    pub fn ensure_primitive_class_is_loaded(self: *Self, primitive_class_type: PrimitiveClassType) Error!void {
+        if (self.primitive_class_definitions.contains(primitive_class_type)) return;
+        const class_name: SymbolId = (try self.statics.symbols_manager.id_or_intern(primitive_class_type.as_string())).id;
+        // TODO: here there is a high chance that the compiling invalidates `self.decoder`
+        const class_definition = compile_class_with_its_parents(.{
+            .bottom_class_name = class_name,
+            .error_writer = self.stderr,
+            .globals = &self.globals,
+            .primitive_methods_map = self.primitive_methods,
+            .source_code_files = self.source_code_files,
+            .statics = self.statics,
+            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+        }) catch |err| {
+            self.report_runtime_error("Got error '{t}' while compiling a primitive class \"{s}\".", .{ err, primitive_class_type.as_string() });
+            return Error.compilation_error;
+        };
+        // TODO: we have to walk the linked-list of `class_definition.parent.parent.parent...` so we can properly update the primitive classes list
+        self.primitive_class_definitions.put(primitive_class_type, class_definition);
+    }
+
+    fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: VmObject = self.pop_stack();
         const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const Method = class.get_method(call_info.message_name) orelse {
@@ -281,9 +309,9 @@ pub const Interpreter = struct {
         return class;
     }
 
-    inline fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
+    fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
         // TODO: if the class is not found, the interpreter should go and find the class definition
-        return switch (object.data.kind()) {
+        return switch (object.data.header.tag) {
             .integer => self.primitive_class_definitions.getAssertContains(.integer),
             .double => self.primitive_class_definitions.getAssertContains(.double),
             .string => self.primitive_class_definitions.getAssertContains(.string),
@@ -385,7 +413,7 @@ pub const PrimitiveMethodsMap = struct {
         /// This contains a slice of the `PrimitiveMethodsMap.all_methods` array
         methods: SortedMethods,
 
-        pub fn get_method(self: *@This(), method_name: SymbolId) ?*const PrimitiveMethod {
+        pub fn get_method(self: @This(), method_name: SymbolId) ?*const PrimitiveMethod {
             return self.methods.get_ptr(method_name);
         }
     };
@@ -526,7 +554,7 @@ pub const Method = struct {
     ///
     /// TODO(consultation): This field might be probably needed only for asserts when we do a dynamic call into a method.
     ///                     NOTE: maybe not, we might need it for a stackframe creation
-    number_of_aditional_args: u8,
+    number_of_aditional_args: u16,
     body: MethodBody,
 };
 
@@ -734,7 +762,7 @@ pub const GenericObjectAccessor = struct {
 //
 // TODO: split the classes definitions into "instance" and "class" parts
 
-pub const PrimitiveClasses = enum {
+pub const PrimitiveClassType = enum {
     integer,
     double,
     string,
@@ -742,6 +770,18 @@ pub const PrimitiveClasses = enum {
     array,
     class,
     // TODO: remaining primitive classes
+
+    const Self = @This();
+    pub fn as_string(self: Self) []const u8 {
+        return switch (self) {
+            .integer => "Integer",
+            .double => "Double",
+            .string => "String",
+            .nil => "Nil",
+            .array => "Array",
+            .class => "Class",
+        };
+    }
 };
 
 pub const primitives = struct {

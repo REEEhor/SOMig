@@ -200,6 +200,7 @@ pub const SourceCodeFiles = struct {
     cached_source_files: std.AutoArrayHashMapUnmanaged(SymbolId, []const u8),
 
     const Self = @This();
+    pub const Map = std.AutoArrayHashMapUnmanaged(SymbolId, []const u8);
 
     pub const LookupError = error{some_file_error};
     pub fn get_source_code_of(self: Self, class_name: SymbolId) LookupError!?[]const u8 {
@@ -229,13 +230,18 @@ pub fn find_file_and_parse_it(
     error_writer: *std.io.Writer,
     parse_allocator: Allocator,
 ) !ParsedFile {
-    const source_code = (try source_code_files.get_source_code_of(class_name)).?; // TODO: remove the `?`. Replace it maybe with an error?
     var reporter = ErrorReporter{
-        .source = source_code,
-        .source_path = statics.symbols_manager.symbol_with_id(class_name),
+        .source = undefined, // TODO(HACK)
+        .source_path = statics.symbols_manager.symbol_with_id(class_name), // TODO: get the actual path to the source code
         .use_color = true,
         .writer = error_writer,
     };
+    const source_code = (try source_code_files.get_source_code_of(class_name)) orelse {
+        const class_name_str = statics.symbols_manager.symbol_with_id(class_name);
+        reporter.report_error(.no_location, "Could not find the source code for the class: {s}", .{class_name_str});
+        return error.sourcecode_for_class_not_found;
+    };
+    reporter.source = source_code;
 
     const tokenized_file = try lexer_module.tokenize(parse_allocator, source_code, &reporter);
     var parser = parser_module.Parser.create(tokenized_file, &reporter, parse_allocator);
@@ -253,7 +259,7 @@ pub fn symbol_of_parents_name(maybe_parent_name_token: ?Ast.TokenId, symbols_man
     return intern_result.id;
 }
 
-pub fn compile_class_with_its_parents(
+pub const CompileClassWithItsParentsParams = struct {
     bottom_class_name: SymbolId,
     statics: *Statics,
     temporary_allocator: Allocator,
@@ -261,12 +267,24 @@ pub fn compile_class_with_its_parents(
     error_writer: *std.io.Writer,
     primitive_methods_map: PrimitiveMethodsMap,
     /// Used for lookup of class definitions.
-    globals: std.AutoArrayHashMap(SymbolId, VmObject),
+    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+};
+
+pub fn compile_class_with_its_parents(
+    params: CompileClassWithItsParentsParams,
 ) !*ClassDefinition {
+    const bottom_class_name = params.bottom_class_name;
+    const statics = params.statics;
+    const temporary_allocator = params.temporary_allocator;
+    const source_code_files = params.source_code_files;
+    const error_writer = params.error_writer;
+    const primitive_methods_map = params.primitive_methods_map;
+    const globals = params.globals;
+
     // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
-    var maybe_parent_being_resolved: ?SymbolId = symbol_of_parents_name(bottom_ast.class_ast.super_class_name, &statics.symbols_manager, bottom_ast);
+    var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.super_class_name, &statics.symbols_manager, bottom_ast);
 
     // Parsed classes to be compiled. This invariant should hold:
     //    (∀ idx in 1..len-1 ) ( classes_to_compile[idx] is_parent_of classes_to_compile[idx-1] )
@@ -279,7 +297,7 @@ pub fn compile_class_with_its_parents(
     const CompiledClass = struct { name: SymbolId, ast: ParsedFile };
     var classes_to_compile = try std.ArrayList(CompiledClass).initCapacity(temporary_allocator, 5);
     defer classes_to_compile.deinit(temporary_allocator);
-    classes_to_compile.append(CompiledClass{ .name = bottom_class_name, .ast = bottom_ast });
+    try classes_to_compile.append(temporary_allocator, CompiledClass{ .name = bottom_class_name, .ast = bottom_ast });
 
     const parent_of_last_class: ?*ClassDefinition = while (maybe_parent_being_resolved) |parent_being_resolved| {
 
@@ -298,18 +316,18 @@ pub fn compile_class_with_its_parents(
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
         try classes_to_compile.append(temporary_allocator, CompiledClass{ .name = parent_being_resolved, .ast = parent_ast });
-        maybe_parent_being_resolved = symbol_of_parents_name(parent_ast.class_ast.super_class_name, &statics.symbols_manager, parent_ast);
+        maybe_parent_being_resolved = try symbol_of_parents_name(parent_ast.class_ast.super_class_name, &statics.symbols_manager, parent_ast);
     } else null;
 
     try globals.ensureUnusedCapacity(classes_to_compile.items.len);
-    try statics.all_classes.growCapacity(statics.all_classes_allocator, statics.all_classes.len + classes_to_compile.items.len);
+    try statics.all_classes.growCapacity(statics.allocator, statics.all_classes.len + classes_to_compile.items.len);
 
     // Compile the classes
     var current_parent: ?*ClassDefinition = parent_of_last_class;
     var iter = std.mem.reverseIterator(classes_to_compile.items);
     while (iter.nextPtr()) |class_to_compile| {
         var reporter = ErrorReporter{
-            .source = class_to_compile.source_code,
+            .source = class_to_compile.ast.source_code,
             // TODO: add filepath here
             .source_path = "TODO the filepath here :D",
             .use_color = true,
@@ -323,14 +341,19 @@ pub fn compile_class_with_its_parents(
 
         // Create a new global object which represents the newly compiled class
         var header = HeapData.Header.new_undefined_with_tag(.class);
-        (primitives.Class.Accessor{}).set_instance_variables_count(header.as_heap_data());
+        (primitives.Class.Accessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
         const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-        (primitives.Class.Accessor{}).set_class_definition(compiled_class, heap_data);
+        (primitives.Class.Accessor{}).set_class_definition(heap_data, compiled_class);
         const class_as_som_object = heap_data.as_vm_object();
         // We assert that there was no such global before.
         // This should hold, otherwise we would have looked up the
         // class previously when we were figuring out the class hiearchy above.
-        try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
+        const previous_entry = try globals.fetchPut(compiled_class.class_name, class_as_som_object);
+        const compiling_bottom_class = iter.index == 0;
+        const global_existed_before = previous_entry != null;
+        if (global_existed_before and !compiling_bottom_class) {
+            std.debug.panic("We should not be able to encounter a class the second time here.\n", .{});
+        }
 
         // TODO: when the field is added to the `ClassDefinition, do:`
         //          compiled_class.as_vm_object = class_som_object;
@@ -361,8 +384,9 @@ pub inline fn compile_class(
 
     var bytecode_generator = BytecodeGenerator{
         .allocator = statics.allocator,
-        .symbols_manager = statics.symbols_manager,
-        .builder = statics.instruction_encoder,
+        .symbols_manager = &statics.symbols_manager,
+        .builder = &statics.instruction_encoder,
+        .constants_manager = &statics.constants_manager,
         .reporter = reporter,
     };
 
@@ -372,7 +396,7 @@ pub inline fn compile_class(
     var compiled_methods: []Method = try temporary_allocator.alloc(Method, all_methods_len);
     defer temporary_allocator.free(compiled_methods);
 
-    const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(ast.class_ast.class_name);
+    const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
 
     // TODO: consider putting this into the `SymbolsManager`?
     var buffer_for_selectors: [16]u8 = undefined;
@@ -410,7 +434,7 @@ pub inline fn compile_class(
                     reporter.report_error(
                         .{ .pos = ast.pos_of(method_ast.span) },
                         "The class '{s}' has the method '{s}' declared as `primitive`, but the virtual machine does not have such primitive method implementation.",
-                        .{ class_name, method_selector_text, class_name },
+                        .{ class_name, method_selector_text },
                     );
                     reporter.add_note(
                         .{ .pos = ast.pos_of(method_ast.header.span()) },
@@ -429,8 +453,8 @@ pub inline fn compile_class(
                 method_idx += 1;
             },
             .impl => |function_body| {
-                const start_instruction_id: InstructionId = bytecode_generator.compile_method(
-                    ast,
+                const start_instruction_id: InstructionId = try bytecode_generator.compile_method(
+                    &ast,
                     &lexical_scopes,
                     method_ast.span,
                     function_body,
@@ -438,7 +462,7 @@ pub inline fn compile_class(
                 );
                 compiled_methods[method_idx] = Method{
                     .method_name = method_selector,
-                    .number_of_aditional_args = method_ast.header.number_of_arguments_including_self() - 1,
+                    .number_of_aditional_args = @intCast(method_ast.header.number_of_arguments_including_self() - 1),
                     .body = MethodBody{ .user_land = .{ .start_instruction = start_instruction_id } },
                 };
                 method_idx += 1;
@@ -482,10 +506,10 @@ pub inline fn compile_class(
     };
 
     const instance_methods = blk: {
-        const parents_methods = if (compiled_parent) |parent_class|
+        const parents_methods: ClassDefinition.MethodMap = if (compiled_parent) |parent_class|
             parent_class.instance_methods
         else
-            .{ .items = .{} };
+            .{ .items = &[0]Method{} };
         const combined_methods = try ClassDefinition.MethodMap.from_merge_of(
             only_instance_methods,
             parents_methods,
@@ -508,10 +532,10 @@ pub fn get_selector_symbol(
 ) !SymbolId {
     const method_selector_text: []const u8 = sw: switch (method_header) {
         .unary => |header_info| {
-            break :sw try ast.text_at(header_info.method_name);
+            break :sw ast.text_at(header_info.method_name);
         },
         .binary => |header_info| {
-            break :sw try ast.text_at(header_info.method_name);
+            break :sw ast.text_at(header_info.method_name);
         },
         .keyword => |header_info| {
             fixed_writer.end = 0;
@@ -519,7 +543,7 @@ pub fn get_selector_symbol(
             while (kw_idx < header_info.number_of_args()) : (kw_idx += 1) {
                 const keyword_token = header_info.nth_keyword(kw_idx);
                 const keyword_text = ast.text_at(keyword_token);
-                fixed_writer.write(keyword_text) catch {
+                _ = fixed_writer.write(keyword_text) catch {
                     // TODO: handle this after the api gets re-written.
                     reporter.report_error(
                         .{ .pos = ast.pos_of(method_header.span()) },
@@ -534,8 +558,7 @@ pub fn get_selector_symbol(
                     return error.keyword_selector_too_long;
                 };
             }
-            // TODO: let's see if this errors. If so, don't worry and uncomment this :)
-            // break :sw fixed_writer.buffer[0..fixed_writer.end];
+            break :sw fixed_writer.buffer[0..fixed_writer.end];
         },
     };
 
@@ -687,6 +710,7 @@ pub const BytecodeGenerator = struct {
                     "TODO: Compiling of expression type of '{t}' not implemented yet :D",
                     .{todo_expr.tag()},
                 );
+                return error.TODO;
             },
         }
     }

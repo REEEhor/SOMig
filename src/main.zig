@@ -166,6 +166,36 @@ fn playground(allocator: std.mem.Allocator) !void {
         interpreter_module.primitives,
         &statics.symbols_manager,
     );
+    //
+    var source_code_files = codegen.SourceCodeFiles{ .cached_source_files = codegen.SourceCodeFiles.Map.empty };
+    defer source_code_files.cached_source_files.deinit(allocator);
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Integer")).id,
+        \\ Integer = (
+        \\      + _ = primitive
+        \\      - _ = primitive
+        \\      * _ = primitive
+        \\      / _ = primitive
+        \\      asString = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Double")).id,
+        \\ Double = (
+        \\      + _ = primitive
+        \\      - _ = primitive
+        \\      * _ = primitive
+        \\      / _ = primitive
+        \\      asString = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("String")).id,
+        \\ String = (
+        \\      + _ = primitive
+        \\      asString = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,
+        \\ Object = nil ( )
+    );
 
     // Setup bytecode generator
     var scope_stack = try codegen.ScopeStack.init(parser_allocator, 0, 0);
@@ -211,10 +241,11 @@ fn playground(allocator: std.mem.Allocator) !void {
         stdout,
         stdout,
         &statics,
+        &source_code_files,
         primitive_methods_map,
     );
-    //
-    try interpreter.TODO_REMOVE_THIS__add_implementations_of_primitive_classes();
+    // //
+    // try interpreter.TODO_REMOVE_THIS__add_implementations_of_primitive_classes();
 
     // Run the program
     try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
