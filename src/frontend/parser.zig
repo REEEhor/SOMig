@@ -207,24 +207,50 @@ pub const Parser = struct {
 
         // Parse method definitions
         var method_definitions = std.ArrayList(MethodDefinition).empty;
-        while (self.peek_next_token()) |token| {
-            const method_header: MethodHeader = switch (token.kind) {
+        while (self.peek_next_token()) |method_header_token| {
+            const method_header: MethodHeader = switch (method_header_token.kind) {
                 .identifier => self.parse_unary_method_header(),
                 .binary_message => try self.parse_binary_method_header(),
                 .keyword_message => try self.parse_keyword_method_header(),
                 else => break,
             };
             _ = try self.eat_token_match_string(.binary_message, "=");
-            _ = try self.eat_token(.open_parenthesis);
-            const method_body = try self.parse_function_body();
-            const end_token: TokenId = self.next_token_id;
-            _ = try self.eat_token(.close_parenthesis);
 
-            const method_definition = MethodDefinition{
-                .body = .{ .impl = method_body },
-                .header = method_header,
-                .span = TokenSpan.create(method_header.span().start_id.idx, end_token.idx),
+            const body_start_token_id = self.next_token_id;
+            const parenthesis_or_primitive_keyword = self.peek_next_token() orelse {
+                self.reporter.report_unexpected_eof("Expected either '(' or 'primitive'.", .{});
+                return ParserError.unexpected_eof;
             };
+            const method_definition = sw: switch (parenthesis_or_primitive_keyword.kind) {
+                .open_parenthesis => {
+                    _ = self.next_token();
+                    const method_body = try self.parse_function_body();
+                    const end_token: TokenId = self.next_token_id;
+                    _ = try self.eat_token(.close_parenthesis);
+                    break :sw MethodDefinition{
+                        .body = .{ .impl = method_body },
+                        .header = method_header,
+                        .span = TokenSpan.create(method_header.span().start_id.idx, end_token.idx),
+                    };
+                },
+                .identifier => {
+                    _ = self.next_token();
+                    break :sw MethodDefinition{
+                        .body = .primitive,
+                        .header = method_header,
+                        .span = TokenSpan.create(method_header.span().start_id.idx, body_start_token_id.idx),
+                    };
+                },
+                else => {
+                    self.reporter.report_error(
+                        .{ .pos = parenthesis_or_primitive_keyword.pos },
+                        "Unexpected token {t} '{s}'. Expected token '(' or 'primitive'.",
+                        .{ parenthesis_or_primitive_keyword.kind, self.text_at(parenthesis_or_primitive_keyword) },
+                    );
+                    return ParserError.unexpected_token;
+                },
+            };
+
             try method_definitions.append(self.allocator, method_definition);
         }
 
