@@ -9,6 +9,7 @@ const codegen = @import("frontend/codegen.zig");
 
 const interpreter_module = @import("interpreter/interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
+const Statics = interpreter_module.Statics;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
 
 const lexer_module = @import("frontend/lexer.zig");
@@ -143,33 +144,38 @@ fn playground(allocator: std.mem.Allocator) !void {
     var parser = Parser.create(tokenize_source_code, &reporter, parser_allocator);
     var parsed_file = try parser.parse();
 
-    // Setup string internining
-    var interning_arenas = .{
-        std.heap.ArenaAllocator.init(allocator),
-        std.heap.ArenaAllocator.init(allocator),
-        std.heap.ArenaAllocator.init(allocator),
+    // Setup static fields
+    var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
+    defer interpreter_arena.deinit();
+    const interpreter_allocator = interpreter_arena.allocator();
+    //
+    var statics = Statics{
+        .all_classes = .{},
+        // TODO: use a different allocator dedicated
+        .allocator = interpreter_allocator,
+        .symbols_manager = blk: {
+            const manager = try SymbolsManager.create(interpreter_allocator, 0);
+            break :blk manager;
+        },
+        .constants_manager = codegen.ConstantsManager.init(interpreter_allocator),
+        .instruction_encoder = codegen.InstructionEncoder{ .bytes = .empty },
     };
-    var string_interning_manager = try SymbolsManager.create(&interning_arenas.@"0", &interning_arenas.@"1", &interning_arenas.@"2", 0);
-    defer string_interning_manager.deinit();
+    //
+    const primitive_methods_map = try PrimitiveMethodsMap.init_from(
+        interpreter_allocator,
+        interpreter_module.primitives,
+        &statics.symbols_manager,
+    );
 
     // Setup bytecode generator
-    var bytecode_generator_arena = std.heap.ArenaAllocator.init(allocator);
-    defer bytecode_generator_arena.deinit();
-    const bytecode_generator_allocator = bytecode_generator_arena.allocator();
-    //
-    var instruction_encoder = codegen.InstructionEncoder{ .bytes = .empty };
-    var constants_arena = std.heap.ArenaAllocator.init(allocator);
-    const constants_allocator = constants_arena.allocator();
-    var constants_manager = codegen.ConstantsManager.init(constants_allocator);
-    //
     var scope_stack = try codegen.ScopeStack.init(parser_allocator, 0, 0);
     //
     var bytecode_generator = codegen.BytecodeGenerator{
-        .allocator = bytecode_generator_allocator,
-        .builder = &instruction_encoder,
+        .allocator = statics.allocator,
+        .builder = &statics.instruction_encoder,
         .reporter = &reporter,
-        .constants_manager = &constants_manager,
-        .symbols_manager = &string_interning_manager,
+        .constants_manager = &statics.constants_manager,
+        .symbols_manager = &statics.symbols_manager,
     };
 
     // Compile to bytecode
@@ -186,24 +192,25 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Print bytecode
     try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
-    try codegen.print_bytecode(&string_interning_manager, &constants_manager, constants_manager.current_base_id, bytecode, stdout);
+    try codegen.print_bytecode(
+        &statics.symbols_manager,
+        &statics.constants_manager,
+        statics.constants_manager.current_base_id,
+        bytecode,
+        stdout,
+    );
 
     // Setup interpreter
-    var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
-    defer interpreter_arena.deinit();
-    const interpreter_allocator = interpreter_arena.allocator();
-    //
-    const primitive_methods_map = try PrimitiveMethodsMap.init_from(interpreter_allocator, interpreter_module.primitives, &string_interning_manager);
-    //
-    var instruction_decoder = codegen.InstructionDecoder.new(bytecode);
+    const instruction_decoder = codegen.InstructionDecoder.new(bytecode);
     //
     var interpreter = Interpreter.new(
+        // TODO: use a different allocator for heap, globals
         interpreter_allocator,
-        &instruction_decoder,
-        &constants_manager,
-        &string_interning_manager,
+        interpreter_allocator,
+        instruction_decoder,
         stdout,
         stdout,
+        &statics,
         primitive_methods_map,
     );
     //

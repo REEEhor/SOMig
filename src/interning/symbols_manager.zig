@@ -48,70 +48,41 @@ pub const SymbolId = struct {
     }
 };
 
-// TODO(cleanup): this is probably not correct (storing so many allocators), but it is not a problem to change this later
 pub const SymbolsManager = struct {
     const Self = @This();
     pub const SymbolToIdMap = std.StringHashMapUnmanaged(SymbolId);
     pub const IdToSymbolMap = std.ArrayListUnmanaged([]const u8);
 
-    map_arena: *Arena,
-    list_arena: *Arena,
-    string_arena: *Arena,
-
-    map_allocator: Allocator,
-    list_allocator: Allocator,
-    string_allocator: Allocator,
-
+    allocator: Allocator,
     string_to_id_map: SymbolToIdMap,
     id_to_string_map: IdToSymbolMap,
 
     pub fn create(
-        map_arena: *Arena,
-        list_arena: *Arena,
-        string_arena: *Arena,
-        init_list_capacity: usize,
+        allocator: Allocator,
+        init_capacity: usize,
     ) !SymbolsManager {
         var manager = SymbolsManager{
-            .map_arena = map_arena,
-            .list_arena = list_arena,
-            .string_arena = string_arena,
-
-            .map_allocator = undefined,
-            .list_allocator = undefined,
-            .string_allocator = undefined,
-
+            .allocator = allocator,
             .string_to_id_map = SymbolToIdMap.empty,
-            .id_to_string_map = undefined,
+            .id_to_string_map = try IdToSymbolMap.initCapacity(allocator, init_capacity),
         };
-
-        manager.map_allocator = manager.map_arena.allocator();
-        manager.list_allocator = manager.list_arena.allocator();
-        manager.string_allocator = manager.string_arena.allocator();
-
-        manager.id_to_string_map = try IdToSymbolMap.initCapacity(manager.list_allocator, init_list_capacity);
-
+        try manager.string_to_id_map.ensureTotalCapacity(allocator, @intCast(init_capacity));
         return manager;
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.map_arena.deinit();
-        self.list_arena.deinit();
-        self.string_arena.deinit();
     }
 
     pub const InternResult = struct { id: SymbolId, was_new: bool };
 
     /// Looks up the unique `SymbolId` for a string.
     /// If the string has not yet been interned, it will be added to the `SymbolManager` and a new `SymbolId` will be returned.
-    pub fn id_or_intern(self: *Self, symbol: []const u8) !InternResult {
-        const lookup_result = try self.string_to_id_map.getOrPut(self.map_allocator, symbol);
+    pub fn id_or_intern(self: *Self, symbol: []const u8) Allocator.Error!InternResult {
+        const lookup_result = try self.string_to_id_map.getOrPut(self.allocator, symbol);
         if (lookup_result.found_existing) {
             return .{ .id = lookup_result.value_ptr.*, .was_new = false };
         }
 
         // The symbol is not registered.
         // Create a new owned string and add it to the ArrayList and HashMap
-        const owned_string = try self.string_allocator.dupe(u8, symbol);
+        const owned_string = try self.allocator.dupe(u8, symbol);
 
         assert(self.id_to_string_map.items.len <= std.math.maxInt(SymbolId.IdRepr));
         const symbol_idx: SymbolId.IdRepr = @truncate(self.id_to_string_map.items.len);
@@ -122,7 +93,7 @@ pub const SymbolsManager = struct {
         lookup_result.value_ptr.* = new_id;
 
         // Add it to the ArrayList
-        try self.id_to_string_map.append(self.list_allocator, owned_string);
+        try self.id_to_string_map.append(self.allocator, owned_string);
 
         return .{ .id = new_id, .was_new = true };
     }
@@ -155,13 +126,10 @@ const testing = struct {
 test "interining" {
     const expect_lookup = testing.expect_lookup;
 
-    var arenas = .{
-        Arena.init(std.testing.allocator),
-        Arena.init(std.testing.allocator),
-        Arena.init(std.testing.allocator),
-    };
-    var manager = try SymbolsManager.create(&arenas.@"0", &arenas.@"1", &arenas.@"2", 0);
-    defer manager.deinit();
+    var arena = Arena.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var manager = try SymbolsManager.create(arena.allocator(), 0);
 
     for (0..5) |idx| {
         const id = SymbolId.new(@truncate(idx));

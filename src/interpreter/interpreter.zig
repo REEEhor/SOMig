@@ -22,36 +22,66 @@ const ConstantsManager = codegen_module.ConstantsManager;
 const ConstantId = codegen_module.ConstantId;
 const RelativeConstantId = codegen_module.RelativeConstantId;
 const InstructionId = codegen_module.InstructionId;
+const compile_class_with_its_parents = codegen_module.compile_class_with_its_parents;
+const allocate_heap_data = codegen_module.allocate_heap_data;
+const SourceCodeFiles = codegen_module.SourceCodeFiles;
+const InstructionEncoder = codegen_module.InstructionEncoder;
 
+/// Stores stuff that does not get deallocated
+pub const Statics = struct {
+    /// Allocator used for all fields in this struct.
+    /// It will presumably be an arena allocator, since we just need allocating and never deallocating from it (deallocation happens only at the end).
+    allocator: Allocator,
+
+    // TODO: remove at least some of the allocators from `SymbolsManager` so the `Allocator` in here is used
+    symbols_manager: SymbolsManager,
+
+    /// NOTE: This must be a `SegmentedList`, because we want to be able to store pointers to `ClassDefinition` in other structures.
+    ///       If this was just an `ArrayList`, then the pointers to `ClassDefinition`s would get invalidated during reallocations.
+    all_classes: std.SegmentedList(ClassDefinition, 64),
+
+    instruction_encoder: InstructionEncoder,
+
+    constants_manager: ConstantsManager,
+
+    const Self = @This();
+
+    /// TODO: consider making wrapper methods for different kinds of objects
+    pub inline fn allocate_for_static_object(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
+        return try allocate_heap_data(self.allocator, header);
+    }
+};
 pub const stack_size = 4096;
+
+// TODO: implement a GC so that we also deallocate stuff
+// TODO: consider making this heap take in just a `[]align(@alignOf(HeapData.Header))u8`.
+pub const Heap = struct {
+    arena: std.heap.ArenaAllocator,
+
+    const Self = @This();
+    pub fn allocate(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
+        return try allocate_heap_data(self.arena.allocator(), header);
+    }
+};
 
 // TODO: track the current function (which will be probably in the final `stack` implementation, which will also store stack frames)
 // and use it for error reporting.
 pub const Interpreter = struct {
-    decoder: *InstructionDecoder,
-    constants_manager: *ConstantsManager,
-    symbols_manager: *SymbolsManager,
+    decoder: InstructionDecoder,
+    globals: std.AutoArrayHashMap(SymbolId, VmObject),
+    statics: *Statics,
+    heap: Heap,
+
     stdout: *Writer,
     stderr: *Writer,
-    allocator: Allocator,
+
     primitive_methods: PrimitiveMethodsMap,
     primitive_class_definitions: std.EnumMap(PrimitiveClasses, *ClassDefinition),
 
     stack_top: usize = 0,
     stack: [4096]VmObject = undefined,
 
-    //
-    // TODO(crashing): Store `ClassDefinition` elsewhere, otherwise when we insert a new class
-    //                 into this map, all the pointers that point into this hashmap will get invalidated.
-    //                 Store `*ClassDefinition` instead probably.
-    //
-    // TODO(speed): Consider making this a `SymbolArrayMap(ClassDefinition)`
-    //              It would require the implementation to also include insertion, which is O(n)
-    //
-    /// Mapping: `name_of_the_class` -> `class`
-    class_map: std.AutoHashMap(SymbolId, ClassDefinition),
-
-    // TODO: here will be an `current_class: *Class` I think
+    // TODO: put this in the runtime frame stack (once that stack is actually implemented)
     current_class_constant_base_id: ConstantId,
 
     const Self = @This();
@@ -66,25 +96,24 @@ pub const Interpreter = struct {
     } || Allocator.Error || Writer.Error;
 
     pub fn new(
-        allocator: Allocator,
-        decoder: *InstructionDecoder,
-        constants_manager: *ConstantsManager,
-        strings_manager: *SymbolsManager,
+        allocator_for_heap: Allocator,
+        allocator_for_globals: Allocator,
+        decoder: InstructionDecoder,
         stdout: *Writer,
         stderr: *Writer,
+        statics: *Statics,
         primitive_methods: PrimitiveMethodsMap,
     ) Interpreter {
         return Interpreter{
-            .allocator = allocator,
             .decoder = decoder,
             .stdout = stdout,
             .stderr = stderr,
-            .constants_manager = constants_manager,
-            .symbols_manager = strings_manager,
-            .class_map = std.AutoHashMap(SymbolId, ClassDefinition).init(allocator),
+            .statics = statics,
+            .heap = Heap{ .arena = std.heap.ArenaAllocator.init(allocator_for_heap) },
             .primitive_methods = primitive_methods,
             .current_class_constant_base_id = ConstantId{ .idx = 0 },
-            .primitive_class_definitions = std.EnumMap(PrimitiveClasses, *ClassDefinition){},
+            .globals = .init(allocator_for_globals),
+            .primitive_class_definitions = .{},
         };
     }
 
@@ -93,12 +122,12 @@ pub const Interpreter = struct {
     /// primitive methods during the loading of a class
     /// TODO: remove this once we can load individial classes and their definitions
     pub fn TODO_REMOVE_THIS__add_implementations_of_primitive_classes(self: *Self) Error!void {
-        const integer_symbol_id = self.symbols_manager.id_of("Integer").?;
-        const double_symbol_id = self.symbols_manager.id_of("Double").?;
-        const string_symbol_id = self.symbols_manager.id_of("String").?;
+        const integer_symbol_id = self.statics.symbols_manager.id_of("Integer").?;
+        const double_symbol_id = self.statics.symbols_manager.id_of("Double").?;
+        const string_symbol_id = self.statics.symbols_manager.id_of("String").?;
 
         for (self.primitive_methods.sorted_classes.items) |primitive_class| {
-            const methods = try self.allocator.alloc(Method, primitive_class.methods.len());
+            const methods = try self.statics.allocator.alloc(Method, primitive_class.methods.len());
             for (primitive_class.methods.items, 0..) |primitive_method, idx| {
                 methods[idx] = Method{
                     .method_name = primitive_method.method_name,
@@ -107,47 +136,26 @@ pub const Interpreter = struct {
                 };
             }
             const sorted_methods = ClassDefinition.MethodMap.from_slice(methods).ok; // NOTE: we can use `.ok` here, since the primitive methods were parsed from a struct definition, if not and there is a duplicate method name, we crash :D
-            const class_definition = ClassDefinition{
+            const class_definition = try self.statics.all_classes.addOne(self.statics.allocator);
+            class_definition.* = ClassDefinition{
                 .class_name = primitive_class.class_name,
                 .instance_methods = sorted_methods,
             };
 
-            const register_result = try self.register_class(primitive_class.class_name, class_definition);
-            assert(!register_result.is_already_registered);
-
             if (class_definition.class_name.idx == integer_symbol_id.idx) {
-                self.primitive_class_definitions.put(.integer, register_result.ptr_to_class);
+                self.primitive_class_definitions.put(.integer, class_definition);
             } else if (class_definition.class_name.idx == double_symbol_id.idx) {
-                self.primitive_class_definitions.put(.double, register_result.ptr_to_class);
+                self.primitive_class_definitions.put(.double, class_definition);
             } else if (class_definition.class_name.idx == string_symbol_id.idx) {
-                self.primitive_class_definitions.put(.string, register_result.ptr_to_class);
+                self.primitive_class_definitions.put(.string, class_definition);
             }
         }
-    }
-
-    pub fn put_on_heap(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
-        const bytes_needed = @sizeOf(HeapData.Header) + header.bytes_needed_after_header();
-        const alignment = comptime std.mem.Alignment.fromByteUnits(64);
-        const ptr: *HeapData = @ptrCast(try self.allocator.alignedAlloc(u8, alignment, bytes_needed));
-        ptr.header = header;
-        return ptr;
     }
 
     pub const ResultOfRegisterClass = struct {
         is_already_registered: bool,
         ptr_to_class: *ClassDefinition,
     };
-
-    // TODO: for a better error reporting, store where a class is defined (for example the filepath to its file)
-    // and return it in an optional string here.
-    pub fn register_class(self: *Self, class_name: SymbolId, class: ClassDefinition) Error!ResultOfRegisterClass {
-        const entry = try self.class_map.getOrPut(class_name);
-        if (entry.found_existing) {
-            return .{ .is_already_registered = true, .ptr_to_class = entry.value_ptr };
-        }
-        entry.value_ptr.* = class;
-        return .{ .is_already_registered = false, .ptr_to_class = entry.value_ptr };
-    }
 
     // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) Error!void {
@@ -192,28 +200,27 @@ pub const Interpreter = struct {
                 },
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.current_class_constant_base_id);
-                    const constant = self.constants_manager.get_constant(constant_id);
+                    const constant = self.statics.constants_manager.get_constant(constant_id);
                     const object: VmObject = blk: switch (constant) {
                         .integer => |value| {
                             // TODO(hack): consider whether making the integers smaller or arbitrary in size or something
                             const value_i48: i48 = @intCast(value);
 
                             const header = HeapData.Header.new_undefined_with_tag(.integer);
-                            const result_object_data: *HeapData = try self.put_on_heap(header);
+                            const result_object_data: *HeapData = try self.heap.allocate(header);
                             (primitives.Integer.Accessor{}).set_value(result_object_data, value_i48);
                             break :blk result_object_data.as_vm_object();
                         },
                         .float => |value| {
                             const header = HeapData.Header.new_undefined_with_tag(.double);
-                            const result_object_data: *HeapData = try self.put_on_heap(header);
+                            const result_object_data: *HeapData = try self.heap.allocate(header);
                             (primitives.Double.Accessor{}).set_value(result_object_data, value);
                             break :blk result_object_data.as_vm_object();
                         },
                         .string => |value| {
                             var header = HeapData.Header.new_undefined_with_tag(.string);
                             (primitives.String.Accessor{}).set_length(header.as_heap_data(), @intCast(value.len));
-                            const result_object_data: *HeapData = try self.put_on_heap(header);
-                            // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
+                            const result_object_data: *HeapData = try self.heap.allocate(header);
                             @memcpy((primitives.String.Accessor{}).contents(result_object_data), value);
                             break :blk result_object_data.as_vm_object();
                         },
@@ -237,7 +244,7 @@ pub const Interpreter = struct {
             //  idea from Crafting interpreters:  https://craftinginterpreters.com/superclasses.html
             self.report_runtime_error(
                 "Tried to call the method `{s}` on an instance of a class `{s}`, but that does not exist.",
-                .{ self.symbols_manager.symbol_with_id(call_info.message_name), self.symbols_manager.symbol_with_id(class.class_name) },
+                .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
             );
             // TODO: maybe also print the methods that exist on that class?
             return Error.method_not_found;
@@ -248,7 +255,7 @@ pub const Interpreter = struct {
                 // TODO: handle `user_land` methods
                 return self.report_TODO(
                     "Tried calling the method `{s}` which is defined in user land and we don't do user land methods yet :)",
-                    .{self.symbols_manager.symbol_with_id(call_info.message_name)},
+                    .{self.statics.symbols_manager.symbol_with_id(call_info.message_name)},
                 );
             },
             .primitive => |primitive_method| {
@@ -256,7 +263,7 @@ pub const Interpreter = struct {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
                         "Error happened in the primitive method `{s}` of class `{s}`",
-                        .{ self.symbols_manager.symbol_with_id(call_info.message_name), self.symbols_manager.symbol_with_id(class.class_name) },
+                        .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
                     ) catch {};
                     return err;
                 };
@@ -280,6 +287,7 @@ pub const Interpreter = struct {
             .integer => self.primitive_class_definitions.getAssertContains(.integer),
             .double => self.primitive_class_definitions.getAssertContains(.double),
             .string => self.primitive_class_definitions.getAssertContains(.string),
+            .class => self.primitive_class_definitions.getAssertContains(.class),
             .object => unreachable,
             .empty_heap_segment => unreachable,
             .nil => unreachable,
@@ -417,7 +425,7 @@ pub const PrimitiveMethodsMap = struct {
     pub fn init_from(
         allocator: Allocator,
         comptime primitives_module: type,
-        strings_manager: *SymbolsManager,
+        symbols_manager: *SymbolsManager,
     ) Allocator.Error!Self {
         const primitive_fn_postfix = "__somig_primitive_fn";
         const fn_arity_postix = "__somig_arity";
@@ -455,7 +463,7 @@ pub const PrimitiveMethodsMap = struct {
                 const fn_impl: PrimitiveMethodImplementation = @field(PrimitiveType, decl.name);
 
                 const primitive_method = PrimitiveMethod{
-                    .method_name = (try strings_manager.id_or_intern(fn_name)).id,
+                    .method_name = (try symbols_manager.id_or_intern(fn_name)).id,
                     .function = fn_impl,
                     .args_cnt = fn_arity,
                 };
@@ -469,7 +477,7 @@ pub const PrimitiveMethodsMap = struct {
             const sorted_methods_slice = SortedMethods.from_slice(methods_slice).ok;
 
             const class = PrimitiveClass{
-                .class_name = (try strings_manager.id_or_intern(primitive_type_name)).id,
+                .class_name = (try symbols_manager.id_or_intern(primitive_type_name)).id,
                 .methods = sorted_methods_slice,
             };
             classes.appendAssumeCapacity(class);
@@ -600,13 +608,14 @@ pub const HeapData = struct {
             return @fieldParentPtr("header", self);
         }
 
-        pub inline fn bytes_needed_after_header(self: *const Header) usize {
+        pub inline fn bytes_needed_after_header(self: Header) usize {
             return switch (self.kind()) {
                 .integer => |accessor| accessor.get_bytes_count_after_header(),
                 .double => |accessor| accessor.get_bytes_count_after_header(),
-                .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
+                .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
+                .class => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .nil => 0,
-                .object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self.* }),
+                .object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .empty_heap_segment => |accessor| accessor.get_bytes_count_after_header(),
             };
         }
@@ -618,6 +627,7 @@ pub const HeapData = struct {
             double: primitives.Double.Accessor,
             string: primitives.String.Accessor,
             nil,
+            class: primitives.Class.Accessor,
             // TODO: rest of the primitives
 
             object: GenericObjectAccessor,
@@ -730,10 +740,20 @@ pub const PrimitiveClasses = enum {
     string,
     nil,
     array,
+    class,
     // TODO: remaining primitive classes
 };
 
 pub const primitives = struct {
+    pub const Class = struct {
+        /// Same as a generic object, but `*ClassDefinition` which can be accessed
+        /// does not point to the primitive class `Class` but to the `ClassDefinition`
+        /// which is represented by the SOM runtime object.
+        ///
+        /// TODO: This is probably not exactly correct according to the SOM class hiearchy (with Metaclasses and such), so change it later.
+        pub const Accessor = GenericObjectAccessor;
+    };
+
     pub const Integer = struct {
         pub const Accessor = packed struct {
             pub inline fn get_bytes_count_after_header(self: Accessor) usize {
@@ -805,12 +825,15 @@ pub const primitives = struct {
             const receiver_as_int: i48 = (Accessor{}).get_value(target_object.data);
 
             // TODO: use interpter string allocator (??? i don't know what that means :D)
-            const receiver_as_str: []u8 = try std.fmt.allocPrint(interpreter.allocator, "{d}", .{receiver_as_int});
+            var print_buffer: [128]u8 = undefined;
+            const receiver_as_str: []u8 = std.fmt.bufPrint(&print_buffer, "{d}", .{receiver_as_int}) catch {
+                std.debug.panic("Could not print the integer: '{d}', because it was too long.", .{receiver_as_int});
+            };
             const length: i48 = @intCast(receiver_as_str.len);
 
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), length);
-            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
             // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
             @memcpy((String.Accessor{}).contents(result_object_data), receiver_as_str);
 
@@ -838,7 +861,7 @@ pub const primitives = struct {
             const result_int = try op(lhs_int, rhs_int);
 
             const header = HeapData.Header.new_undefined_with_tag(.integer);
-            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
             (Accessor{}).set_value(result_object_data, result_int);
             const result_object = result_object_data.as_vm_object();
 
@@ -909,12 +932,15 @@ pub const primitives = struct {
             const receiver_as_double: f64 = (Accessor{}).get_value(target_object.data);
 
             // TODO: use interpter string allocator (??? i don't know what that means :D)
-            const receiver_as_str: []u8 = try std.fmt.allocPrint(interpreter.allocator, "{d}", .{receiver_as_double});
+            var print_buffer: [256]u8 = undefined;
+            const receiver_as_str: []u8 = std.fmt.bufPrint(&print_buffer, "{d}", .{receiver_as_double}) catch {
+                std.debug.panic("Could not print the double: '{d}', because it was too long.", .{receiver_as_double});
+            };
             const length: i48 = @intCast(receiver_as_str.len);
 
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), length);
-            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
             // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
             @memcpy((String.Accessor{}).contents(result_object_data), receiver_as_str);
 
@@ -941,7 +967,7 @@ pub const primitives = struct {
             const result_double: f64 = try op(lhs_double, rhs_double);
 
             const header = HeapData.Header.new_undefined_with_tag(.double);
-            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
             (Accessor{}).set_value(result_object_data, result_double);
             const result_object = result_object_data.as_vm_object();
 
@@ -1006,14 +1032,13 @@ pub const primitives = struct {
                 else => return interpreter.report_TODO("The `+` method on String does not support having `{t}` as an argument.", .{rhs_obj.data.kind()}),
             };
             const rhs_str = (Accessor{}).contents(rhs_string_obj.data);
-
-            const concatenated_result = try std.fmt.allocPrint(interpreter.allocator, "{s}{s}", .{ receiver_str, rhs_str });
+            const total_length: i48 = @intCast(receiver_str.len + rhs_str.len);
 
             var header = HeapData.Header.new_undefined_with_tag(.string);
-            (String.Accessor{}).set_length(header.as_heap_data(), @intCast(concatenated_result.len));
-            const result_object_data: *HeapData = try interpreter.put_on_heap(header);
-            // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
-            @memcpy((String.Accessor{}).contents(result_object_data), concatenated_result);
+            (String.Accessor{}).set_length(header.as_heap_data(), total_length);
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
+            const written = std.fmt.bufPrint((String.Accessor{}).contents(result_object_data), "{s}{s}", .{ receiver_str, rhs_str }) catch unreachable;
+            assert(written.len == total_length);
 
             return result_object_data.as_vm_object();
         }
