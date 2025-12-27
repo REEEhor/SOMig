@@ -299,6 +299,10 @@ pub const Interpreter = struct {
                             @memcpy((primitives.String.Accessor{}).contents(result_object_data), value);
                             break :blk result_object_data.as_vm_object();
                         },
+                        .nil => {
+                            const nil_object: VmObject = try self.get_nil_singleton();
+                            break :blk nil_object;
+                        },
                     };
                     try self.push_object(object);
                 },

@@ -67,6 +67,7 @@ pub const Constant = union(enum) {
     integer: IntegerRepresentation,
     float: FloatRepresentation,
     string: []const u8,
+    nil,
 };
 
 pub const ConstantsManager = struct {
@@ -654,7 +655,13 @@ pub const BytecodeGenerator = struct {
             try self.compile_expression(expr_id);
             try self.add_instruction(.print);
         }
-        // TODO: maybe don't do this if we have already emitted a return?
+        // TODO: maybe don't do default `nil` return if we have already emitted a return?
+
+        // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
+        //                     NOTE: We probably want to store the actual values in the end.
+        const constant_id = try self.constants_manager.add_constant(Constant.nil);
+        try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
+        try self.add_instruction(.{ .set_local = .{ .idx = 0 } });
         try self.add_instruction(.normal_return);
 
         return start_instruction_id;
