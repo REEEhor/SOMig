@@ -853,6 +853,10 @@ pub const InstructionDecoder = struct {
                 const local_id = self.read_id(Instruction.LocalVarId);
                 break :sw Instruction{ .load_local = local_id };
             },
+            .set_local => {
+                const local_id = self.read_id(Instruction.LocalVarId);
+                break :sw Instruction{ .set_local = local_id };
+            },
             .load_instance_var => {
                 const id = self.read_id(Instruction.InstanceVarId);
                 break :sw Instruction{ .load_instance_var = id };
@@ -934,6 +938,9 @@ pub const InstructionEncoder = struct {
 
         switch (instruction) {
             .load_local => |info| {
+                try self.write_integer(allocator, info.idx);
+            },
+            .set_local => |info| {
                 try self.write_integer(allocator, info.idx);
             },
             .load_instance_var => |info| {
@@ -1097,6 +1104,9 @@ pub const Instruction = union(enum(u8)) {
     load_global: SymbolId = 7,
 
     normal_return = 8,
+
+    /// Pops a value from the stack and assigns its value into a local variable
+    set_local: LocalVarId = 9,
 
     print, // TODO: remove this after development
 

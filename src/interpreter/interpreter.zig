@@ -233,6 +233,10 @@ pub const Interpreter = struct {
                     const object: VmObject = self.stack.objects[self.top_frame().base_idx + local_id.idx];
                     try self.push_object(object);
                 },
+                .set_local => |local_to_set_id| {
+                    const to_assign: VmObject = self.pop_object();
+                    self.stack.objects[self.top_frame().base_idx + local_to_set_id.idx] = to_assign;
+                },
                 .load_instance_var => |instance_var_id| {
                     return self.report_TODO("Execution of instruction 'load_instance_var' (id is {d})", .{instance_var_id.idx});
                 },
@@ -426,6 +430,7 @@ pub const Interpreter = struct {
         self.stack.objects.len += 1;
     }
 
+    /// Asserts that the stack is not empty
     pub fn pop_object(self: *Self) VmObject {
         assert(self.stack.objects.len > 0);
         self.stack.objects.len -= 1;
