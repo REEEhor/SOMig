@@ -230,6 +230,12 @@ fn playground(allocator: std.mem.Allocator) !void {
         stdout,
     );
 
+    // Allocate stack
+    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 10);
+    defer allocator.free(frames);
+    const objects = try allocator.alloc(interpreter_module.VmObject, 100);
+    defer allocator.free(objects);
+
     // Setup interpreter
     const instruction_decoder = codegen.InstructionDecoder.new(bytecode);
     //
@@ -243,9 +249,9 @@ fn playground(allocator: std.mem.Allocator) !void {
         &statics,
         &source_code_files,
         primitive_methods_map,
+        objects,
+        frames,
     );
-    // //
-    // try interpreter.TODO_REMOVE_THIS__add_implementations_of_primitive_classes();
 
     // Run the program
     try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});

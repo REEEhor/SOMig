@@ -162,6 +162,14 @@ pub const FunctionBody = struct {
     span: ?TokenSpan,
     locals: ?TokenSpan,
     expressions: []const ExprId,
+
+    const Self = @This();
+    pub fn number_of_locals(self: Self) u32 {
+        if (self.locals) |locals| {
+            return locals.number_of_tokens();
+        }
+        return 0;
+    }
 };
 
 pub const FunctionBodyId = struct { idx: u32 };

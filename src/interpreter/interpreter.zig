@@ -54,13 +54,51 @@ pub const Statics = struct {
 pub const stack_size = 4096;
 
 // TODO: implement a GC so that we also deallocate stuff
-// TODO: consider making this heap take in just a `[]align(@alignOf(HeapData.Header))u8`.
+// TODO: consider making this heap take in just a `[]align(@alignOf(HeapData.Header))u8` instead of the allocator
 pub const Heap = struct {
     arena: std.heap.ArenaAllocator,
 
     const Self = @This();
     pub fn allocate(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
         return try allocate_heap_data(self.arena.allocator(), header);
+    }
+};
+
+pub const Stack = struct {
+    frames: []Frame,
+    objects: []VmObject,
+
+    max_frames_len: usize,
+    max_objects_len: usize,
+
+    const Self = @This();
+
+    pub const OverflowError = error{
+        frame_stack_overflow,
+        object_stack_overflow,
+    };
+
+    pub const Frame = struct {
+        /// Index into the array `objects`
+        base_idx: u32,
+        constants_base_id: ConstantId,
+
+        pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
+            return &objects[self.base_idx + offset];
+        }
+    };
+
+    pub fn init(allocated_frames: []Frame, allocated_objects: []VmObject) Self {
+        var frames = allocated_frames;
+        frames.len = 0;
+        var objects = allocated_objects;
+        objects.len = 0;
+        return Self{
+            .frames = frames,
+            .objects = objects,
+            .max_frames_len = allocated_frames.len,
+            .max_objects_len = allocated_objects.len,
+        };
     }
 };
 
@@ -80,8 +118,9 @@ pub const Interpreter = struct {
 
     source_code_files: *SourceCodeFiles,
 
-    stack_top: usize = 0,
-    stack: [4096]VmObject = undefined,
+    cached_nil_object: ?VmObject,
+
+    stack: Stack,
 
     // TODO: put this in the runtime frame stack (once that stack is actually implemented)
     current_class_constant_base_id: ConstantId,
@@ -91,7 +130,8 @@ pub const Interpreter = struct {
     pub const Error = error{
         primitive_type_error,
         method_not_found,
-        stack_overflow,
+        frame_stack_overflow,
+        object_stack_overflow,
         class_declared_multiple_times,
         division_by_zero,
         compilation_error,
@@ -107,6 +147,8 @@ pub const Interpreter = struct {
         statics: *Statics,
         source_code_files: *SourceCodeFiles,
         primitive_methods: PrimitiveMethodsMap,
+        preallocated_object_stack: []VmObject,
+        preallocated_frame_stack: []Stack.Frame,
     ) Interpreter {
         return Interpreter{
             .decoder = decoder,
@@ -119,6 +161,8 @@ pub const Interpreter = struct {
             .globals = .init(allocator_for_globals),
             .source_code_files = source_code_files,
             .primitive_class_definitions = .{},
+            .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
+            .cached_nil_object = null,
         };
     }
 
@@ -188,7 +232,7 @@ pub const Interpreter = struct {
                     //                            else try self.load_class(global_object_id);
                 },
                 .print => {
-                    const to_print: VmObject = self.pop_stack();
+                    const to_print: VmObject = self.pop_object();
                     // TODO: do this using the `println` message or `toString` or something
                     switch (to_print.data.kind()) {
                         .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
@@ -200,8 +244,8 @@ pub const Interpreter = struct {
                     }
                 },
                 .duplicate => {
-                    const object = self.get_stack_top();
-                    try self.push_stack(object);
+                    const object = self.stack_top_object();
+                    try self.push_object(object);
                 },
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.current_class_constant_base_id);
@@ -233,10 +277,13 @@ pub const Interpreter = struct {
                             break :blk result_object_data.as_vm_object();
                         },
                     };
-                    try self.push_stack(object);
+                    try self.push_object(object);
                 },
                 .send_message => |call_info| {
                     try self.send_message(call_info);
+                },
+                .normal_return => {
+                    self.pop_frame();
                 },
             }
         }
@@ -266,13 +313,93 @@ pub const Interpreter = struct {
         self.primitive_class_definitions.put(primitive_class_type, class_definition);
     }
 
+    pub fn push_frame(self: *Self, constants_base_id: ConstantId, self_object: VmObject, arguments_count_without_self: u16, locals_count: u16) Error!void {
+        if (self.stack.frames.len >= self.stack.max_frames_len) {
+            @branchHint(.cold);
+            self.report_runtime_error("Stack overflow (too many function frames)! :D", .{});
+            return Error.frame_stack_overflow;
+        }
+        const arguments_count = arguments_count_without_self +| 1;
+        if (self.stack.objects.len +| arguments_count +| locals_count > self.stack.max_objects_len) {
+            @branchHint(.cold);
+            self.report_runtime_error("Stack overflow (too many objects frames)! :D", .{});
+            return Error.object_stack_overflow;
+        }
+        // Grow the stack
+        const new_base_index: u32 = @intCast(self.stack.objects.len);
+        self.stack.frames.ptr[self.stack.frames.len] = Stack.Frame{
+            .constants_base_id = constants_base_id,
+            .base_idx = new_base_index,
+        };
+        self.stack.frames.len += 1;
+        self.stack.objects.len += arguments_count + locals_count;
+
+        // Initialize the objects in the newly allocated space
+        self.stack.objects[new_base_index] = self_object;
+
+        // TODO: consider not-initializing the objects here. Instead, the compiler could do an analysis of which variables get used before initialization and generate load nil instructions.
+        // Initialize the objects to `nil`
+        const nil_object: VmObject = try self.get_nil_singleton();
+        for ((new_base_index + 1)..self.stack.objects.len) |stack_idx| {
+            self.stack.objects[stack_idx] = nil_object;
+        }
+    }
+
+    /// Asserts that the stack is not empty
+    pub fn pop_frame(self: *Self) void {
+        assert(self.stack.frames.len > 0);
+        self.stack.frames.len -= 1;
+    }
+
+    /// Asserts that the stack is not empty
+    pub fn top_frame(self: *Self) *Stack.Frame {
+        return &self.frames[self.frames.len - 1];
+    }
+
+    /// Asserts that the stack is not empty
+    pub fn stack_top_object(self: Self) VmObject {
+        assert(self.stack.objects.len > 0);
+        return self.stack.objects[self.stack.objects.len - 1];
+    }
+
+    /// Asserts that the stack is not empty
+    pub fn current_self_object(self: *Self) VmObject {
+        return self.objects[self.top_frame().base_idx];
+    }
+
+    /// TODO: this will be simpler when we have NaN tagging
+    pub fn get_nil_singleton(self: *Self) Error!VmObject {
+        if (self.cached_nil_object) |nil| {
+            @branchHint(.likely);
+            return nil;
+        }
+        try self.ensure_primitive_class_is_loaded(.nil);
+        const header = HeapData.Header.new_undefined_with_tag(.nil);
+        var nil_object_data = try self.statics.allocate_for_static_object(header);
+        const nil_object = nil_object_data.as_vm_object();
+        self.cached_nil_object = nil_object;
+        return nil_object;
+    }
+
+    pub fn push_object(self: *Self, object: VmObject) Error!void {
+        if (self.stack.objects.len + 1 > self.stack.max_objects_len) {
+            @branchHint(.cold);
+            return Error.object_stack_overflow;
+        }
+        self.stack.objects.ptr[self.stack.objects.len] = object;
+        self.stack.objects.len += 1;
+    }
+
+    pub fn pop_object(self: *Self) VmObject {
+        assert(self.stack.objects.len > 0);
+        self.stack.objects.len -= 1;
+        return self.stack.objects.ptr[self.stack.objects.len];
+    }
+
     fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
-        const target_object: VmObject = self.pop_stack();
+        const target_object: VmObject = self.pop_object();
         const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const Method = class.get_method(call_info.message_name) orelse {
-            // TODO: also check the parent classes (multiple!) if the method exists or no
-            // TODO(consultation): (resolved with: do that) what about copying the implementation into the child classes from the parent classes
-            //  idea from Crafting interpreters:  https://craftinginterpreters.com/superclasses.html
             self.report_runtime_error(
                 "Tried to call the method `{s}` on an instance of a class `{s}`, but that does not exist.",
                 .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
@@ -282,12 +409,9 @@ pub const Interpreter = struct {
         };
 
         switch (method.body) {
-            .user_land => {
-                // TODO: handle `user_land` methods
-                return self.report_TODO(
-                    "Tried calling the method `{s}` which is defined in user land and we don't do user land methods yet :)",
-                    .{self.statics.symbols_manager.symbol_with_id(call_info.message_name)},
-                );
+            .user_land => |method_body_info| {
+                try self.push_frame(class.constants_base_id, target_object, method.number_of_aditional_args, method_body_info.number_of_locals);
+                self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
             },
             .primitive => |primitive_method| {
                 const result_object: VmObject = primitive_method(target_object, self) catch |err| {
@@ -298,7 +422,7 @@ pub const Interpreter = struct {
                     ) catch {};
                     return err;
                 };
-                try self.push_stack(result_object);
+                try self.push_object(result_object);
             },
         }
     }
@@ -323,29 +447,6 @@ pub const Interpreter = struct {
             .empty_heap_segment => unreachable,
             .nil => unreachable,
         };
-    }
-
-    inline fn get_stack_top(self: *Self) VmObject {
-        assert(self.stack_top > 0);
-        return self.stack[self.stack_top - 1];
-    }
-
-    inline fn pop_stack(self: *Self) VmObject {
-        const top_object: VmObject = self.get_stack_top();
-        self.stack_top -= 1;
-        return top_object;
-    }
-
-    inline fn push_stack(self: *Self, object: VmObject) Error!void {
-        // TODO(consultation): should the stack maybe grow here?
-        if (self.stack_top >= self.stack.len) {
-            @branchHint(.cold);
-            self.report_runtime_error("Stack overflow! :D", .{});
-            return Error.stack_overflow;
-        }
-
-        self.stack[self.stack_top] = object;
-        self.stack_top += 1;
     }
 
     fn report_info(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
@@ -387,6 +488,7 @@ pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, i
 pub const ClassDefinition = struct {
     class_name: SymbolId,
     instance_methods: MethodMap,
+    constants_base_id: ConstantId,
 
     // TODO: add instance variables
     // TODO: add !!optional!! pointer to parent class
@@ -563,7 +665,7 @@ pub const Method = struct {
 
 pub const MethodBody = union(enum) {
     primitive: PrimitiveMethodImplementation_,
-    user_land: struct { start_instruction: InstructionId },
+    user_land: struct { start_instruction: InstructionId, number_of_locals: u16 },
 };
 
 pub fn SmallPtr(comptime Ptr: type) type {
@@ -893,7 +995,7 @@ pub const primitives = struct {
         ) Interpreter.Error!VmObject {
             const lhs_int = (Accessor{}).get_value(target_object.data);
 
-            const rhs_object = interpreter.pop_stack();
+            const rhs_object = interpreter.pop_object();
             const rhs_int: i48 = switch (rhs_object.data.kind()) {
                 .integer => |accessor| accessor.get_value(rhs_object.data),
                 // TODO: check the size of the integer
@@ -1001,7 +1103,7 @@ pub const primitives = struct {
         ) Interpreter.Error!VmObject {
             const lhs_double = (Accessor{}).get_value(target_object.data);
 
-            const rhs_object = interpreter.pop_stack();
+            const rhs_object = interpreter.pop_object();
 
             // TODO: better error reporting
             const rhs_double: f64 = switch (rhs_object.data.kind()) {
@@ -1069,7 +1171,7 @@ pub const primitives = struct {
                 else => return Interpreter.Error.primitive_type_error,
             };
 
-            const rhs_obj = interpreter.pop_stack();
+            const rhs_obj = interpreter.pop_object();
             const rhs_string_obj = switch (rhs_obj.data.header.tag) {
                 .integer => try Integer.asString__somig_primitive_fn(rhs_obj, interpreter),
                 .double => try Double.asString__somig_primitive_fn(rhs_obj, interpreter),

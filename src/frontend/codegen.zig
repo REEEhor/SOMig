@@ -382,6 +382,8 @@ pub inline fn compile_class(
 ) !ClassDefinition {
     // TODO: class portion is ignored here, we assume only the instance portion for now
 
+    const constants_base_id = statics.constants_manager.new_base_id_for_class();
+
     var bytecode_generator = BytecodeGenerator{
         .allocator = statics.allocator,
         .symbols_manager = &statics.symbols_manager,
@@ -460,10 +462,20 @@ pub inline fn compile_class(
                     function_body,
                     method_ast.header,
                 );
+                const number_of_locals = function_body.number_of_locals();
+                if (number_of_locals > std.math.maxInt(u16)) {
+                    reporter.report_error(.{ .pos = ast.pos_of(function_body.locals.?) }, "Too many locals. Found {d} locals, maximum is {d}.", .{ number_of_locals, std.math.maxInt(u16) });
+                    return error.too_many_locals;
+                }
+                const number_of_aditional_args = method_ast.header.number_of_arguments_including_self() - 1;
+                if (number_of_aditional_args > std.math.maxInt(u16)) {
+                    reporter.report_error(.{ .pos = ast.pos_of(method_ast.header.span()) }, "Too many arguments. Found {d} arguments, maximum is {d}.", .{ number_of_aditional_args, std.math.maxInt(u16) });
+                    return error.too_many_arguments;
+                }
                 compiled_methods[method_idx] = Method{
                     .method_name = method_selector,
-                    .number_of_aditional_args = @intCast(method_ast.header.number_of_arguments_including_self() - 1),
-                    .body = MethodBody{ .user_land = .{ .start_instruction = start_instruction_id } },
+                    .number_of_aditional_args = @truncate(number_of_aditional_args),
+                    .body = MethodBody{ .user_land = .{ .start_instruction = start_instruction_id, .number_of_locals = @truncate(number_of_locals) } },
                 };
                 method_idx += 1;
             },
@@ -520,6 +532,7 @@ pub inline fn compile_class(
     return ClassDefinition{
         .class_name = class_name_symbol,
         .instance_methods = instance_methods,
+        .constants_base_id = constants_base_id,
     };
 }
 
@@ -801,6 +814,10 @@ pub const InstructionDecoder = struct {
         return !(self.next_idx < self.bytes.len);
     }
 
+    pub fn set_id_of_the_next_instruction(self: *Self, id: InstructionId) void {
+        self.next_idx = id.idx;
+    }
+
     pub fn id_of_next_instruction(self: Self) InstructionId {
         return InstructionId{ .idx = self.next_idx };
     }
@@ -846,6 +863,7 @@ pub const InstructionDecoder = struct {
             .no_op => break :sw .no_op,
             .duplicate => break :sw .duplicate,
             .halt => break :sw .halt,
+            .normal_return => break :sw .normal_return,
             .print => break :sw .print,
         };
     }
@@ -916,10 +934,13 @@ pub const InstructionEncoder = struct {
                 try self.write_integer(allocator, info.aditional_args_count);
                 try self.write_integer(allocator, info.message_name.idx);
             },
-            .no_op => {},
-            .duplicate => {},
-            .halt => {},
-            .print => {},
+            // NOTE(epic-zig): comptime assert
+            inline else => |payload, tag| {
+                if (@TypeOf(payload) != void) {
+                    const error_msg = std.fmt.comptimePrint("Missed instruction `{t}` which has non-void payload type `{s}`", .{ tag, @typeName(@TypeOf(payload)) });
+                    @compileError(error_msg); // Actually saved me a couple of times :D
+                }
+            },
         }
 
         // const bytes_added = self.bytes.items.len - start_len;
@@ -1059,6 +1080,8 @@ pub const Instruction = union(enum(u8)) {
     load_instance_var: InstanceVarId = 6,
 
     load_global: SymbolId = 7,
+
+    normal_return = 8,
 
     print, // TODO: remove this after development
 
