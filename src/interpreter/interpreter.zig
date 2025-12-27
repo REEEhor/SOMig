@@ -244,7 +244,10 @@ pub const Interpreter = struct {
     }
 
     pub fn ensure_primitive_class_is_loaded(self: *Self, primitive_class_type: PrimitiveClassType) Error!void {
-        if (self.primitive_class_definitions.contains(primitive_class_type)) return;
+        if (self.primitive_class_definitions.contains(primitive_class_type)) {
+            @branchHint(.likely);
+            return;
+        }
         const class_name: SymbolId = (try self.statics.symbols_manager.id_or_intern(primitive_class_type.as_string())).id;
         // TODO: here there is a high chance that the compiling invalidates `self.decoder`
         const class_definition = compile_class_with_its_parents(.{
@@ -871,6 +874,7 @@ pub const primitives = struct {
             };
             const length: i48 = @intCast(receiver_as_str.len);
 
+            try interpreter.ensure_primitive_class_is_loaded(.string);
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), length);
             const result_object_data: *HeapData = try interpreter.heap.allocate(header);
@@ -978,6 +982,7 @@ pub const primitives = struct {
             };
             const length: i48 = @intCast(receiver_as_str.len);
 
+            try interpreter.ensure_primitive_class_is_loaded(.string);
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), length);
             const result_object_data: *HeapData = try interpreter.heap.allocate(header);
@@ -1074,6 +1079,7 @@ pub const primitives = struct {
             const rhs_str = (Accessor{}).contents(rhs_string_obj.data);
             const total_length: i48 = @intCast(receiver_str.len + rhs_str.len);
 
+            try interpreter.ensure_primitive_class_is_loaded(.string);
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), total_length);
             const result_object_data: *HeapData = try interpreter.heap.allocate(header);
