@@ -103,24 +103,6 @@ fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 }
 
 fn playground(allocator: std.mem.Allocator) !void {
-    const code =
-        \\
-        \\  SomeClass = (
-        \\      run = (
-        \\          'Hello SOMig!'.
-        \\          42.
-        \\          5 + 3.
-        \\          1000.0 - 0.01.
-        \\          'I want ' + 98 + ' ice-creams.'.
-        \\          10.0 / 0.0.
-        \\          10 / 4.
-        \\          '\'5 + 3 * 2.0 + 3\' is ' + (5 + 3 * 2.0 + 3).
-        \\          4 asString + 2.
-        \\      )
-        \\  )
-        \\
-    ;
-
     const buffers_length = 0;
 
     // Setup stdout
@@ -128,21 +110,6 @@ fn playground(allocator: std.mem.Allocator) !void {
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var stdout: *std.io.Writer = &stdout_writer.interface;
     defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
-
-    // Setup the arena allocator for parsing
-    var parser_arena = std.heap.ArenaAllocator.init(allocator);
-    defer parser_arena.deinit();
-    const parser_allocator = parser_arena.allocator();
-
-    // Setup error reporter
-    var reporter = ErrorReporter{ .source = code, .source_path = "Playground-code", .use_color = true, .writer = stdout };
-
-    // Tokenize the source code
-    const tokenize_source_code = try lexer_module.tokenize(parser_allocator, code, &reporter);
-
-    // Parse the source code
-    var parser = Parser.create(tokenize_source_code, &reporter, parser_allocator);
-    var parsed_file = try parser.parse();
 
     // Setup static fields
     var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
@@ -169,6 +136,29 @@ fn playground(allocator: std.mem.Allocator) !void {
     //
     var source_code_files = codegen.SourceCodeFiles{ .cached_source_files = codegen.SourceCodeFiles.Map.empty };
     defer source_code_files.cached_source_files.deinit(allocator);
+
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Main")).id,
+        \\  Main = (
+        \\      run = (
+        \\          'Hello SOMig!'.
+        \\          42.
+        \\          5 + 3.
+        \\          1000.0 - 0.01.
+        \\          'I want ' + 98 + ' ice-creams.'.
+        \\          10.0 / 0.0.
+        \\          10 / 4.
+        \\
+        \\          self some_other_method.
+        \\
+        \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
+        \\          4 asString + 2.
+        \\      )
+        \\
+        \\      some_other_method = (
+        \\          'Hello from another method!'
+        \\      )
+        \\  )
+    );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Integer")).id,
         \\ Integer = (
         \\      + _ = primitive
@@ -196,39 +186,19 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,
         \\ Object = nil ( )
     );
-
-    // Setup bytecode generator
-    var scope_stack = try codegen.ScopeStack.init(parser_allocator, 0, 0);
-    //
-    var bytecode_generator = codegen.BytecodeGenerator{
-        .allocator = statics.allocator,
-        .builder = &statics.instruction_encoder,
-        .reporter = &reporter,
-        .constants_manager = &statics.constants_manager,
-        .symbols_manager = &statics.symbols_manager,
-    };
-
-    // Compile to bytecode
-    const compiled_method = parsed_file.class_ast.instance_portion.methods[0];
-    //
-    const start_instruction_id = try bytecode_generator.compile_method(
-        &parsed_file,
-        &scope_stack,
-        compiled_method.span,
-        compiled_method.body.impl,
-        compiled_method.header,
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Nil")).id,
+        \\ Nil = ( )
     );
-    const bytecode: codegen.Bytecode = bytecode_generator.builder.view_bytecode();
 
-    // Print bytecode
-    try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
-    try codegen.print_bytecode(
-        &statics.symbols_manager,
-        &statics.constants_manager,
-        statics.constants_manager.current_base_id,
-        bytecode,
-        stdout,
-    );
+    // // Print bytecode
+    // try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
+    // try codegen.print_bytecode(
+    //     &statics.symbols_manager,
+    //     &statics.constants_manager,
+    //     statics.constants_manager.current_base_id,
+    //     bytecode,
+    //     stdout,
+    // );
 
     // Allocate stack
     const frames = try allocator.alloc(interpreter_module.Stack.Frame, 10);
@@ -237,13 +207,10 @@ fn playground(allocator: std.mem.Allocator) !void {
     defer allocator.free(objects);
 
     // Setup interpreter
-    const instruction_decoder = codegen.InstructionDecoder.new(bytecode);
-    //
     var interpreter = Interpreter.new(
         // TODO: use a different allocator for heap, globals
         interpreter_allocator,
         interpreter_allocator,
-        instruction_decoder,
         stdout,
         stdout,
         &statics,
@@ -252,6 +219,18 @@ fn playground(allocator: std.mem.Allocator) !void {
         objects,
         frames,
     );
+
+    const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
+    const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
+
+    var header = interpreter_module.HeapData.Header.new_undefined_with_tag(.generic_object);
+    (interpreter_module.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), 0);
+    const main_object_data = try interpreter.statics.allocate_for_static_object(header);
+    (interpreter_module.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
+    const main_object = main_object_data.as_vm_object();
+
+    try interpreter.push_frame(main_class.constants_base_id, main_object, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack!!!
+    interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
 
     // Run the program
     try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});

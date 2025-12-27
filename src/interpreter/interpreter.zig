@@ -82,6 +82,7 @@ pub const Stack = struct {
         /// Index into the array `objects`
         base_idx: u32,
         constants_base_id: ConstantId,
+        after_return_instruction_id: InstructionId,
 
         pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
             return &objects[self.base_idx + offset];
@@ -99,6 +100,16 @@ pub const Stack = struct {
             .max_frames_len = allocated_frames.len,
             .max_objects_len = allocated_objects.len,
         };
+    }
+
+    /// Asserts that the stack is not empty
+    pub fn top_frame(self: *Self) *Frame {
+        assert(self.frames.len > 0);
+        return &self.frames[self.frames.len - 1];
+    }
+
+    pub inline fn frames_count(self: *Self) usize {
+        return self.frames.len;
     }
 };
 
@@ -141,7 +152,6 @@ pub const Interpreter = struct {
     pub fn new(
         allocator_for_heap: Allocator,
         allocator_for_globals: Allocator,
-        decoder: InstructionDecoder,
         stdout: *Writer,
         stderr: *Writer,
         statics: *Statics,
@@ -151,7 +161,7 @@ pub const Interpreter = struct {
         preallocated_frame_stack: []Stack.Frame,
     ) Interpreter {
         return Interpreter{
-            .decoder = decoder,
+            .decoder = InstructionDecoder.empty,
             .stdout = stdout,
             .stderr = stderr,
             .statics = statics,
@@ -220,7 +230,8 @@ pub const Interpreter = struct {
                     return;
                 },
                 .load_local => |local_id| {
-                    return self.report_TODO("Execution of instruction 'load_local' (id is {d})", .{local_id.idx});
+                    const object: VmObject = self.stack.objects[self.top_frame().base_idx + local_id.idx];
+                    try self.push_object(object);
                 },
                 .load_instance_var => |instance_var_id| {
                     return self.report_TODO("Execution of instruction 'load_instance_var' (id is {d})", .{instance_var_id.idx});
@@ -238,6 +249,14 @@ pub const Interpreter = struct {
                         .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
                         .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
                         .string => |accessor| try self.stdout.print("{s}\n", .{accessor.contents(to_print.data)}),
+                        .generic_object => |accessor| {
+                            const class_name: SymbolId = accessor.get_class_definition(to_print.data).class_name;
+                            const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
+                            try self.stdout.print("An instance of class: '{s}'\n", .{class_name_string});
+                        },
+                        .nil => {
+                            try self.stdout.print("nil\n", .{});
+                        },
                         else => {
                             return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{to_print.data.header.tag});
                         },
@@ -283,6 +302,8 @@ pub const Interpreter = struct {
                     try self.send_message(call_info);
                 },
                 .normal_return => {
+                    const next_instruction = self.top_frame().after_return_instruction_id;
+                    self.decoder.set_id_of_the_next_instruction(next_instruction);
                     self.pop_frame();
                 },
             }
@@ -297,15 +318,7 @@ pub const Interpreter = struct {
         }
         const class_name: SymbolId = (try self.statics.symbols_manager.id_or_intern(primitive_class_type.as_string())).id;
         // TODO: here there is a high chance that the compiling invalidates `self.decoder`
-        const class_definition = compile_class_with_its_parents(.{
-            .bottom_class_name = class_name,
-            .error_writer = self.stderr,
-            .globals = &self.globals,
-            .primitive_methods_map = self.primitive_methods,
-            .source_code_files = self.source_code_files,
-            .statics = self.statics,
-            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
-        }) catch |err| {
+        const class_definition = self.load_class(class_name) catch |err| {
             self.report_runtime_error("Got error '{t}' while compiling a primitive class \"{s}\".", .{ err, primitive_class_type.as_string() });
             return Error.compilation_error;
         };
@@ -313,7 +326,29 @@ pub const Interpreter = struct {
         self.primitive_class_definitions.put(primitive_class_type, class_definition);
     }
 
-    pub fn push_frame(self: *Self, constants_base_id: ConstantId, self_object: VmObject, arguments_count_without_self: u16, locals_count: u16) Error!void {
+    pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
+        const class_definition = try compile_class_with_its_parents(.{
+            .bottom_class_name = class_name,
+            .error_writer = self.stderr,
+            .globals = &self.globals,
+            .primitive_methods_map = self.primitive_methods,
+            .source_code_files = self.source_code_files,
+            .statics = self.statics,
+            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+        });
+        // The bytecode array might have gotten reallocated during the compilation
+        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
+        return class_definition;
+    }
+
+    pub fn push_frame(
+        self: *Self,
+        constants_base_id: ConstantId,
+        self_object: VmObject,
+        arguments_count_without_self: u16,
+        locals_count: u16,
+        after_return_instruction_id: InstructionId,
+    ) Error!void {
         if (self.stack.frames.len >= self.stack.max_frames_len) {
             @branchHint(.cold);
             self.report_runtime_error("Stack overflow (too many function frames)! :D", .{});
@@ -330,6 +365,7 @@ pub const Interpreter = struct {
         self.stack.frames.ptr[self.stack.frames.len] = Stack.Frame{
             .constants_base_id = constants_base_id,
             .base_idx = new_base_index,
+            .after_return_instruction_id = after_return_instruction_id,
         };
         self.stack.frames.len += 1;
         self.stack.objects.len += arguments_count + locals_count;
@@ -347,13 +383,13 @@ pub const Interpreter = struct {
 
     /// Asserts that the stack is not empty
     pub fn pop_frame(self: *Self) void {
-        assert(self.stack.frames.len > 0);
+        assert(self.stack.frames_count() > 0);
         self.stack.frames.len -= 1;
     }
 
     /// Asserts that the stack is not empty
     pub fn top_frame(self: *Self) *Stack.Frame {
-        return &self.frames[self.frames.len - 1];
+        return self.stack.top_frame();
     }
 
     /// Asserts that the stack is not empty
@@ -410,7 +446,13 @@ pub const Interpreter = struct {
 
         switch (method.body) {
             .user_land => |method_body_info| {
-                try self.push_frame(class.constants_base_id, target_object, method.number_of_aditional_args, method_body_info.number_of_locals);
+                try self.push_frame(
+                    class.constants_base_id,
+                    target_object,
+                    method.number_of_aditional_args,
+                    method_body_info.number_of_locals,
+                    self.decoder.id_of_next_instruction(),
+                );
                 self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
             },
             .primitive => |primitive_method| {
@@ -438,14 +480,15 @@ pub const Interpreter = struct {
 
     fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
         // TODO: if the class is not found, the interpreter should go and find the class definition
-        return switch (object.data.header.tag) {
+        return switch (object.data.kind()) {
             .integer => self.primitive_class_definitions.getAssertContains(.integer),
             .double => self.primitive_class_definitions.getAssertContains(.double),
             .string => self.primitive_class_definitions.getAssertContains(.string),
             .class => self.primitive_class_definitions.getAssertContains(.class),
-            .object => unreachable,
+            .nil => self.primitive_class_definitions.getAssertContains(.nil),
+
+            .generic_object => |accessor| accessor.get_class_definition(object.data),
             .empty_heap_segment => unreachable,
-            .nil => unreachable,
         };
     }
 
@@ -748,7 +791,7 @@ pub const HeapData = struct {
                 .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .class => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .nil => 0,
-                .object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
+                .generic_object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .empty_heap_segment => |accessor| accessor.get_bytes_count_after_header(),
             };
         }
@@ -763,7 +806,7 @@ pub const HeapData = struct {
             class: primitives.Class.Accessor,
             // TODO: rest of the primitives
 
-            object: GenericObjectAccessor,
+            generic_object: GenericObjectAccessor,
             empty_heap_segment: EmptyHeapSegmentAccessor,
 
             pub inline fn tag(self: Kind) Tag {

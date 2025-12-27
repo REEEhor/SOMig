@@ -141,15 +141,15 @@ pub const ScopeStack = struct {
     pub fn get_idx_of(self: Self, identifier: SymbolId) VariableId {
         var scope_idx: i32 = @intCast(self.scopes.items.len - 1);
         while (scope_idx >= 0) : (scope_idx -= 1) {
-            if (self.scopes.items[scope_idx].get(identifier)) |variable| {
+            if (self.scopes.items[@intCast(scope_idx)].get(identifier)) |variable| {
                 if (scope_idx == 0) {
-                    return VariableId{ .instance = variable.idx };
+                    return VariableId{ .instance = .{ .idx = variable.idx } };
                 } else {
-                    return VariableId{ .local_or_method_argument = variable.idx };
+                    return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
                 }
             }
         }
-        return VariableId{.global};
+        return VariableId.global;
     }
 
     pub fn init(allocator: Allocator, init_stack_capacity: usize, init_all_entries_capacity: usize) Allocator.Error!Self {
@@ -281,6 +281,9 @@ pub fn compile_class_with_its_parents(
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
 
+    // This method is expected to be called only when we cannot resolve a global symbol (presumably a class name)
+    assert(!globals.contains(bottom_class_name));
+
     // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
@@ -348,12 +351,7 @@ pub fn compile_class_with_its_parents(
         // We assert that there was no such global before.
         // This should hold, otherwise we would have looked up the
         // class previously when we were figuring out the class hiearchy above.
-        const previous_entry = try globals.fetchPut(compiled_class.class_name, class_as_som_object);
-        const compiling_bottom_class = iter.index == 0;
-        const global_existed_before = previous_entry != null;
-        if (global_existed_before and !compiling_bottom_class) {
-            std.debug.panic("We should not be able to encounter a class the second time here.\n", .{});
-        }
+        try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
 
         // TODO: when the field is added to the `ClassDefinition, do:`
         //          compiled_class.as_vm_object = class_som_object;
@@ -371,7 +369,7 @@ pub fn compile_class_with_its_parents(
     return compiled_root_class;
 }
 
-pub inline fn compile_class(
+pub fn compile_class(
     ast: ParsedFile,
     class_name_symbol: SymbolId,
     compiled_parent: ?*ClassDefinition,
@@ -656,7 +654,8 @@ pub const BytecodeGenerator = struct {
             try self.compile_expression(expr_id);
             try self.add_instruction(.print);
         }
-        try self.add_instruction(.halt);
+        // TODO: maybe don't do this if we have already emitted a return?
+        try self.add_instruction(.normal_return);
 
         return start_instruction_id;
     }
@@ -716,6 +715,20 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(Instruction{
                     .send_message = .{ .message_name = message, .aditional_args_count = 1 },
                 });
+            },
+            .variable => |identifier_token| {
+                const identifier_symbol: SymbolId = (try self.symbols_manager.id_or_intern(self.ast.text_at(identifier_token))).id;
+                const self_symbol: SymbolId = (try self.symbols_manager.id_or_intern("self")).id;
+                if (identifier_symbol.idx == self_symbol.idx) {
+                    try self.add_instruction(.{ .load_local = .{ .idx = 0 } });
+                    return;
+                }
+                const load_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
+                    .instance => |instance_var_id| .{ .load_instance_var = instance_var_id },
+                    .local_or_method_argument => |local_var_id| .{ .load_local = local_var_id },
+                    .global => .{ .load_global = identifier_symbol },
+                };
+                try self.add_instruction(load_instr);
             },
             else => |todo_expr| {
                 self.reporter.report_error(
@@ -802,6 +815,8 @@ pub const InstructionDecoder = struct {
 
     bytes: []const u8,
     next_idx: usize,
+
+    pub const empty = Self{ .bytes = &[_]u8{}, .next_idx = 0 };
 
     pub fn new(bytecode: Bytecode) Self {
         return InstructionDecoder{
