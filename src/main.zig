@@ -149,6 +149,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          10 / 4.
         \\
         \\          self some_other_method.
+        \\          1.
+        \\          self get_message.
         \\
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          4 asString + 2.
@@ -159,6 +161,12 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          some_variable := 'ahoj'.
         \\          'Hello from another method!'
         \\      )
+        \\
+        \\      get_message = (
+        \\          'Currently inside the `get_message` function'.
+        \\          ^ 'This is a message from a function'.
+        \\      )
+        \\
         \\  )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Integer")).id,

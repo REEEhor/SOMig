@@ -667,7 +667,7 @@ pub const BytecodeGenerator = struct {
         //                     NOTE: We probably want to store the actual values in the end.
         const constant_id = try self.constants_manager.add_constant(Constant.nil);
         try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
-        try self.add_instruction(.{ .set_local = .{ .idx = 0 } });
+        try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
         // TODO: maybe pop instruction here after `set_local`?? ^^^
         // Resolution: I don't think it's needed, since the stack gets popped after `normal_return` has been run.
 
@@ -772,6 +772,12 @@ pub const BytecodeGenerator = struct {
                     },
                 };
                 try self.add_instruction(set_instr);
+            },
+            .exit_expression => |exit_expr| {
+                try self.compile_expression(exit_expr.return_value);
+                // TODO: here we will probably have to check, whether we are in an escaped block or not
+                try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
+                try self.add_instruction(.normal_return);
             },
             else => |todo_expr| {
                 self.reporter.report_error(
@@ -1181,7 +1187,11 @@ pub const Instruction = union(enum(u8)) {
     ///
     /// To access the `method_argument[1]`, you would need `LocalId{.idx = 1}`.
     /// To access the `local_variable[0]`, you would need `LocalId{.idx = 4}` (4 = <number-of-arguments> + <index-of-local>)
-    pub const LocalVarId = struct { idx: u32 };
+    pub const LocalVarId = struct {
+        idx: u32,
+        pub const self_object = LocalVarId{ .idx = 0 };
+        pub const return_object = LocalVarId{ .idx = 0 };
+    };
 
     pub const InstanceVarId = struct { idx: u32 };
 
