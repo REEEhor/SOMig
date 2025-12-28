@@ -155,6 +155,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      )
         \\
         \\      some_other_method = (
+        \\          |some_variable|
+        \\          some_variable := 'ahoj'.
         \\          'Hello from another method!'
         \\      )
         \\  )

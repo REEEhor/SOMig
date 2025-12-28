@@ -27,6 +27,8 @@ const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
 
+const DO_DEBUG_TRACE: bool = false;
+
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
     /// Allocator used for all fields in this struct.
@@ -223,6 +225,10 @@ pub const Interpreter = struct {
                 try self.report_info("The end of the bytecode has been reached.", .{});
                 return;
             };
+            if (DO_DEBUG_TRACE) {
+                const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id, .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
+                std.debug.print("[debug] Currently executing: {f}", .{formatter.fmt(instruction)});
+            }
             switch (instruction) {
                 .no_op => {},
                 .halt => {
@@ -234,7 +240,7 @@ pub const Interpreter = struct {
                     try self.push_object(object);
                 },
                 .set_local => |local_to_set_id| {
-                    const to_assign: VmObject = self.pop_object();
+                    const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
                     self.stack.objects[self.top_frame().base_idx + local_to_set_id.idx] = to_assign;
                 },
                 .load_instance_var => |instance_var_id| {
@@ -249,22 +255,7 @@ pub const Interpreter = struct {
                 .print => {
                     const to_print: VmObject = self.pop_object();
                     // TODO: do this using the `println` message or `toString` or something
-                    switch (to_print.data.kind()) {
-                        .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
-                        .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(to_print.data)}),
-                        .string => |accessor| try self.stdout.print("{s}\n", .{accessor.contents(to_print.data)}),
-                        .generic_object => |accessor| {
-                            const class_name: SymbolId = accessor.get_class_definition(to_print.data).class_name;
-                            const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                            try self.stdout.print("An instance of class: '{s}'\n", .{class_name_string});
-                        },
-                        .nil => {
-                            try self.stdout.print("nil\n", .{});
-                        },
-                        else => {
-                            return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{to_print.data.header.tag});
-                        },
-                    }
+                    try self.print_object(to_print);
                 },
                 .duplicate => {
                     const object = self.stack_top_object();
@@ -315,8 +306,73 @@ pub const Interpreter = struct {
                     self.pop_frame();
                 },
             }
+            if (DO_DEBUG_TRACE) {
+                try self.debug_print_stack();
+            }
         }
         unreachable;
+    }
+
+    pub fn print_object(self: *Self, object: VmObject) Error!void {
+        switch (object.data.kind()) {
+            .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
+            .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
+            .string => |accessor| try self.stdout.print("{s}\n", .{accessor.contents(object.data)}),
+            .generic_object => |accessor| {
+                const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
+                const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
+                try self.stdout.print("An instance of class: '{s}'\n", .{class_name_string});
+            },
+            .nil => {
+                try self.stdout.print("nil\n", .{});
+            },
+            else => {
+                return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{object.data.header.tag});
+            },
+        }
+    }
+
+    pub fn debug_print_stack(self: *Self) Error!void {
+        std.debug.print("State of the stack:\n", .{});
+        if (self.stack.frames_count() == 0) {
+            std.debug.print("  (empty stack)", .{});
+            if (self.stack.objects.len == 0) {
+                std.debug.print(" (no objects)\n", .{});
+            } else {
+                std.debug.print(" Objects: \n", .{});
+                for (self.stack.objects, 0..) |obj, idx| {
+                    std.debug.print(" - stack[{d:02}] = ", .{idx});
+                    try self.print_object(obj);
+                }
+            }
+            return;
+        }
+
+        var object_idx: usize = 0;
+        var next_frame_idx: usize = 1;
+        while (next_frame_idx <= self.stack.frames_count()) : (next_frame_idx += 1) {
+            const current_frame: Stack.Frame = self.stack.frames[next_frame_idx - 1];
+            std.debug.print("Frame number {d:02}: \n - base_idx: {d}\n - constant_base_id: {d}\n - return_instr_id:{d}\n", .{
+                next_frame_idx - 1,
+                current_frame.base_idx,
+                current_frame.constants_base_id.idx,
+                current_frame.after_return_instruction_id.idx,
+            });
+            std.debug.print(" - Objects: \n", .{});
+
+            const sentinel_object_idx: usize = blk: {
+                if (next_frame_idx >= self.stack.frames_count()) {
+                    break :blk self.stack.objects.len;
+                } else {
+                    break :blk self.stack.frames[next_frame_idx].base_idx;
+                }
+            };
+            while (object_idx < sentinel_object_idx) : (object_idx += 1) {
+                std.debug.print("    - stack[{d:02}] = ", .{object_idx});
+                const obj = self.stack.objects[object_idx];
+                try self.print_object(obj);
+            }
+        }
     }
 
     pub fn ensure_primitive_class_is_loaded(self: *Self, primitive_class_type: PrimitiveClassType) Error!void {
@@ -392,6 +448,8 @@ pub const Interpreter = struct {
     /// Asserts that the stack is not empty
     pub fn pop_frame(self: *Self) void {
         assert(self.stack.frames_count() > 0);
+        // We need to not pop the top object, since it is the return value of the function
+        self.stack.objects.len = self.top_frame().base_idx + 1;
         self.stack.frames.len -= 1;
     }
 

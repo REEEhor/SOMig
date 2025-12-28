@@ -596,6 +596,8 @@ pub const BytecodeGenerator = struct {
     /// Invalid between calls to `compile_method`.
     scope_stack: *ScopeStack = undefined,
 
+    last_instruction: ?Instruction = null,
+
     pub fn compile_method(
         self: *Self,
         ast: *const ParsedFile,
@@ -652,7 +654,11 @@ pub const BytecodeGenerator = struct {
 
         // Compile the expressions
         for (body.expressions) |expr_id| {
+            // TODO: once we remove `.print` replace it with removal of the last bytecode instruction
             try self.compile_expression(expr_id);
+            if (self.last_instruction.?.is_load_instruction()) {
+                // TODO: remove the instruction here (or use pop instruction)
+            }
             try self.add_instruction(.print);
         }
         // TODO: maybe don't do default `nil` return if we have already emitted a return?
@@ -662,6 +668,9 @@ pub const BytecodeGenerator = struct {
         const constant_id = try self.constants_manager.add_constant(Constant.nil);
         try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
         try self.add_instruction(.{ .set_local = .{ .idx = 0 } });
+        // TODO: maybe pop instruction here after `set_local`?? ^^^
+        // Resolution: I don't think it's needed, since the stack gets popped after `normal_return` has been run.
+
         try self.add_instruction(.normal_return);
 
         return start_instruction_id;
@@ -675,6 +684,7 @@ pub const BytecodeGenerator = struct {
 
     fn add_instruction(self: *Self, instruction: Instruction) !void {
         _ = try self.builder.add_instruction(self.allocator, instruction);
+        self.last_instruction = instruction;
     }
 
     fn compile_expression(self: *Self, expr_id: Ast.ExprId) !void {
@@ -724,7 +734,7 @@ pub const BytecodeGenerator = struct {
                 });
             },
             .variable => |identifier_token| {
-                const identifier_symbol: SymbolId = (try self.symbols_manager.id_or_intern(self.ast.text_at(identifier_token))).id;
+                const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
                 const self_symbol: SymbolId = (try self.symbols_manager.id_or_intern("self")).id;
                 if (identifier_symbol.idx == self_symbol.idx) {
                     try self.add_instruction(.{ .load_local = .{ .idx = 0 } });
@@ -736,6 +746,32 @@ pub const BytecodeGenerator = struct {
                     .global => .{ .load_global = identifier_symbol },
                 };
                 try self.add_instruction(load_instr);
+            },
+            .assignment => |info| {
+                // TODO: try chained assignment, maybe this does not work???
+                try self.compile_expression(info.target_value);
+                const idenditifer_text = self.ast.text_at(info.variable);
+                const identifier_symbol: SymbolId = try self.symbol_from_token(info.variable);
+                const set_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
+                    .instance => {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(info.variable) },
+                            "TODO: Cannot yet compile setting of an instance variable, therefore could not set the instance variable named '{s}'.",
+                            .{idenditifer_text},
+                        );
+                        return error.TODO;
+                    },
+                    .local_or_method_argument => |local_var_id| .{ .set_local = local_var_id },
+                    .global => {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(info.variable) },
+                            "TODO: Cannot yet compile setting of a global variable, therefore could not set the global variable named '{s}'.",
+                            .{idenditifer_text},
+                        );
+                        return error.TODO;
+                    },
+                };
+                try self.add_instruction(set_instr);
             },
             else => |todo_expr| {
                 self.reporter.report_error(
@@ -1033,6 +1069,9 @@ pub const InstructionFormatter = struct {
                 .load_local => |local_id| {
                     try writer.print(" id({d})\n", .{local_id.idx});
                 },
+                .set_local => |local_id| {
+                    try writer.print(" id({d})\n", .{local_id.idx});
+                },
                 .load_instance_var => |instance_var_id| {
                     try writer.print(" id({d})\n", .{instance_var_id.idx});
                 },
@@ -1063,6 +1102,9 @@ pub const InstructionFormatter = struct {
                 },
                 .string => |value| {
                     try writer.print("string({s})", .{value});
+                },
+                .nil => {
+                    try writer.print("nil", .{});
                 },
             }
         }
@@ -1112,7 +1154,8 @@ pub const Instruction = union(enum(u8)) {
 
     normal_return = 8,
 
-    /// Pops a value from the stack and assigns its value into a local variable
+    /// TODO: maybe fix this? doesn't pop
+    /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable
     set_local: LocalVarId = 9,
 
     print, // TODO: remove this after development
@@ -1157,6 +1200,23 @@ pub const Instruction = union(enum(u8)) {
     const Tag = std.meta.Tag(Instruction);
     pub fn tag(self: Self) Tag {
         return std.meta.activeTag(self);
+    }
+
+    /// Whether the modifies the runtime stack in a way that pushes a single value onto it.
+    pub fn is_load_instruction(self: Self) bool {
+        return switch (self) {
+            .no_op => false,
+            .load_constant => true,
+            .send_message => false,
+            .duplicate => true,
+            .halt => false,
+            .load_local => true,
+            .load_instance_var => true,
+            .load_global => true,
+            .normal_return => false,
+            .set_local => false,
+            .print => false,
+        };
     }
 
     pub fn payload_byte_size(self: Self) u8 {
