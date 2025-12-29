@@ -6,6 +6,8 @@ const debug_module = @import("../debug/debug.zig");
 const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
 const dbgx = debug_module.dbgx;
+const dbg_assert_eql = debug_module.dbg_assert_eql;
+const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
 const interning_module = @import("../interning/symbols_manager.zig");
 const SymbolsManager = interning_module.SymbolsManager;
@@ -337,26 +339,16 @@ pub fn compile_class_with_its_parents(
             .use_color = true,
             .writer = error_writer,
         };
-        const compiled_class: *ClassDefinition = blk: {
-            const ptr = try statics.all_classes.addOne(statics.allocator);
-            ptr.* = try compile_class(class_to_compile.ast, class_to_compile.name, current_parent, temporary_allocator, statics, &reporter, primitive_methods_map);
-            break :blk ptr;
-        };
-
-        // Create a new global object which represents the newly compiled class
-        var header = HeapData.Header.new_undefined_with_tag(.class);
-        (primitives.Class.Accessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
-        const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-        (primitives.Class.Accessor{}).set_class_definition(heap_data, compiled_class);
-        const class_as_som_object = heap_data.as_vm_object();
-        // We assert that there was no such global before.
-        // This should hold, otherwise we would have looked up the
-        // class previously when we were figuring out the class hiearchy above.
-        try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
-
-        // TODO: when the field is added to the `ClassDefinition, do:`
-        //          compiled_class.as_vm_object = class_som_object;
-
+        const compiled_class = try compile_class(
+            class_to_compile.ast,
+            class_to_compile.name,
+            current_parent,
+            temporary_allocator,
+            statics,
+            &reporter,
+            primitive_methods_map,
+            globals,
+        );
         current_parent = compiled_class;
     }
 
@@ -378,7 +370,8 @@ pub fn compile_class(
     statics: *Statics,
     reporter: *ErrorReporter,
     primitive_methods_map: PrimitiveMethodsMap,
-) !ClassDefinition {
+    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+) !*ClassDefinition {
     // TODO: class portion is ignored here, we assume only the instance portion for now
 
     const constants_base_id = statics.constants_manager.new_base_id_for_class();
@@ -528,11 +521,33 @@ pub fn compile_class(
         );
         break :blk combined_methods;
     };
-    return ClassDefinition{
-        .class_name = class_name_symbol,
-        .instance_methods = instance_methods,
-        .constants_base_id = constants_base_id,
+
+    // Add the class to the list of all classes
+    const compiled_class: *ClassDefinition = blk: {
+        const ptr = try statics.all_classes.addOne(statics.allocator);
+        ptr.* = ClassDefinition{
+            .class_name = class_name_symbol,
+            .instance_methods = instance_methods,
+            .constants_base_id = constants_base_id,
+            .as_vm_object = undefined,
+        };
+        break :blk ptr;
     };
+
+    // Create a new global object which represents the newly compiled class
+    var header = HeapData.Header.new_undefined_with_tag(.class);
+    (primitives.Class.Accessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
+    const heap_data: *HeapData = try statics.allocate_for_static_object(header);
+    (primitives.Class.Accessor{}).set_class_definition(heap_data, compiled_class);
+    const class_as_som_object: VmObject = heap_data.as_vm_object();
+    // We assert that there was no such global before.
+    // This should hold, otherwise we would have looked up the
+    // class previously when we were figuring out the class hiearchy above.
+    try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
+
+    compiled_class.as_vm_object = class_as_som_object;
+
+    return compiled_class;
 }
 
 pub fn get_selector_symbol(
@@ -1198,6 +1213,7 @@ pub const Instruction = union(enum(u8)) {
     pub const SendMessage = struct {
         message_name: SymbolId,
 
+        // TODO: remove this, I don't think this field is needed
         /// Number of arguments to pop from stack
         /// (excluding the first argument which is the message target object).
         ///

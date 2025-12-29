@@ -599,10 +599,10 @@ pub const ClassDefinition = struct {
     class_name: SymbolId,
     instance_methods: MethodMap,
     constants_base_id: ConstantId,
+    as_vm_object: VmObject,
 
     // TODO: add instance variables
     // TODO: add !!optional!! pointer to parent class
-    // TODO: add pointer to the singleton SOM object of class `Class`
 
     const Self = @This();
     pub const MethodMap = SymbolArrayMap(Method, "method_name");
@@ -1000,13 +1000,43 @@ pub const PrimitiveClassType = enum {
 };
 
 pub const primitives = struct {
+    pub const Object = struct {
+        pub const class__somig_arity = 1;
+        pub fn class__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const class_definition = interpreter.get_class_of(target_object);
+            return class_definition.as_vm_object;
+        }
+    };
+
     pub const Class = struct {
+        /// TODO(consultation): read the TODO below this one and ask if it is correct or not
+        /// TODO: This is probably not exactly correct according to the SOM class hiearchy (with Metaclasses and such), so consider chaning it later.
+        ///
         /// Same as a generic object, but `*ClassDefinition` which can be accessed
         /// does not point to the primitive class `Class` but to the `ClassDefinition`
         /// which is represented by the SOM runtime object.
         ///
-        /// TODO: This is probably not exactly correct according to the SOM class hiearchy (with Metaclasses and such), so change it later.
         pub const Accessor = GenericObjectAccessor;
+
+        pub const name__somig_arity = 1;
+        pub fn name__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
+                .class => |accessor| accessor.get_class_definition(target_object.data),
+                // TODO: proper error reporting
+                else => return Interpreter.Error.primitive_type_error,
+            };
+            const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
+
+            // TODO(str): consider making a proper interpreter method for this *already*
+            try interpreter.ensure_primitive_class_is_loaded(.string);
+            var header = HeapData.Header.new_undefined_with_tag(.string);
+            (String.Accessor{}).set_length(header.as_heap_data(), @intCast(name_as_u8_slice.len));
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
+            @memcpy((String.Accessor{}).contents(result_object_data), name_as_u8_slice);
+
+            const name_as_string_object = result_object_data.as_vm_object();
+            return name_as_string_object;
+        }
     };
 
     pub const Integer = struct {
