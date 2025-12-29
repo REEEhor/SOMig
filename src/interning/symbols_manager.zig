@@ -26,7 +26,7 @@ const dbgx = debug_module.dbgx;
 /// and SOM string objects are managed elsewhere.
 /// In a similiar way as other virtual machine objects are.
 ///
-pub const SymbolId = struct {
+pub const SymbolId = packed struct {
     ///
     /// Index into an array of symbols in `SymbolsManager`.
     ///
