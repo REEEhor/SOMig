@@ -221,19 +221,23 @@ pub const Interpreter = struct {
     // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) Error!void {
         while (true) {
+            const instr_id = self.decoder.id_of_next_instruction();
             const instruction: Instruction = self.decoder.next_instruction() orelse {
                 try self.report_info("The end of the bytecode has been reached.", .{});
                 return;
             };
             if (DO_DEBUG_TRACE) {
                 const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id, .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
-                std.debug.print("[debug] Currently executing: {f}", .{formatter.fmt(instruction)});
+                std.debug.print("[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             switch (instruction) {
                 .no_op => {},
                 .halt => {
                     try self.report_info("The halt instruction has been encountered.", .{});
                     return;
+                },
+                .pop => {
+                    _ = self.pop_object();
                 },
                 .load_local => |local_id| {
                     const object: VmObject = self.stack.objects[self.top_frame().base_idx + local_id.idx];
@@ -321,7 +325,7 @@ pub const Interpreter = struct {
             .generic_object => |accessor| {
                 const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                try self.stdout.print("An instance of class: '{s}'\n", .{class_name_string});
+                try self.stdout.print("Instance of class: '{s}'\n", .{class_name_string});
             },
             .nil => {
                 try self.stdout.print("nil\n", .{});
@@ -1300,6 +1304,17 @@ pub const primitives = struct {
         pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             _ = interpreter;
             return target_object;
+        }
+
+        pub const print__somig_arity = 2;
+        pub fn print__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const str: []const u8 = switch (target_object.data.kind()) {
+                .string => |accessor| accessor.contents(target_object.data),
+                else => return Interpreter.Error.primitive_type_error,
+            };
+            _ = try interpreter.stdout.write(str);
+            try interpreter.stdout.flush();
+            return try interpreter.get_nil_singleton();
         }
 
         // TODO: Remove this, the primitive method is called `concatenate:` and `+` is just an alias to it

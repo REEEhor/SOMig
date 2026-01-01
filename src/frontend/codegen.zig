@@ -674,7 +674,8 @@ pub const BytecodeGenerator = struct {
             if (self.last_instruction.?.is_load_instruction()) {
                 // TODO: remove the instruction here (or use pop instruction)
             }
-            try self.add_instruction(.print);
+            // try self.add_instruction(.print);
+            try self.add_instruction(.pop);
         }
         // TODO: maybe don't do default `nil` return if we have already emitted a return?
 
@@ -948,6 +949,7 @@ pub const InstructionDecoder = struct {
             .halt => break :sw .halt,
             .normal_return => break :sw .normal_return,
             .print => break :sw .print,
+            .pop => break :sw .pop,
         };
     }
 
@@ -996,6 +998,10 @@ pub const InstructionEncoder = struct {
         return InstructionId{ .idx = @truncate(idx) };
     }
 
+    pub fn pop_last_instruction(self: *Self, instruction_size_in_bytes: u8) void {
+        self.bytes.items.len -= instruction_size_in_bytes;
+    }
+
     pub fn add_instruction(self: *Self, allocator: Allocator, instruction: Instruction) Allocator.Error!InstructionId {
         const instruction_id = self.id_of_the_next_instruction();
         try self.bytes.append(allocator, @intFromEnum(instruction.tag()));
@@ -1029,12 +1035,8 @@ pub const InstructionEncoder = struct {
             },
         }
 
-        // const bytes_added = self.bytes.items.len - start_len;
-        // TODO(consultation): is this nescessary here?
-        // Not really I think, if we have a test that handles all instructions at least two times,
-        // it doesn't really need to be here.
-        // Also there was a problem with the payload being bigger due to p
-        // assert(bytes_added == instruction.payload_byte_size() + 1);
+        const bytes_added = self.bytes.items.len - instruction_id.idx;
+        assert(bytes_added == instruction.bytecode_size_in_bytes());
 
         return instruction_id;
     }
@@ -1088,13 +1090,13 @@ pub const InstructionFormatter = struct {
                     try writer.print(" name=\"{s}\" args-count={d}", .{ message_name, send_message.aditional_args_count });
                 },
                 .load_local => |local_id| {
-                    try writer.print(" id({d})\n", .{local_id.idx});
+                    try writer.print(" id({d})", .{local_id.idx});
                 },
                 .set_local => |local_id| {
-                    try writer.print(" id({d})\n", .{local_id.idx});
+                    try writer.print(" id({d})", .{local_id.idx});
                 },
                 .load_instance_var => |instance_var_id| {
-                    try writer.print(" id({d})\n", .{instance_var_id.idx});
+                    try writer.print(" id({d})", .{instance_var_id.idx});
                 },
                 .load_global => |global_var_id| {
                     const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
@@ -1179,6 +1181,8 @@ pub const Instruction = union(enum(u8)) {
     /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable
     set_local: LocalVarId = 9,
 
+    pop = 10,
+
     print, // TODO: remove this after development
 
     ///
@@ -1242,16 +1246,29 @@ pub const Instruction = union(enum(u8)) {
             .normal_return => false,
             .set_local => false,
             .print => false,
+            .pop => false,
         };
     }
 
-    pub fn payload_byte_size(self: Self) u8 {
-        switch (self) {
+    pub fn bytecode_size_in_bytes(self: Self) u8 {
+        return res: switch (self) {
             inline else => |payload| {
-                return @sizeOf(@TypeOf(payload));
+                const payload_size: u8 = sw: switch (@typeInfo(@TypeOf(payload))) {
+                    .@"struct" => |struct_info| {
+                        comptime var fields_total_size_bytes = 0;
+                        inline for (struct_info.fields) |payload_field| {
+                            assert(@bitSizeOf(payload_field.type) % 8 == 0);
+                            fields_total_size_bytes += @bitSizeOf(payload_field.type) / 8;
+                        }
+                        break :sw fields_total_size_bytes;
+                    },
+                    else => break :sw @bitSizeOf(@TypeOf(payload)) / 8,
+                };
+                const tag_size = @bitSizeOf(Tag) / 8;
+                const total_size = payload_size + tag_size;
+                break :res total_size;
             },
-        }
-        unreachable;
+        };
     }
 };
 

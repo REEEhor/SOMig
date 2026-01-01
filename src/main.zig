@@ -239,8 +239,19 @@ fn playground(allocator: std.mem.Allocator) !void {
     (interpreter_module.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
     const main_object = main_object_data.as_vm_object();
 
-    try interpreter.push_frame(main_class.constants_base_id, main_object, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack!!!
+    try interpreter.push_frame(main_class.constants_base_id, main_object, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
     interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
+
+    // Dump the bytecode
+    try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
+    try codegen.print_bytecode(
+        &statics.symbols_manager,
+        &statics.constants_manager,
+        main_class.constants_base_id,
+        statics.instruction_encoder.view_bytecode(),
+        stdout,
+    );
+    try stdout.print("\n", .{});
 
     // Run the program
     try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
