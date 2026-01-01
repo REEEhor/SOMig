@@ -27,7 +27,7 @@ const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
 
-const DO_DEBUG_TRACE: bool = false;
+const DO_DEBUG_TRACE: bool = true;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
@@ -135,9 +135,6 @@ pub const Interpreter = struct {
 
     stack: Stack,
 
-    // TODO: put this in the runtime frame stack (once that stack is actually implemented)
-    current_class_constant_base_id: ConstantId,
-
     const Self = @This();
 
     pub const Error = error{
@@ -169,7 +166,6 @@ pub const Interpreter = struct {
             .statics = statics,
             .heap = Heap{ .arena = std.heap.ArenaAllocator.init(allocator_for_heap) },
             .primitive_methods = primitive_methods,
-            .current_class_constant_base_id = ConstantId{ .idx = 0 },
             .globals = .init(allocator_for_globals),
             .source_code_files = source_code_files,
             .primitive_class_definitions = .{},
@@ -228,7 +224,7 @@ pub const Interpreter = struct {
             };
             if (DO_DEBUG_TRACE) {
                 const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id, .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
-                std.debug.print("[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
+                std.debug.print("\n[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             switch (instruction) {
                 .no_op => {},
@@ -266,7 +262,7 @@ pub const Interpreter = struct {
                     try self.push_object(object);
                 },
                 .load_constant => |constant_info| {
-                    const constant_id: ConstantId = constant_info.id.to_absolute(self.current_class_constant_base_id);
+                    const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id);
                     const constant = self.statics.constants_manager.get_constant(constant_id);
                     const object: VmObject = blk: switch (constant) {
                         .integer => |value| {
@@ -321,7 +317,7 @@ pub const Interpreter = struct {
         switch (object.data.kind()) {
             .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
             .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
-            .string => |accessor| try self.stdout.print("{s}\n", .{accessor.contents(object.data)}),
+            .string => |accessor| try self.stdout.print("'{s}'\n", .{accessor.contents(object.data)}),
             .generic_object => |accessor| {
                 const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
@@ -385,12 +381,12 @@ pub const Interpreter = struct {
             return;
         }
         const class_name: SymbolId = (try self.statics.symbols_manager.id_or_intern(primitive_class_type.as_string())).id;
-        // TODO: here there is a high chance that the compiling invalidates `self.decoder`
         const class_definition = self.load_class(class_name) catch |err| {
             self.report_runtime_error("Got error '{t}' while compiling a primitive class \"{s}\".", .{ err, primitive_class_type.as_string() });
             return Error.compilation_error;
         };
         // TODO: we have to walk the linked-list of `class_definition.parent.parent.parent...` so we can properly update the primitive classes list
+        // TODO: I think this should be in the `load_class` method and not here, since there is a possibility that `load_class` will be called from elsewhere (for example in the following SOM code: `Integer new.` should force a load of the `Integer` class.)
         self.primitive_class_definitions.put(primitive_class_type, class_definition);
     }
 
@@ -1109,7 +1105,7 @@ pub const primitives = struct {
             return result_object;
         }
 
-        pub const asString__somig_arity = 2;
+        pub const asString__somig_arity = 1;
         pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             const receiver_as_int: i48 = (Accessor{}).get_value(target_object.data);
 
@@ -1217,7 +1213,7 @@ pub const primitives = struct {
             }.f);
         }
 
-        pub const asString__somig_arity = 2;
+        pub const asString__somig_arity = 1;
         pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             const receiver_as_double: f64 = (Accessor{}).get_value(target_object.data);
 
@@ -1299,48 +1295,48 @@ pub const primitives = struct {
             }
         };
 
-        // TODO: remove this from primitive methods (it is not a primitive)
-        pub const asString__somig_arity = 2;
-        pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
-            _ = interpreter;
-            return target_object;
+        pub const println__somig_arity = 1;
+        pub fn println__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const str: []const u8 = switch (target_object.data.kind()) {
+                .string => |accessor| accessor.contents(target_object.data),
+                else => return Interpreter.Error.primitive_type_error,
+            };
+            _ = try interpreter.stdout.write(str);
+            _ = try interpreter.stdout.writeByte('\n');
+            try interpreter.stdout.flush();
+            return try interpreter.get_nil_singleton();
         }
 
-        pub const print__somig_arity = 2;
+        pub const print__somig_arity = 1;
         pub fn print__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             const str: []const u8 = switch (target_object.data.kind()) {
                 .string => |accessor| accessor.contents(target_object.data),
                 else => return Interpreter.Error.primitive_type_error,
             };
             _ = try interpreter.stdout.write(str);
-            try interpreter.stdout.flush();
             return try interpreter.get_nil_singleton();
         }
 
-        // TODO: Remove this, the primitive method is called `concatenate:` and `+` is just an alias to it
-        // NOTE: Implementing `concatenate:` should be easier, since the argument it takes in is a string
-        pub const @"+__somig_arity" = 1;
-        pub fn @"+__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
-            const receiver_str = switch (target_object.data.kind()) {
+        // TODO: replace this with `concatWith:` once we are able to compile keyword messages
+        pub const @"+++__somig_arity" = 2;
+        pub fn @"+++__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const lhs_string: []const u8 = switch (target_object.data.kind()) {
                 .string => |accessor| accessor.contents(target_object.data),
                 else => return Interpreter.Error.primitive_type_error,
             };
 
-            const rhs_obj = interpreter.pop_object();
-            const rhs_string_obj = switch (rhs_obj.data.header.tag) {
-                .integer => try Integer.asString__somig_primitive_fn(rhs_obj, interpreter),
-                .double => try Double.asString__somig_primitive_fn(rhs_obj, interpreter),
-                .string => rhs_obj,
-                else => return interpreter.report_TODO("The `+` method on String does not support having `{t}` as an argument.", .{rhs_obj.data.kind()}),
+            const rhs_object = interpreter.pop_object();
+            const rhs_string: []const u8 = switch (rhs_object.data.kind()) {
+                .string => |accessor| accessor.contents(rhs_object.data),
+                else => return Interpreter.Error.primitive_type_error,
             };
-            const rhs_str = (Accessor{}).contents(rhs_string_obj.data);
-            const total_length: i48 = @intCast(receiver_str.len + rhs_str.len);
+            const total_length: i48 = @intCast(lhs_string.len + rhs_string.len);
 
             try interpreter.ensure_primitive_class_is_loaded(.string);
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), total_length);
             const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-            const written = std.fmt.bufPrint((String.Accessor{}).contents(result_object_data), "{s}{s}", .{ receiver_str, rhs_str }) catch unreachable;
+            const written = std.fmt.bufPrint((String.Accessor{}).contents(result_object_data), "{s}{s}", .{ lhs_string, rhs_string }) catch unreachable;
             assert(written.len == total_length);
 
             return result_object_data.as_vm_object();

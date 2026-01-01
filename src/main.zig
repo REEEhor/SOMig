@@ -230,6 +230,9 @@ fn playground(allocator: std.mem.Allocator) !void {
         frames,
     );
 
+    // NOTE: This will probably have to be also in the final implementation together with loading of the `Metaclass`
+    try interpreter.ensure_primitive_class_is_loaded(.class);
+
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
 
