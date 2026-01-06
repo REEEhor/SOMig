@@ -664,20 +664,26 @@ pub const BytecodeGenerator = struct {
         // Setup locals
         var locals_scope = self.scope_stack.new_scope();
         const nil_constant_id = try self.constants_manager.add_constant(Constant.nil);
-        // Load a `nil` on the stack so we can set locals to `nil`
-        try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
         //
         var iter = iterator(body.locals);
         var local_idx: u32 = method_header.number_of_arguments_including_self();
+        var registered_at_least_one_local: bool = false;
         while (iter.next()) |identifier_var_token| : (local_idx += 1) {
             const identifier: SymbolId = try self.symbol_from_token(identifier_var_token);
             try locals_scope.register_variable(.{ .identifier = identifier, .idx = local_idx });
             // TODO: we want to do some static analysis here maybe, so that we are not setting variables to nil and then reassigning them later
+            if (!registered_at_least_one_local) {
+                // Load a `nil` on the stack so we can set locals to `nil`
+                try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
+                registered_at_least_one_local = true;
+            }
             // Set the local to `nil`
             try self.add_instruction(.{ .set_local = .{ .idx = local_idx } });
         }
-        // Pop the nil that is sitting on the stack
-        try self.add_instruction(.pop);
+        if (registered_at_least_one_local) {
+            // Pop the nil that is sitting on the stack
+            try self.add_instruction(.pop);
+        }
         try self.scope_stack.push_scope(locals_scope);
         defer self.scope_stack.pop_scope();
 
@@ -744,10 +750,9 @@ pub const BytecodeGenerator = struct {
             },
             .unary_message_call => |unary_call| {
                 try self.compile_expression(unary_call.argument);
-                const message_string = self.ast.text_at(unary_call.message);
-                const message: SymbolId = (try self.symbols_manager.id_or_intern(message_string)).id;
+                const message_symbol: SymbolId = try self.symbol_from_token(unary_call.message);
                 try self.add_instruction(Instruction{
-                    .send_message = .{ .message_name = message, .aditional_args_count = 0 },
+                    .send_message = .{ .message_name = message_symbol, .aditional_args_count = 0 },
                 });
             },
             .binary_message_call => |raw_binary_call| {

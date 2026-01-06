@@ -144,7 +144,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          42.
         \\          5 + 3.
         \\          1000.0 - 0.01.
-        \\          'Test of ' +++ 'concat strings'.
+        \\          ('Test of ' +++ 'concat strings') println.
         \\          'Number is:' + 42.
         \\          'I want ' + 98 + ' ice-creams.'.
         \\          10.0 / 0.0.
@@ -152,7 +152,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\
         \\          self some_other_method.
         \\          1.
-        \\          self get_message.
+        \\          self get_message println.
         \\
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          4 asString + 2.
