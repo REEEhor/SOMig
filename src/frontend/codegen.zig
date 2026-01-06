@@ -92,7 +92,7 @@ pub const ConstantsManager = struct {
         return ConstantId{ .idx = @truncate(self.constants.len) };
     }
 
-    pub fn new_base_id_for_class(self: *Self) ConstantId {
+    pub fn new_base_id_for_method(self: *Self) ConstantId {
         self.current_base_id = self.next_constant_id();
         return self.current_base_id;
     }
@@ -375,8 +375,6 @@ pub fn compile_class(
 ) !*ClassDefinition {
     // TODO: class portion is ignored here, we assume only the instance portion for now
 
-    const constants_base_id = statics.constants_manager.new_base_id_for_class();
-
     var bytecode_generator = BytecodeGenerator{
         .allocator = statics.allocator,
         .symbols_manager = &statics.symbols_manager,
@@ -448,6 +446,7 @@ pub fn compile_class(
                 method_idx += 1;
             },
             .impl => |function_body| {
+                const method_constants_base_id: ConstantId = statics.constants_manager.new_base_id_for_method();
                 const start_instruction_id: InstructionId = try bytecode_generator.compile_method(
                     &ast,
                     &lexical_scopes,
@@ -468,7 +467,11 @@ pub fn compile_class(
                 compiled_methods[method_idx] = Method{
                     .method_name = method_selector,
                     .number_of_aditional_args = @truncate(number_of_aditional_args),
-                    .body = MethodBody{ .user_land = .{ .start_instruction = start_instruction_id, .number_of_locals = @truncate(number_of_locals) } },
+                    .body = MethodBody{ .user_land = .{
+                        .start_instruction = start_instruction_id,
+                        .number_of_locals = @truncate(number_of_locals),
+                        .constants_base_id = method_constants_base_id,
+                    } },
                 };
                 method_idx += 1;
             },
@@ -529,7 +532,6 @@ pub fn compile_class(
         ptr.* = ClassDefinition{
             .class_name = class_name_symbol,
             .instance_methods = instance_methods,
-            .constants_base_id = constants_base_id,
             .as_vm_object = undefined,
         };
         break :blk ptr;
@@ -700,9 +702,10 @@ pub const BytecodeGenerator = struct {
         // TODO: maybe don't do default `nil` return if we have already emitted a return?
 
         // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
-        //                     NOTE: We probably want to store the actual values in the end.
+        //                     NOTE: We probably want to store the actual singleton values in the end.
         try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
         try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
+
         // TODO: maybe pop instruction here after `set_local`?? ^^^
         // Resolution: I don't think it's needed, since the stack gets popped after `normal_return` has been run.
 

@@ -509,7 +509,7 @@ pub const Interpreter = struct {
         switch (method.body) {
             .user_land => |method_body_info| {
                 try self.push_frame(
-                    class.constants_base_id,
+                    method_body_info.constants_base_id,
                     method.number_of_aditional_args,
                     method_body_info.number_of_locals,
                     self.decoder.id_of_next_instruction(),
@@ -593,7 +593,6 @@ pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, i
 pub const ClassDefinition = struct {
     class_name: SymbolId,
     instance_methods: MethodMap,
-    constants_base_id: ConstantId,
     as_vm_object: VmObject,
 
     // TODO: add instance variables
@@ -755,22 +754,29 @@ pub const PrimitiveMethodsMap = struct {
 };
 
 pub const Method = struct {
+    /// The method selector.
+    /// Some examples of selecetors are strings: "value", "+++", "get:with:andWith:".
     method_name: SymbolId,
-    /// Number of arguments to pop from stack
-    /// (**excluding** the first argument which is the message target object).
+
+    /// Number of arguments of this method **excluding** the first argument
+    /// which is the message target object.
     ///
     /// For example, every unary method has this field set to 0 and every binary method to 1.
     /// Keyword method `get:with:AndWith:` (example method) has this field set to 3.
     ///
-    /// TODO(consultation): This field might be probably needed only for asserts when we do a dynamic call into a method.
-    ///                     NOTE: maybe not, we might need it for a stackframe creation
+    /// This field is used for example for a stackframe creation.
     number_of_aditional_args: u16,
+
     body: MethodBody,
 };
 
 pub const MethodBody = union(enum) {
     primitive: PrimitiveMethodImplementation_,
-    user_land: struct { start_instruction: InstructionId, number_of_locals: u16 },
+    user_land: struct {
+        start_instruction: InstructionId,
+        number_of_locals: u16,
+        constants_base_id: ConstantId,
+    },
 };
 
 pub fn SmallPtr(comptime Ptr: type) type {

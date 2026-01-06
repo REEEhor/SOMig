@@ -145,7 +145,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          5 + 3.
         \\          1000.0 - 0.01.
         \\          ('Test of ' +++ 'concat strings') println.
-        \\          'Number is:' + 42.
+        \\          'Number is: ' + 42 println.
         \\          'I want ' + 98 + ' ice-creams.'.
         \\          10.0 / 0.0.
         \\          10 / 4.
@@ -260,7 +260,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     const main_object = main_object_data.as_vm_object();
 
     try interpreter.push_object(main_object);
-    try interpreter.push_frame(main_class.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
+    try interpreter.push_frame(run_method.body.user_land.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
     interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
 
     // Dump the bytecode
@@ -268,7 +268,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     try codegen.print_bytecode(
         &statics.symbols_manager,
         &statics.constants_manager,
-        main_class.constants_base_id,
+        run_method.body.user_land.constants_base_id,
         statics.instruction_encoder.view_bytecode(),
         stdout,
     );
