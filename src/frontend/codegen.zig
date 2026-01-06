@@ -771,6 +771,42 @@ pub const BytecodeGenerator = struct {
                     .send_message = .{ .message_name = message_symbol, .aditional_args_count = 1 },
                 });
             },
+            .keyword_message_call => |keyword_message_call| {
+                // TODO: the length of the `buffer` should be the same as in `get_selector_symbol`
+                // Build the selector
+                var buffer: [512]u8 = undefined;
+                var writer = std.io.Writer.fixed(&buffer);
+                const arguments = keyword_message_call.get_args(self.ast.extras);
+                for (0..arguments.number_of_args()) |idx| {
+                    const keyword_text = self.ast.text_at(arguments.nth_keyword(@intCast(idx)));
+                    _ = writer.write(keyword_text) catch {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(expr_id) },
+                            "The selector is too long. Maximum is {d} characters.",
+                            .{buffer.len},
+                        );
+                        return error.keyword_selector_too_long;
+                    };
+                }
+                const selector_as_string = buffer[0..writer.end];
+                const selector_symbol: SymbolId = (try self.symbols_manager.id_or_intern(selector_as_string)).id;
+
+                // The calling convention mandates that the order of the arguments is
+                // pushed onto the stack in the *REVERSE* order in comparison to the
+                // order of the arguments in code.
+                //
+                // So we compile the arguments in the reverse order.
+                for (0..arguments.number_of_args()) |reverse_idx| {
+                    const argument_idx: u32 = @intCast(arguments.number_of_args() - reverse_idx - 1);
+                    const argument_ast: Ast.ExprId = arguments.nth_argument(argument_idx);
+                    try self.compile_expression(argument_ast);
+                }
+                try self.compile_expression(keyword_message_call.first_argument);
+                try self.add_instruction(.{ .send_message = .{
+                    .message_name = selector_symbol,
+                    .aditional_args_count = @intCast(arguments.number_of_args()),
+                } });
+            },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
                 const load_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {

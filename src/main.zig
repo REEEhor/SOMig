@@ -144,7 +144,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          42.
         \\          5 + 3.
         \\          1000.0 - 0.01.
-        \\          ('Test of ' +++ 'concat strings') println.
+        \\          ('Test of ' concatWith: 'concat strings') println.
         \\          'Number is: ' + 42 println.
         \\          'I want ' + 98 + ' ice-creams.'.
         \\          10.0 / 0.0.
@@ -191,8 +191,8 @@ fn playground(allocator: std.mem.Allocator) !void {
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("String")).id,
         \\ String = (
-        \\      + obj = ( ^ self +++ obj asString  )
-        \\      +++ otherString = primitive
+        \\      + obj = ( ^ self concatWith: obj asString  )
+        \\      concatWith: otherString = primitive
         \\      asString = ( ^ self )
         \\      print = primitive
         \\      println = primitive

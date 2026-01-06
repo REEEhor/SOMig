@@ -1318,9 +1318,8 @@ pub const primitives = struct {
             return try interpreter.get_nil_singleton();
         }
 
-        // TODO: replace this with `concatWith:` once we are able to compile keyword messages
-        pub const @"+++__somig_arity" = 2;
-        pub fn @"+++__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        pub const @"concatWith:__somig_arity" = 2;
+        pub fn @"concatWith:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             const lhs_string: []const u8 = switch (target_object.data.kind()) {
                 .string => |accessor| accessor.contents(target_object.data),
                 else => return Interpreter.Error.primitive_type_error,
