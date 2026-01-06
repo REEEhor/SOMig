@@ -145,11 +145,12 @@ pub const ScopeStack = struct {
         var scope_idx: i32 = @intCast(self.scopes.items.len - 1);
         while (scope_idx >= 0) : (scope_idx -= 1) {
             if (self.scopes.items[@intCast(scope_idx)].get(identifier)) |variable| {
-                if (scope_idx == 0) {
-                    return VariableId{ .instance = .{ .idx = variable.idx } };
-                } else {
-                    return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
-                }
+                // TODO: once we have instance variables, uncomment this
+                // if (scope_idx == 0) {
+                //     return VariableId{ .instance = .{ .idx = variable.idx } };
+                // } else {
+                return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
+                // }
             }
         }
         return VariableId.global;
@@ -603,11 +604,11 @@ pub const BytecodeGenerator = struct {
     builder: *InstructionEncoder,
     reporter: *ErrorReporter,
 
-    /// WARN: Do not use!
+    /// WARN: Do not use from outside of this `struct`!
     /// Invalid between calls to `compile_method`.
     ast: *const ParsedFile = undefined,
 
-    /// WARN: Do not use!
+    /// WARN: Do not use from outside of this `struct`!
     /// Invalid between calls to `compile_method`.
     scope_stack: *ScopeStack = undefined,
 
@@ -634,38 +635,51 @@ pub const BytecodeGenerator = struct {
         // TODO: think about reporting a warning that a local is shadowing a variable
 
         // Setup arguments
-        // NOTE: Notice how we put index the variables and locals from 1. That is because there is always `self` at index 0.
         var arguments_scope = self.scope_stack.new_scope();
-        defer self.scope_stack.pop_scope();
         //
         switch (method_header) {
             .unary => {},
             .binary => |header_info| {
                 const parameter_symbol: SymbolId = try self.symbol_from_token(header_info.parameter);
-                try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = 1 });
+                try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = 0 });
             },
             .keyword => |header_info| {
                 var idx: u32 = 0;
                 while (idx < header_info.number_of_args()) : (idx += 1) {
                     const parameter_token = header_info.nth_parameter((idx));
                     const parameter_symbol: SymbolId = try self.symbol_from_token(parameter_token);
-                    try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = idx + 1 });
+                    // TODO(continue-here): this should be at "reversed" index
+                    try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = idx });
                 }
             },
         }
+        const identifier_self: SymbolId = (try self.symbols_manager.id_or_intern("self")).id;
+        try arguments_scope.register_variable(
+            .{ .identifier = identifier_self, .idx = method_header.number_of_arguments_including_self() - 1 },
+        );
+
         try self.scope_stack.push_scope(arguments_scope);
+        defer self.scope_stack.pop_scope();
 
         // Setup locals
         var locals_scope = self.scope_stack.new_scope();
-        defer self.scope_stack.pop_scope();
+        const nil_constant_id = try self.constants_manager.add_constant(Constant.nil);
+        // Load a `nil` on the stack so we can set locals to `nil`
+        try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
         //
         var iter = iterator(body.locals);
         var local_idx: u32 = method_header.number_of_arguments_including_self();
         while (iter.next()) |identifier_var_token| : (local_idx += 1) {
             const identifier: SymbolId = try self.symbol_from_token(identifier_var_token);
             try locals_scope.register_variable(.{ .identifier = identifier, .idx = local_idx });
+            // TODO: we want to do some static analysis here maybe, so that we are not setting variables to nil and then reassigning them later
+            // Set the local to `nil`
+            try self.add_instruction(.{ .set_local = .{ .idx = local_idx } });
         }
+        // Pop the nil that is sitting on the stack
+        try self.add_instruction(.pop);
         try self.scope_stack.push_scope(locals_scope);
+        defer self.scope_stack.pop_scope();
 
         // Compile the expressions
         for (body.expressions) |expr_id| {
@@ -681,8 +695,7 @@ pub const BytecodeGenerator = struct {
 
         // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
         //                     NOTE: We probably want to store the actual values in the end.
-        const constant_id = try self.constants_manager.add_constant(Constant.nil);
-        try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
+        try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
         try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
         // TODO: maybe pop instruction here after `set_local`?? ^^^
         // Resolution: I don't think it's needed, since the stack gets popped after `normal_return` has been run.
@@ -740,22 +753,18 @@ pub const BytecodeGenerator = struct {
             .binary_message_call => |raw_binary_call| {
                 const binary_call = raw_binary_call.decompress(self.ast.extras);
 
-                // NOTE: compile rhs first! (the VM is stack-based -> swap args :D)
+                // The calling convention mandates that the order of the arguments is
+                // pushed onto the stack in the *REVERSE* order in comparison to the
+                // order of the arguments in code.
                 try self.compile_expression(binary_call.rhs);
                 try self.compile_expression(binary_call.lhs);
-                const message_string = self.ast.text_at(binary_call.message);
-                const message: SymbolId = (try self.symbols_manager.id_or_intern(message_string)).id;
+                const message_symbol: SymbolId = try self.symbol_from_token(binary_call.message);
                 try self.add_instruction(Instruction{
-                    .send_message = .{ .message_name = message, .aditional_args_count = 1 },
+                    .send_message = .{ .message_name = message_symbol, .aditional_args_count = 1 },
                 });
             },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
-                const self_symbol: SymbolId = (try self.symbols_manager.id_or_intern("self")).id;
-                if (identifier_symbol.idx == self_symbol.idx) {
-                    try self.add_instruction(.{ .load_local = .{ .idx = 0 } });
-                    return;
-                }
                 const load_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
                     .instance => |instance_var_id| .{ .load_instance_var = instance_var_id },
                     .local_or_method_argument => |local_var_id| .{ .load_local = local_var_id },
@@ -791,7 +800,7 @@ pub const BytecodeGenerator = struct {
             },
             .exit_expression => |exit_expr| {
                 try self.compile_expression(exit_expr.return_value);
-                // TODO: here we will probably have to check, whether we are in an escaped block or not
+                // TODO: here we will probably have to check, whether we are in an block or not - and generate a different return
                 try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
                 try self.add_instruction(.normal_return);
             },
@@ -1185,6 +1194,7 @@ pub const Instruction = union(enum(u8)) {
 
     print, // TODO: remove this after development
 
+    /// TODO: THIS IS PROBABLY NOT VALID
     ///
     /// Represents the place relative to the base pointer in the
     /// object stack during interpreter runtime, where a variable is stored.
@@ -1208,7 +1218,6 @@ pub const Instruction = union(enum(u8)) {
     /// To access the `local_variable[0]`, you would need `LocalId{.idx = 4}` (4 = <number-of-arguments> + <index-of-local>)
     pub const LocalVarId = struct {
         idx: u32,
-        pub const self_object = LocalVarId{ .idx = 0 };
         pub const return_object = LocalVarId{ .idx = 0 };
     };
 

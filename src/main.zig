@@ -140,10 +140,12 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Main")).id,
         \\  Main = (
         \\      run = (
-        \\          'Hello SOMig!'.
+        \\          'Hello SOMig!' println.
         \\          42.
         \\          5 + 3.
         \\          1000.0 - 0.01.
+        \\          'Test of ' +++ 'concat strings'.
+        \\          'Number is:' + 42.
         \\          'I want ' + 98 + ' ice-creams.'.
         \\          10.0 / 0.0.
         \\          10 / 4.
@@ -189,15 +191,30 @@ fn playground(allocator: std.mem.Allocator) !void {
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("String")).id,
         \\ String = (
-        \\      + _ = primitive
-        \\      asString = primitive
+        \\      + obj = ( ^ self +++ obj asString  )
+        \\      +++ otherString = primitive
+        \\      asString = ( ^ self )
+        \\      print = primitive
+        \\      println = primitive
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,
-        \\ Object = nil ( )
+        \\ Object = nil (
+        \\      print = ( self asString print )
+        \\      println = ( self asString println )
+        \\      asString = ( ^ 'An instance of the class ' + self class name )
+        \\      class = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Class")).id,
+        \\ Class = (
+        \\      name = primitive
+        \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Nil")).id,
-        \\ Nil = ( )
+        \\ Nil = (
+        \\      asString = ( ^ 'nil' )
+        \\ )
     );
 
     // // Print bytecode
@@ -242,7 +259,8 @@ fn playground(allocator: std.mem.Allocator) !void {
     (interpreter_module.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
     const main_object = main_object_data.as_vm_object();
 
-    try interpreter.push_frame(main_class.constants_base_id, main_object, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
+    try interpreter.push_object(main_object);
+    try interpreter.push_frame(main_class.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
     interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
 
     // Dump the bytecode

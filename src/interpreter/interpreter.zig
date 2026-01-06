@@ -27,7 +27,7 @@ const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
 
-const DO_DEBUG_TRACE: bool = true;
+const DO_DEBUG_TRACE: bool = false;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
@@ -408,7 +408,6 @@ pub const Interpreter = struct {
     pub fn push_frame(
         self: *Self,
         constants_base_id: ConstantId,
-        self_object: VmObject,
         arguments_count_without_self: u16,
         locals_count: u16,
         after_return_instruction_id: InstructionId,
@@ -421,34 +420,25 @@ pub const Interpreter = struct {
         const arguments_count = arguments_count_without_self +| 1;
         if (self.stack.objects.len +| arguments_count +| locals_count > self.stack.max_objects_len) {
             @branchHint(.cold);
-            self.report_runtime_error("Stack overflow (too many objects frames)! :D", .{});
+            self.report_runtime_error("Stack overflow (too many objects)! :D", .{});
             return Error.object_stack_overflow;
         }
         // Grow the stack
-        const new_base_index: u32 = @intCast(self.stack.objects.len);
-        self.stack.frames.ptr[self.stack.frames.len] = Stack.Frame{
+        const new_base_index: u32 = @intCast(self.stack.objects.len - arguments_count);
+        self.stack.frames.len += 1;
+        self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
             .constants_base_id = constants_base_id,
             .base_idx = new_base_index,
             .after_return_instruction_id = after_return_instruction_id,
         };
-        self.stack.frames.len += 1;
-        self.stack.objects.len += arguments_count + locals_count;
-
-        // Initialize the objects in the newly allocated space
-        self.stack.objects[new_base_index] = self_object;
-
-        // TODO: consider not-initializing the objects here. Instead, the compiler could do an analysis of which variables get used before initialization and generate load nil instructions.
-        // Initialize the objects to `nil`
-        const nil_object: VmObject = try self.get_nil_singleton();
-        for ((new_base_index + 1)..self.stack.objects.len) |stack_idx| {
-            self.stack.objects[stack_idx] = nil_object;
-        }
+        self.stack.objects.len += locals_count;
     }
 
     /// Asserts that the stack is not empty
     pub fn pop_frame(self: *Self) void {
         assert(self.stack.frames_count() > 0);
-        // We need to not pop the top object, since it is the return value of the function
+        // We need to not pop the top-most object on the popped frame,
+        // since it is the return value of the function (therefore the `+1`):
         self.stack.objects.len = self.top_frame().base_idx + 1;
         self.stack.frames.len -= 1;
     }
@@ -499,12 +489,17 @@ pub const Interpreter = struct {
         return self.stack.objects.ptr[self.stack.objects.len];
     }
 
+    /// Asserts that the stack is not empty
+    pub fn top_stack_object(self: *Self) VmObject {
+        return self.stack.objects[self.stack.objects.len - 1];
+    }
+
     fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
-        const target_object: VmObject = self.pop_object();
+        const target_object: VmObject = self.top_stack_object();
         const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const Method = class.get_method(call_info.message_name) orelse {
             self.report_runtime_error(
-                "Tried to call the method `{s}` on an instance of a class `{s}`, but that does not exist.",
+                "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
                 .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
             );
             // TODO: maybe also print the methods that exist on that class?
@@ -515,7 +510,6 @@ pub const Interpreter = struct {
             .user_land => |method_body_info| {
                 try self.push_frame(
                     class.constants_base_id,
-                    target_object,
                     method.number_of_aditional_args,
                     method_body_info.number_of_locals,
                     self.decoder.id_of_next_instruction(),
@@ -523,6 +517,7 @@ pub const Interpreter = struct {
                 self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
             },
             .primitive => |primitive_method| {
+                _ = self.pop_object(); // The primitive methods get `target_object` via an argument
                 const result_object: VmObject = primitive_method(target_object, self) catch |err| {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
