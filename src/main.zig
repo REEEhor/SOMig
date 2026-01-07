@@ -150,12 +150,17 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          10.0 / 0.0.
         \\          10 / 4.
         \\
+        \\           "12345678"
+        \\          ('knihovna' substringFrom: 2 to: 5) println.
+        \\
+        \\          self println.
+        \\
         \\          self some_other_method.
         \\          1.
         \\          self get_message println.
         \\
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
-        \\          4 asString + 2.
+        \\          (4 asString + 2) println.
         \\      )
         \\
         \\      some_other_method = (
@@ -196,6 +201,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      asString = ( ^ self )
         \\      print = primitive
         \\      println = primitive
+        \\      substringFrom: from to: to = ( ^ self primSubstringFrom: from to: to. )
+        \\      primSubstringFrom: _ to: _ = primitive
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,

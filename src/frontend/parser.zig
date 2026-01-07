@@ -1194,7 +1194,7 @@ fn print_portion(
             },
             .keyword => |info| {
                 try writer.print("(keyword-method) ", .{});
-                for (0..info.number_of_args()) |idx| {
+                for (0..info.number_of_args_excluding_self()) |idx| {
                     const keyword = ast.text_at(info.nth_keyword(@truncate(idx)));
                     const parameter = ast.text_at(info.nth_parameter(@truncate(idx)));
                     if (idx != 0) try writer.print(" | ", .{});

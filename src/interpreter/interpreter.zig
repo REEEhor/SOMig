@@ -138,6 +138,7 @@ pub const Interpreter = struct {
     const Self = @This();
 
     pub const Error = error{
+        generic_runtime_error,
         primitive_type_error,
         method_not_found,
         frame_stack_overflow,
@@ -1332,12 +1333,65 @@ pub const primitives = struct {
             };
             const total_length: i48 = @intCast(lhs_string.len + rhs_string.len);
 
-            try interpreter.ensure_primitive_class_is_loaded(.string);
             var header = HeapData.Header.new_undefined_with_tag(.string);
             (String.Accessor{}).set_length(header.as_heap_data(), total_length);
             const result_object_data: *HeapData = try interpreter.heap.allocate(header);
             const written = std.fmt.bufPrint((String.Accessor{}).contents(result_object_data), "{s}{s}", .{ lhs_string, rhs_string }) catch unreachable;
             assert(written.len == total_length);
+
+            return result_object_data.as_vm_object();
+        }
+
+        pub const @"primSubstringFrom:to:__somig_arity" = 3;
+        pub fn @"primSubstringFrom:to:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const original_string: []const u8 = switch (target_object.data.kind()) {
+                .string => |accessor| accessor.contents(target_object.data),
+                else => return Interpreter.Error.primitive_type_error,
+            };
+
+            const som_idx_from = blk: {
+                const obj = interpreter.pop_object();
+                const idx = switch (obj.data.kind()) {
+                    .integer => |accessor| accessor.get_value(obj.data),
+                    else => return Interpreter.Error.primitive_type_error,
+                };
+                if (idx < 1 or idx > original_string.len) {
+                    interpreter.report_runtime_error(
+                        "The `from:` argument is {d}, which is invalid for string of length {d}. The valid values are from 1 to {d} inclusive.",
+                        .{ idx, original_string.len, original_string.len },
+                    );
+                    return Interpreter.Error.generic_runtime_error;
+                }
+                break :blk idx;
+            };
+
+            const som_idx_to = blk: {
+                const obj = interpreter.pop_object();
+                const idx = switch (obj.data.kind()) {
+                    .integer => |accessor| accessor.get_value(obj.data),
+                    else => return Interpreter.Error.primitive_type_error,
+                };
+                if (idx < 1 or idx > original_string.len) {
+                    interpreter.report_runtime_error(
+                        "The `to:` argument is {d}, which is invalid for string of length {d}. The valid values are from 1 to {d} inclusive.",
+                        .{ idx, original_string.len, original_string.len },
+                    );
+                    return Interpreter.Error.generic_runtime_error;
+                }
+                break :blk idx;
+            };
+
+            if (som_idx_from > som_idx_to) {
+                interpreter.report_runtime_error("Argument `from:` is {d}, which is bigger than `to:`, which is {d}", .{ som_idx_from, som_idx_to });
+                return Interpreter.Error.generic_runtime_error;
+            }
+
+            const substring: []const u8 = original_string[@intCast(som_idx_from - 1)..@intCast(som_idx_to)];
+
+            var header = HeapData.Header.new_undefined_with_tag(.string);
+            (String.Accessor{}).set_length(header.as_heap_data(), @intCast(substring.len));
+            const result_object_data: *HeapData = try interpreter.heap.allocate(header);
+            @memcpy((String.Accessor{}).contents(result_object_data), substring);
 
             return result_object_data.as_vm_object();
         }

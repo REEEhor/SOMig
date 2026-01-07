@@ -392,7 +392,7 @@ pub fn compile_class(
     const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
 
     // TODO: consider putting this into the `SymbolsManager`?
-    var buffer_for_selectors: [16]u8 = undefined;
+    var buffer_for_selectors: [512]u8 = undefined;
     var selector_writer = std.io.Writer.fixed(&buffer_for_selectors);
 
     var method_idx: usize = 0;
@@ -570,7 +570,7 @@ pub fn get_selector_symbol(
         .keyword => |header_info| {
             fixed_writer.end = 0;
             var kw_idx: u32 = 0;
-            while (kw_idx < header_info.number_of_args()) : (kw_idx += 1) {
+            while (kw_idx < header_info.number_of_args_excluding_self()) : (kw_idx += 1) {
                 const keyword_token = header_info.nth_keyword(kw_idx);
                 const keyword_text = ast.text_at(keyword_token);
                 _ = fixed_writer.write(keyword_text) catch {
@@ -647,11 +647,11 @@ pub const BytecodeGenerator = struct {
             },
             .keyword => |header_info| {
                 var idx: u32 = 0;
-                while (idx < header_info.number_of_args()) : (idx += 1) {
+                while (idx < header_info.number_of_args_excluding_self()) : (idx += 1) {
                     const parameter_token = header_info.nth_parameter((idx));
                     const parameter_symbol: SymbolId = try self.symbol_from_token(parameter_token);
-                    // TODO(continue-here): this should be at "reversed" index
-                    try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = idx });
+                    const argument_idx = header_info.number_of_args_excluding_self() - idx - 1;
+                    try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = argument_idx });
                 }
             },
         }

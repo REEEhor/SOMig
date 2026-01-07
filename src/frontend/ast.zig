@@ -124,7 +124,7 @@ pub const MethodHeader = union(enum) {
         return switch (self) {
             .unary => 1,
             .binary => 2,
-            .keyword => |info| info.number_of_args(),
+            .keyword => |info| info.number_of_args_excluding_self() + 1,
         };
     }
 };
@@ -144,16 +144,16 @@ pub const KeywordMethodHeader = struct {
 
     /// Keywords are parsed together with `:` at the end
     pub fn nth_keyword(self: Self, n: u32) TokenId {
-        assert(n < self.number_of_args());
+        assert(n < self.number_of_args_excluding_self());
         return self.argument_pairs.start_id.plus(n * 2);
     }
 
     pub fn nth_parameter(self: Self, n: u32) TokenId {
-        assert(n < self.number_of_args());
+        assert(n < self.number_of_args_excluding_self());
         return self.argument_pairs.start_id.plus(n * 2 + 1);
     }
 
-    pub fn number_of_args(self: Self) u32 {
+    pub fn number_of_args_excluding_self(self: Self) u32 {
         return self.argument_pairs.number_of_tokens() / 2;
     }
 };
