@@ -445,12 +445,11 @@ pub fn tokenize(allocator: Allocator, source_code: []const u8, reporter: *ErrorR
 
     // Prealocate some elements
     // TODO(cleanup): Arbitrary choice. Empirically choose the length.
-    const assumed_number_of_tokens = source_code.len / 8;
+    const assumed_number_of_tokens = source_code.len / 3;
     try tokens.ensureTotalCapacity(allocator, assumed_number_of_tokens);
-    var idx: usize = 0;
-    while (try lexer.next_token()) |t| : (idx += 1) {
+    while (try lexer.next_token()) |t| {
         tokens.appendAssumeCapacity(t);
-        if (idx >= assumed_number_of_tokens) break;
+        if (tokens.len == assumed_number_of_tokens) break;
     }
     while (try lexer.next_token()) |t| {
         try tokens.append(allocator, t);
