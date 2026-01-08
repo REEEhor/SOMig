@@ -150,6 +150,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          10.0 / 0.0.
         \\          10 / 4.
         \\
+        \\          "Animal."  "<-- Try uncommenting this to crash to program"
+        \\
         \\           "12345678"
         \\          ('knihovna' substringFrom: 2 to: 5) println.
         \\
@@ -183,6 +185,11 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      * _ = primitive
         \\      / _ = primitive
         \\      asString = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Animal")).id,
+        \\ Animal = (
+        \\      say_hi = this_causes_parser_error
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Double")).id,

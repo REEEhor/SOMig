@@ -216,7 +216,7 @@ pub const Interpreter = struct {
     };
 
     // TODO: here will be argument for an entire class that is being run.. I think
-    pub fn run(self: *Self) Error!void {
+    pub fn run(self: *Self) !void {
         while (true) {
             const instr_id = self.decoder.id_of_next_instruction();
             const instruction: Instruction = self.decoder.next_instruction() orelse {
@@ -247,11 +247,15 @@ pub const Interpreter = struct {
                 .load_instance_var => |instance_var_id| {
                     return self.report_TODO("Execution of instruction 'load_instance_var' (id is {d})", .{instance_var_id.idx});
                 },
-                .load_global => |global_var_id| {
-                    return self.report_TODO("Execution of instruction 'load_global' (id is {d})", .{global_var_id.idx});
-                    //      const maybe_global_object: ?VmObject = self.get_global(global_object_id);
-                    //      const global_object = if (maybe_global_object) |obj| obj
-                    //                            else try self.load_class(global_object_id);
+                .load_global => |global_symbol_id| {
+                    const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
+                    if (maybe_global_object) |global_object| {
+                        try self.push_object(global_object);
+                    } else {
+                        // TODO: here we will probably invoke `doesNotUnderstand` or something similiar
+                        const newly_loaded_class: *ClassDefinition = try self.load_class(global_symbol_id);
+                        try self.push_object(newly_loaded_class.as_vm_object);
+                    }
                 },
                 .print => {
                     const to_print: VmObject = self.pop_object();
