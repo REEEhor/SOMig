@@ -153,8 +153,6 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          "Try uncommenting the line below to crash to program:"
         \\          "SomeClassWithSyntaxErrorInItsDefinition."
         \\
-        \\          (Animal new) say_hi.
-        \\
         \\           "12345678"
         \\          ('knihovna' substringFrom: 2 to: 5) println.
         \\
@@ -169,9 +167,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      )
         \\
         \\      some_other_method = (
-        \\          |some_variable|
-        \\          some_variable := 'ahoj'.
-        \\          'Hello from another method!'
+        \\          | some_variable cat |
+        \\          cat := Cat new.
+        \\          cat say_hi.
+        \\          cat set_name_to: 'Shrodinger'.
+        \\          cat set_jump_height_to: 150 + 2.
+        \\          cat say_hi.
+        \\          cat jump.
         \\      )
         \\
         \\      get_message = (
@@ -193,11 +195,33 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Animal")).id,
         \\ Animal = (
         \\    | name |
+        \\
+        \\    name = ( ^ name )
+        \\
+        \\    set_name_to: new_name = (
+        \\       name := new_name.
+        \\    )
+        \\
         \\    say_hi = (
         \\      'The animal "' print.
         \\      name print.
         \\      '" says "hi!"' println.
         \\    )
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Cat")).id,
+        \\ Cat = Animal (
+        \\    | jump_height |
+        \\
+        \\    set_jump_height_to: new_jump_height_in_cm = (
+        \\       jump_height := new_jump_height_in_cm.
+        \\    )
+        \\
+        \\    jump = (
+        \\       ('The cat named "' + (self name) + '"') print.
+        \\       (' jumped ' + (jump_height) + ' cm high!') println.
+        \\    )
+        \\
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("SomeClassWithSyntaxErrorInItsDefinition")).id,

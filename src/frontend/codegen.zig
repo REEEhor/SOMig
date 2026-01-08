@@ -845,14 +845,7 @@ pub const BytecodeGenerator = struct {
                 const idenditifer_text = self.ast.text_at(info.variable);
                 const identifier_symbol: SymbolId = try self.symbol_from_token(info.variable);
                 const set_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
-                    .instance => {
-                        self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(info.variable) },
-                            "TODO: Cannot yet compile setting of an instance variable, therefore could not set the instance variable named '{s}'.",
-                            .{idenditifer_text},
-                        );
-                        return error.TODO;
-                    },
+                    .instance => |instance_var_id| .{ .set_instance_var = instance_var_id },
                     .local_or_method_argument => |local_var_id| .{ .set_local = local_var_id },
                     .global => {
                         self.reporter.report_error(
@@ -1002,6 +995,10 @@ pub const InstructionDecoder = struct {
                 const id = self.read_id(Instruction.InstanceVarId);
                 break :sw Instruction{ .load_instance_var = id };
             },
+            .set_instance_var => {
+                const local_id = self.read_id(Instruction.InstanceVarId);
+                break :sw Instruction{ .set_instance_var = local_id };
+            },
             .load_constant => {
                 const id = self.read_id(RelativeConstantId);
                 break :sw Instruction{ .load_constant = .{ .id = id } };
@@ -1092,6 +1089,9 @@ pub const InstructionEncoder = struct {
             .load_instance_var => |info| {
                 try self.write_integer(allocator, info.idx);
             },
+            .set_instance_var => |info| {
+                try self.write_integer(allocator, info.idx);
+            },
             .load_constant => |info| {
                 try self.write_integer(allocator, info.id.idx);
             },
@@ -1172,6 +1172,9 @@ pub const InstructionFormatter = struct {
                     try writer.print(" id({d})", .{local_id.idx});
                 },
                 .load_instance_var => |instance_var_id| {
+                    try writer.print(" id({d})", .{instance_var_id.idx});
+                },
+                .set_instance_var => |instance_var_id| {
                     try writer.print(" id({d})", .{instance_var_id.idx});
                 },
                 .load_global => |global_var_id| {
@@ -1257,7 +1260,11 @@ pub const Instruction = union(enum(u8)) {
     /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable
     set_local: LocalVarId = 9,
 
-    pop = 10,
+    /// TODO: maybe fix this? doesn't pop
+    /// Gets the top value from the stack (doesn't pop) and assigns its value into an instance variable
+    set_instance_var: InstanceVarId = 10,
+
+    pop = 11,
 
     print, // TODO: remove this after development
 
@@ -1316,6 +1323,7 @@ pub const Instruction = union(enum(u8)) {
             .send_message => false,
             .duplicate => true,
             .halt => false,
+            .set_instance_var => false,
             .load_local => true,
             .load_instance_var => true,
             .load_global => true,

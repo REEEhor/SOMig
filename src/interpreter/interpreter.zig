@@ -252,9 +252,25 @@ pub const Interpreter = struct {
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];
                     const instance_variable = switch (self_object.data.kind()) {
                         .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, instance_var_id.idx),
+                        // TODO: maybe this will not be a different case?
+                        .class => return self.report_TODO("Loading of class variables", .{}),
                         else => unreachable,
                     };
                     try self.push_object(instance_variable);
+                },
+                .set_instance_var => |instance_var_id| {
+                    const top_object: VmObject = self.top_stack_object();
+                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];
+                    switch (self_object.data.kind()) {
+                        .generic_object => |accessor| accessor.set_instance_var_with_idx(
+                            self_object.data,
+                            instance_var_id.idx,
+                            top_object,
+                        ),
+                        // TODO: maybe this will not be a different case?
+                        .class => return self.report_TODO("Setting of class variables", .{}),
+                        else => unreachable,
+                    }
                 },
                 .load_global => |global_symbol_id| {
                     const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
@@ -616,7 +632,7 @@ pub const ClassDefinition = struct {
     pub const MethodMap = SymbolArrayMap(Method, "method_name");
 
     pub fn fields_count_including_parents(self: Self) usize {
-        var result: usize = self.identifiers_of_instance_variables;
+        var result: usize = self.identifiers_of_instance_variables.len;
         if (self.parent) |parent| {
             result += parent.identifiers_of_instance_variables.len;
         }
@@ -1047,7 +1063,7 @@ pub const primitives = struct {
                 .class => |accessor| accessor.get_class_definition(target_object.data),
                 else => unreachable,
             };
-            const instance_fields_count: u32 = @intCast(class_definition.identifiers_of_instance_variables.len);
+            const instance_fields_count: u32 = @intCast(class_definition.fields_count_including_parents());
 
             var header = HeapData.Header.new_undefined_with_tag(.generic_object);
             (GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), instance_fields_count);
