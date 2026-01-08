@@ -233,19 +233,20 @@ pub const Parser = struct {
                         .span = TokenSpan.create(method_header.span().start_id.idx, end_token.idx),
                     };
                 },
-                .identifier => {
-                    _ = self.next_token();
-                    break :sw MethodDefinition{
-                        .body = .primitive,
-                        .header = method_header,
-                        .span = TokenSpan.create(method_header.span().start_id.idx, body_start_token_id.idx),
-                    };
-                },
-                else => {
+                else => |kind| {
+                    const token_text: []const u8 = self.ast.text_at(parenthesis_or_primitive_keyword);
+                    if (kind == .identifier and std.mem.eql(u8, token_text, "primitive")) {
+                        _ = self.next_token();
+                        break :sw MethodDefinition{
+                            .body = .primitive,
+                            .header = method_header,
+                            .span = TokenSpan.create(method_header.span().start_id.idx, body_start_token_id.idx),
+                        };
+                    }
                     self.reporter.report_error(
                         .{ .pos = parenthesis_or_primitive_keyword.pos },
                         "Unexpected token {t} '{s}'. Expected token '(' or 'primitive'.",
-                        .{ parenthesis_or_primitive_keyword.kind, self.text_at(parenthesis_or_primitive_keyword) },
+                        .{ kind, token_text },
                     );
                     return ParserError.unexpected_token;
                 },

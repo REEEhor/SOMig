@@ -1,0 +1,3 @@
+SomeClass = (
+    method = this_identifier_is_not_primitive
+)
