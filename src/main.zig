@@ -150,7 +150,10 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          10.0 / 0.0.
         \\          10 / 4.
         \\
-        \\          "Animal."  "<-- Try uncommenting this to crash to program"
+        \\          "Try uncommenting the line below to crash to program:"
+        \\          "SomeClassWithSyntaxErrorInItsDefinition."
+        \\
+        \\          (Animal new) say_hi.
         \\
         \\           "12345678"
         \\          ('knihovna' substringFrom: 2 to: 5) println.
@@ -189,6 +192,16 @@ fn playground(allocator: std.mem.Allocator) !void {
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Animal")).id,
         \\ Animal = (
+        \\    | name |
+        \\    say_hi = (
+        \\      'The animal "' print.
+        \\      name print.
+        \\      '" says "hi!"' println.
+        \\    )
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("SomeClassWithSyntaxErrorInItsDefinition")).id,
+        \\ SomeClassWithSyntaxErrorInItsDefinition = (
         \\      say_hi = this_causes_parser_error
         \\ )
     );
@@ -223,6 +236,9 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Class")).id,
         \\ Class = (
         \\      name = primitive
+        \\
+        \\      "Constructor"
+        \\      new = primitive
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Nil")).id,

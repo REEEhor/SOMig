@@ -33,7 +33,7 @@ const IntegerRepresentation = token_module.IntegerRepresentation;
 const FloatRepresentation = token_module.FloatRepresentation;
 
 const Ast = @import("ast.zig");
-const iterator = Ast.TokenSpan.iterator;
+const token_iterator = Ast.TokenSpan.iterator;
 const ParsedFile = Ast.ParsedFile;
 
 const reporter_module = @import("reporter.zig");
@@ -145,12 +145,11 @@ pub const ScopeStack = struct {
         var scope_idx: i32 = @intCast(self.scopes.items.len - 1);
         while (scope_idx >= 0) : (scope_idx -= 1) {
             if (self.scopes.items[@intCast(scope_idx)].get(identifier)) |variable| {
-                // TODO: once we have instance variables, uncomment this
-                // if (scope_idx == 0) {
-                //     return VariableId{ .instance = .{ .idx = variable.idx } };
-                // } else {
-                return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
-                // }
+                if (scope_idx == 0) {
+                    return VariableId{ .instance = .{ .idx = variable.idx } };
+                } else {
+                    return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
+                }
             }
         }
         return VariableId.global;
@@ -385,6 +384,30 @@ pub fn compile_class(
 
     var lexical_scopes = try ScopeStack.init(temporary_allocator, 5, 30);
 
+    // Create a list of fields and create a lexical scope out of them
+    var field_identifiers = try statics.allocator.alloc(
+        SymbolId,
+        if (ast.class_ast.instance_portion.fields) |f| f.number_of_tokens() else 0,
+    );
+    {
+        const parent_fields_count: u32 = if (compiled_parent) |p| @intCast(p.identifiers_of_instance_variables.len) else 0;
+        var lexical_scope = lexical_scopes.new_scope();
+        var iter = token_iterator(ast.class_ast.instance_portion.fields);
+        var idx: u32 = 0;
+        while (iter.next()) |field_token| : (idx += 1) {
+            const field_text = ast.text_at(field_token);
+            const field_symbol: SymbolId = (try statics.symbols_manager.id_or_intern(field_text)).id;
+            field_identifiers[idx] = field_symbol;
+
+            // The fields are stored right after all the parent's fields
+            const field_idx = idx + parent_fields_count;
+            try lexical_scope.register_variable(.{ .identifier = field_symbol, .idx = field_idx });
+        }
+        assert(idx == field_identifiers.len);
+        try lexical_scopes.push_scope(lexical_scope);
+    }
+    defer lexical_scopes.pop_scope();
+
     const all_methods_len = ast.class_ast.instance_portion.methods.len + (if (compiled_parent) |p| p.instance_methods.items.len else 0);
     var compiled_methods: []Method = try temporary_allocator.alloc(Method, all_methods_len);
     defer temporary_allocator.free(compiled_methods);
@@ -397,8 +420,6 @@ pub fn compile_class(
 
     var method_idx: usize = 0;
     for (ast.class_ast.instance_portion.methods) |method_ast| {
-        lexical_scopes.reset_but_retain_capacity();
-
         const method_selector: SymbolId = try get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter);
 
         // TODO: if we ever want to mark methods if they are inherited or defined in the class, we can mark them as such here :D
@@ -533,6 +554,8 @@ pub fn compile_class(
             .class_name = class_name_symbol,
             .instance_methods = instance_methods,
             .as_vm_object = undefined,
+            .identifiers_of_instance_variables = field_identifiers,
+            .parent = compiled_parent,
         };
         break :blk ptr;
     };
@@ -667,7 +690,7 @@ pub const BytecodeGenerator = struct {
         var locals_scope = self.scope_stack.new_scope();
         const nil_constant_id = try self.constants_manager.add_constant(Constant.nil);
         //
-        var iter = iterator(body.locals);
+        var iter = token_iterator(body.locals);
         var local_idx: u32 = method_header.number_of_arguments_including_self();
         var registered_at_least_one_local: bool = false;
         while (iter.next()) |identifier_var_token| : (local_idx += 1) {

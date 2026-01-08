@@ -83,6 +83,10 @@ pub const Stack = struct {
     pub const Frame = struct {
         /// Index into the array `objects`
         base_idx: u32,
+
+        /// Index into the array `objects`
+        self_object_idx: u32,
+
         constants_base_id: ConstantId,
         after_return_instruction_id: InstructionId,
 
@@ -245,7 +249,12 @@ pub const Interpreter = struct {
                     self.stack.objects[self.top_frame().base_idx + local_to_set_id.idx] = to_assign;
                 },
                 .load_instance_var => |instance_var_id| {
-                    return self.report_TODO("Execution of instruction 'load_instance_var' (id is {d})", .{instance_var_id.idx});
+                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];
+                    const instance_variable = switch (self_object.data.kind()) {
+                        .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, instance_var_id.idx),
+                        else => unreachable,
+                    };
+                    try self.push_object(instance_variable);
                 },
                 .load_global => |global_symbol_id| {
                     const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
@@ -434,6 +443,7 @@ pub const Interpreter = struct {
         self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
             .constants_base_id = constants_base_id,
             .base_idx = new_base_index,
+            .self_object_idx = @intCast(self.stack.objects.len - 1),
             .after_return_instruction_id = after_return_instruction_id,
         };
         self.stack.objects.len += locals_count;
@@ -599,12 +609,19 @@ pub const ClassDefinition = struct {
     class_name: SymbolId,
     instance_methods: MethodMap,
     as_vm_object: VmObject,
-
-    // TODO: add instance variables
-    // TODO: add !!optional!! pointer to parent class
+    identifiers_of_instance_variables: []SymbolId,
+    parent: ?*ClassDefinition,
 
     const Self = @This();
     pub const MethodMap = SymbolArrayMap(Method, "method_name");
+
+    pub fn fields_count_including_parents(self: Self) usize {
+        var result: usize = self.identifiers_of_instance_variables;
+        if (self.parent) |parent| {
+            result += parent.identifiers_of_instance_variables.len;
+        }
+        return result;
+    }
 
     pub fn get_method(self: Self, method_name: SymbolId) ?*const Method {
         const idx = self.instance_methods.get_idx(method_name) orelse return null;
@@ -966,13 +983,13 @@ pub const GenericObjectAccessor = struct {
     }
 
     pub inline fn get_instance_var_with_idx(self: Self, heap_data: *const HeapData, instance_var_idx: u32) VmObject {
-        assert(instance_var_idx < self.get_instance_variables_count(heap_data));
+        assert(instance_var_idx < self.get_instance_variables_count(heap_data.*));
         const instances = heap_data.get_after_header_ptr([*]VmObject);
         return instances[instance_var_idx + 1]; // `+1` since we store the `*ClassDefinition` at the index 0
     }
 
     pub inline fn set_instance_var_with_idx(self: Self, heap_data: *HeapData, instance_var_idx: u32, new_object: VmObject) void {
-        assert(instance_var_idx < self.get_instance_variables_count(heap_data));
+        assert(instance_var_idx < self.get_instance_variables_count(heap_data.*));
         const instances = heap_data.get_after_header_ptr([*]VmObject);
         instances[instance_var_idx + 1] = new_object; // `+1` since we store the `*ClassDefinition` at the index 0
     }
@@ -1024,12 +1041,34 @@ pub const primitives = struct {
         ///
         pub const Accessor = GenericObjectAccessor;
 
+        pub const new__somig_arity = 1;
+        pub fn new__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+            const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
+                .class => |accessor| accessor.get_class_definition(target_object.data),
+                else => unreachable,
+            };
+            const instance_fields_count: u32 = @intCast(class_definition.identifiers_of_instance_variables.len);
+
+            var header = HeapData.Header.new_undefined_with_tag(.generic_object);
+            (GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), instance_fields_count);
+            const obj_data: *HeapData = try interpreter.heap.allocate(header);
+            (GenericObjectAccessor{}).set_class_definition(obj_data, class_definition);
+
+            // Set all instance fields to `nil`:
+            const nil_singleton: VmObject = try interpreter.get_nil_singleton();
+            for (0..instance_fields_count) |idx| {
+                (GenericObjectAccessor{}).set_instance_var_with_idx(obj_data, @intCast(idx), nil_singleton);
+            }
+
+            const obj: VmObject = obj_data.as_vm_object();
+            return obj;
+        }
+
         pub const name__somig_arity = 1;
         pub fn name__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
             const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
                 .class => |accessor| accessor.get_class_definition(target_object.data),
-                // TODO: proper error reporting
-                else => return Interpreter.Error.primitive_type_error,
+                else => unreachable,
             };
             const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
 
