@@ -170,7 +170,9 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          | some_variable cat |
         \\          cat := Cat new.
         \\          cat say_hi.
+        \\          cat println.
         \\          cat set_name_to: 'Shrodinger'.
+        \\          cat println.
         \\          cat set_jump_height_to: 150 + 2.
         \\          cat say_hi.
         \\          cat jump.
@@ -198,6 +200,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\
         \\    name = ( ^ name )
         \\
+        \\    asString = ( ^ 'animal named "' + (self name) + '"' )
+        \\
         \\    set_name_to: new_name = (
         \\       name := new_name.
         \\    )
@@ -212,6 +216,8 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Cat")).id,
         \\ Cat = Animal (
         \\    | jump_height |
+        \\
+        \\    asString = ( ^ 'cat named "' + (self name) + '"' )
         \\
         \\    set_jump_height_to: new_jump_height_in_cm = (
         \\       jump_height := new_jump_height_in_cm.
