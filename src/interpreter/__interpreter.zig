@@ -306,6 +306,11 @@ pub const Interpreter = struct {
                     };
                     try self.push_object(instance_variable);
                 },
+                .pop_into_new_array => |info| {
+                    const number_of_items = info.number_of_items;
+                    _ = number_of_items;
+                    return self.report_TODO("creating an array instruction", .{});
+                },
                 .set_instance_var => |instance_var_id| {
                     const top_object: VmObject = self.top_stack_object();
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];

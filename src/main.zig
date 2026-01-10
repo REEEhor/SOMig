@@ -162,8 +162,26 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          1.
         \\          self get_message println.
         \\
+        \\          self array_example.
+        \\
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          (4 asString + 2) println.
+        \\      )
+        \\
+        \\
+        \\      array_example = (
+        \\          | arr |
+        \\          arr := #().
+        \\          arr println.
+        \\
+        \\          arr := #( 10 ).
+        \\          arr println.
+        \\
+        \\          arr := #( 10 20 30 ).
+        \\          arr println.
+        \\
+        \\          arr := #( 10 20 30 40 50 60 70 ).
+        \\          arr println.
         \\      )
         \\
         \\      some_other_method = (

@@ -865,6 +865,20 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .set_local = Instruction.LocalVarId.return_object });
                 try self.add_instruction(.normal_return);
             },
+            .array_literal => |array_literal| {
+                const sub_expressions: []const Ast.ExprId = self.ast.extras.variable_span_of(array_literal.elements);
+                for (sub_expressions) |sub_expression| {
+                    try self.compile_expression(sub_expression);
+                }
+                const max_length = std.math.maxInt(Instruction.PopIntoNewArray.IntRepr);
+                if (sub_expressions.len > max_length) {
+                    self.reporter.report_error(.{ .pos = self.ast.pos_of(sub_expressions[max_length]) }, "This item causes the array literal to be too long. What are you even doing? Having more than {d} items (the limit) in an array literal seems a bit much.", .{max_length});
+                    return error.too_many_items_in_array_literal;
+                }
+                try self.add_instruction(.{ .pop_into_new_array = .{
+                    .number_of_items = @truncate(sub_expressions.len),
+                } });
+            },
             else => |todo_expr| {
                 self.reporter.report_error(
                     .{ .pos = self.ast.pos_of(expr_id) },
@@ -1000,6 +1014,10 @@ pub const InstructionDecoder = struct {
                 const local_id = self.read_id(Instruction.InstanceVarId);
                 break :sw Instruction{ .set_instance_var = local_id };
             },
+            .pop_into_new_array => {
+                const number_of_items = self.read_integer(Instruction.PopIntoNewArray.IntRepr);
+                break :sw Instruction{ .pop_into_new_array = .{ .number_of_items = number_of_items } };
+            },
             .load_constant => {
                 const id = self.read_id(RelativeConstantId);
                 break :sw Instruction{ .load_constant = .{ .id = id } };
@@ -1103,6 +1121,9 @@ pub const InstructionEncoder = struct {
                 try self.write_integer(allocator, info.aditional_args_count);
                 try self.write_integer(allocator, info.message_name.idx);
             },
+            .pop_into_new_array => |info| {
+                try self.write_integer(allocator, info.number_of_items);
+            },
             // NOTE(epic-zig): comptime assert
             inline else => |payload, tag| {
                 if (@TypeOf(payload) != void) {
@@ -1177,6 +1198,9 @@ pub const InstructionFormatter = struct {
                 },
                 .set_instance_var => |instance_var_id| {
                     try writer.print(" id({d})", .{instance_var_id.idx});
+                },
+                .pop_into_new_array => |info| {
+                    try writer.print(" items-count={d}", .{info.number_of_items});
                 },
                 .load_global => |global_var_id| {
                     const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
@@ -1267,8 +1291,14 @@ pub const Instruction = union(enum(u8)) {
 
     pop = 11,
 
+    pop_into_new_array: PopIntoNewArray = 12,
+
     print, // TODO: remove this after development
 
+    pub const PopIntoNewArray = packed struct {
+        pub const IntRepr = u24;
+        number_of_items: IntRepr,
+    };
     /// TODO: THIS IS PROBABLY NOT VALID
     ///
     /// Represents the place relative to the base pointer in the
@@ -1320,6 +1350,7 @@ pub const Instruction = union(enum(u8)) {
     pub fn is_load_instruction(self: Self) bool {
         return switch (self) {
             .no_op => false,
+            .pop_into_new_array => false,
             .load_constant => true,
             .send_message => false,
             .duplicate => true,
