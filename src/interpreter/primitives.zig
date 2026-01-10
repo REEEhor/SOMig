@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 
 const interpreter_module = @import("__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
+const Heap = interpreter_module.Heap;
 
 const class_definition_module = @import("class_definition.zig");
 const ClassDefinition = class_definition_module.ClassDefinition;
@@ -30,21 +31,16 @@ pub const Class = struct {
             .class => |accessor| accessor.get_class_definition(target_object.data),
             else => unreachable,
         };
-        const instance_fields_count: u32 = @intCast(class_definition.fields_count_including_parents());
 
-        var header = HeapData.Header.new_undefined_with_tag(.generic_object);
-        (accessors.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), instance_fields_count);
-        const obj_data: *HeapData = try interpreter.heap.allocate(header);
-        (accessors.GenericObjectAccessor{}).set_class_definition(obj_data, class_definition);
-
-        // Set all instance fields to `nil`:
         const nil_singleton: VmObject = try interpreter.get_nil_singleton();
-        for (0..instance_fields_count) |idx| {
-            (accessors.GenericObjectAccessor{}).set_instance_var_with_idx(obj_data, @intCast(idx), nil_singleton);
-        }
+        const new_object = try accessors.GenericObjectAccessor.new_object(
+            &interpreter.heap,
+            Heap.allocate,
+            class_definition,
+            nil_singleton,
+        );
 
-        const obj: VmObject = obj_data.as_vm_object();
-        return obj;
+        return new_object;
     }
 
     pub const name__somig_arity = 1;

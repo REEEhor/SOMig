@@ -4,11 +4,16 @@ const assert = std.debug.assert;
 const vm_object_module = @import("vm_object.zig");
 const HeapData = vm_object_module.HeapData;
 const VmObject = vm_object_module.VmObject;
+const Header = HeapData.Header;
 
 const SmallPtr = @import("small_ptr.zig").SmallPtr;
 
 const class_definition_module = @import("class_definition.zig");
 const ClassDefinition = class_definition_module.ClassDefinition;
+
+pub fn AllocateHeapDataFn(comptime ContextType: type) type {
+    return fn (context: ContextType, header: Header) error{OutOfMemory}!*HeapData;
+}
 
 pub const EmptyHeapSegmentAccessor = struct {
     const Self = @This();
@@ -37,6 +42,29 @@ pub const EmptyHeapSegmentAccessor = struct {
 
 pub const GenericObjectAccessor = struct {
     pub const Self = @This();
+
+    pub fn new_object(
+        context: anytype,
+        alloc_function: AllocateHeapDataFn(@TypeOf(context)),
+        class_of_object: *ClassDefinition,
+        default_field_object: VmObject,
+    ) error{OutOfMemory}!VmObject {
+        const self = Self{};
+        const instance_fields_count: u32 = @intCast(class_of_object.fields_count_including_parents());
+
+        var header = Header.new_undefined_with_tag(.generic_object);
+        self.set_instance_variables_count(header.as_heap_data(), instance_fields_count);
+        const new_object_data: *HeapData = try alloc_function(context, header);
+        self.set_class_definition(new_object_data, class_of_object);
+
+        // Set all instance fields to the default object:
+        for (0..instance_fields_count) |idx| {
+            self.set_instance_var_with_idx(new_object_data, @intCast(idx), default_field_object);
+        }
+
+        const object: VmObject = new_object_data.as_vm_object();
+        return object;
+    }
 
     pub inline fn get_bytes_count_after_header(self: Self, heap_data: HeapData) usize {
         const instance_vars_cnt = self.get_instance_variables_count(heap_data);
@@ -71,10 +99,10 @@ pub const GenericObjectAccessor = struct {
         return instances[instance_var_idx + 1]; // `+1` since we store the `*ClassDefinition` at the index 0
     }
 
-    pub inline fn set_instance_var_with_idx(self: Self, heap_data: *HeapData, instance_var_idx: u32, new_object: VmObject) void {
+    pub inline fn set_instance_var_with_idx(self: Self, heap_data: *HeapData, instance_var_idx: u32, object: VmObject) void {
         assert(instance_var_idx < self.get_instance_variables_count(heap_data.*));
         const instances = heap_data.get_after_header_ptr([*]VmObject);
-        instances[instance_var_idx + 1] = new_object; // `+1` since we store the `*ClassDefinition` at the index 0
+        instances[instance_var_idx + 1] = object; // `+1` since we store the `*ClassDefinition` at the index 0
     }
 };
 
