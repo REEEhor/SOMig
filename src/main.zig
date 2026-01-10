@@ -314,9 +314,9 @@ fn playground(allocator: std.mem.Allocator) !void {
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
 
     var header = interpreter_module.HeapData.Header.new_undefined_with_tag(.generic_object);
-    (interpreter_module.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), 0);
+    (interpreter_module.accessors.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), 0);
     const main_object_data = try interpreter.statics.allocate_for_static_object(header);
-    (interpreter_module.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
+    (interpreter_module.accessors.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
     const main_object = main_object_data.as_vm_object();
 
     try interpreter.push_object(main_object);

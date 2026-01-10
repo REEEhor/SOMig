@@ -26,6 +26,7 @@ const MethodDefinition = interpreter_module.MethodDefinition;
 const MethodBody = interpreter_module.MethodBody;
 const HeapData = interpreter_module.HeapData;
 const primitives = interpreter_module.primitives;
+const accessors = interpreter_module.accessors;
 const Statics = interpreter_module.Statics;
 
 const token_module = @import("token.zig");
@@ -562,9 +563,9 @@ pub fn compile_class(
 
     // Create a new global object which represents the newly compiled class
     var header = HeapData.Header.new_undefined_with_tag(.class);
-    (primitives.Class.Accessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
+    (accessors.ClassAccessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
     const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-    (primitives.Class.Accessor{}).set_class_definition(heap_data, compiled_class);
+    (accessors.ClassAccessor{}).set_class_definition(heap_data, compiled_class);
     const class_as_som_object: VmObject = heap_data.as_vm_object();
     // We assert that there was no such global before.
     // This should hold, otherwise we would have looked up the
