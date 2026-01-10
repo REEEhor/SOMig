@@ -18,7 +18,7 @@ const lexer_module = @import("../frontend/lexer.zig");
 const TokenizedFile = lexer_module.TokenizedFile;
 const parser_module = @import("../frontend/parser.zig");
 
-const interpreter_module = @import("../interpreter/interpreter.zig");
+const interpreter_module = @import("../interpreter/__interpreter.zig");
 const VmObject = interpreter_module.VmObject;
 const ClassDefinition = interpreter_module.ClassDefinition;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;

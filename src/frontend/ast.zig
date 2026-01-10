@@ -92,15 +92,15 @@ pub const ClassAst = struct {
 
 pub const ClassAstPortion = struct {
     const Self = @This();
-    methods: []MethodDefinition,
+    methods: []MethodAst,
     fields: ?TokenSpan,
     pub fn empty() Self {
-        return .{ .methods = &[0]MethodDefinition{}, .fields = null };
+        return .{ .methods = &[0]MethodAst{}, .fields = null };
     }
 };
 
 /// Method definition
-pub const MethodDefinition = struct {
+pub const MethodAst = struct {
     span: TokenSpan,
     header: MethodHeader,
     body: union(enum) { impl: FunctionBody, primitive },

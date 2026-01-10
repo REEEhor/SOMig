@@ -40,7 +40,7 @@ const ExpressionList = ast_module.ExpressionList;
 const Extras = ast_module.Extras;
 const ClassAst = ast_module.ClassAst;
 const ExprId = ast_module.ExprId;
-const MethodDefinition = ast_module.MethodDefinition;
+const MethodAst = ast_module.MethodAst;
 const TokenSpan = ast_module.TokenSpan;
 const FunctionBody = ast_module.FunctionBody;
 const FunctionBodyId = ast_module.FunctionBodyId;
@@ -206,7 +206,7 @@ pub const Parser = struct {
         };
 
         // Parse method definitions
-        var method_definitions = std.ArrayList(MethodDefinition).empty;
+        var method_definitions = std.ArrayList(MethodAst).empty;
         while (self.peek_next_token()) |method_header_token| {
             const method_header: MethodHeader = switch (method_header_token.kind) {
                 .identifier => self.parse_unary_method_header(),
@@ -227,7 +227,7 @@ pub const Parser = struct {
                     const method_body = try self.parse_function_body();
                     const end_token: TokenId = self.next_token_id;
                     _ = try self.eat_token(.close_parenthesis);
-                    break :sw MethodDefinition{
+                    break :sw MethodAst{
                         .body = .{ .impl = method_body },
                         .header = method_header,
                         .span = TokenSpan.create(method_header.span().start_id.idx, end_token.idx),
@@ -237,7 +237,7 @@ pub const Parser = struct {
                     const token_text: []const u8 = self.ast.text_at(parenthesis_or_primitive_keyword);
                     if (kind == .identifier and std.mem.eql(u8, token_text, "primitive")) {
                         _ = self.next_token();
-                        break :sw MethodDefinition{
+                        break :sw MethodAst{
                             .body = .primitive,
                             .header = method_header,
                             .span = TokenSpan.create(method_header.span().start_id.idx, body_start_token_id.idx),
