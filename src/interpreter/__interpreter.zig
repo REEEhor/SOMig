@@ -194,6 +194,52 @@ pub const Interpreter = struct {
         };
     }
 
+    pub const NewObjectAllocationStrategy = enum { heap, static };
+
+    fn allocate_heap_data_from_header(self: *Self, comptime alloc: NewObjectAllocationStrategy, header: HeapData.Header) Error!*HeapData {
+        switch (alloc) {
+            .heap => {
+                return self.heap.allocate(header);
+            },
+            .static => {
+                return self.statics.allocate_for_static_object(header);
+            },
+        }
+    }
+
+    pub fn create_object(self: *Self, comptime alloc: NewObjectAllocationStrategy, class_of_object: *ClassDefinition) Error!VmObject {
+        const instance_fields_count: u32 = @intCast(class_of_object.fields_count_including_parents());
+        var header = HeapData.Header.new_undefined_with_tag(.generic_object);
+        (accessors.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), instance_fields_count);
+        const new_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
+        (accessors.GenericObjectAccessor{}).set_class_definition(new_object_data, class_of_object);
+
+        // Set all instance fields to the default object:
+        const nil_singleton = try self.get_nil_singleton();
+        for (0..instance_fields_count) |idx| {
+            (accessors.GenericObjectAccessor{}).set_instance_var_with_idx(new_object_data, @intCast(idx), nil_singleton);
+        }
+
+        const object: VmObject = new_object_data.as_vm_object();
+        return object;
+    }
+
+    pub fn create_string(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        new_string_contents: []const u8,
+    ) Error!VmObject {
+        try self.ensure_primitive_class_is_loaded(.string);
+
+        var header = HeapData.Header.new_undefined_with_tag(.string);
+        (accessors.StringAccessor{}).set_length(header.as_heap_data(), @intCast(new_string_contents.len));
+        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
+        @memcpy((accessors.StringAccessor{}).contents(result_object_data), new_string_contents);
+
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
     /// Takes the `primitive_methods` of the `Interpreter` and makes them into a classes with only the primitive methods.
     /// This is temporary, since later `primitive_methods` should be used only to retrive information about
     /// primitive methods during the loading of a class

@@ -32,14 +32,7 @@ pub const Class = struct {
             else => unreachable,
         };
 
-        const nil_singleton: VmObject = try interpreter.get_nil_singleton();
-        const new_object = try accessors.GenericObjectAccessor.new_object(
-            &interpreter.heap,
-            Heap.allocate,
-            class_definition,
-            nil_singleton,
-        );
-
+        const new_object = try interpreter.create_object(.heap, class_definition);
         return new_object;
     }
 
@@ -50,11 +43,7 @@ pub const Class = struct {
             else => unreachable,
         };
         const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
-        const name_as_string_object = accessors.StringAccessor.new_string(
-            &interpreter.heap,
-            Heap.allocate,
-            name_as_u8_slice,
-        );
+        const name_as_string_object = try interpreter.create_string(.heap, name_as_u8_slice);
         return name_as_string_object;
     }
 };

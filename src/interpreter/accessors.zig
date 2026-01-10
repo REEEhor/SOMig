@@ -43,29 +43,6 @@ pub const EmptyHeapSegmentAccessor = struct {
 pub const GenericObjectAccessor = struct {
     pub const Self = @This();
 
-    pub fn new_object(
-        context: anytype,
-        alloc_function: AllocateHeapDataFn(@TypeOf(context)),
-        class_of_object: *ClassDefinition,
-        default_field_object: VmObject,
-    ) error{OutOfMemory}!VmObject {
-        const self = Self{};
-        const instance_fields_count: u32 = @intCast(class_of_object.fields_count_including_parents());
-
-        var header = Header.new_undefined_with_tag(.generic_object);
-        self.set_instance_variables_count(header.as_heap_data(), instance_fields_count);
-        const new_object_data: *HeapData = try alloc_function(context, header);
-        self.set_class_definition(new_object_data, class_of_object);
-
-        // Set all instance fields to the default object:
-        for (0..instance_fields_count) |idx| {
-            self.set_instance_var_with_idx(new_object_data, @intCast(idx), default_field_object);
-        }
-
-        const object: VmObject = new_object_data.as_vm_object();
-        return object;
-    }
-
     pub inline fn get_bytes_count_after_header(self: Self, heap_data: HeapData) usize {
         const instance_vars_cnt = self.get_instance_variables_count(heap_data);
         const total_size_in_bytes = (@sizeOf(VmObject) * instance_vars_cnt) + @sizeOf(*ClassDefinition);
@@ -155,22 +132,6 @@ pub const DoubleAccessor = struct {
 
 pub const StringAccessor = packed struct {
     const Self = @This();
-
-    pub fn new_string(
-        context: anytype,
-        alloc_function: AllocateHeapDataFn(@TypeOf(context)),
-        new_string_contents: []const u8,
-    ) error{OutOfMemory}!VmObject {
-        const self = Self{};
-
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        self.set_length(header.as_heap_data(), @intCast(new_string_contents.len));
-        const result_object_data: *HeapData = try alloc_function(context, header);
-        @memcpy(self.contents(result_object_data), new_string_contents);
-
-        const object: VmObject = result_object_data.as_vm_object();
-        return object;
-    }
 
     pub fn get_length(self: Self, heap_data: HeapData) i48 {
         _ = self;
