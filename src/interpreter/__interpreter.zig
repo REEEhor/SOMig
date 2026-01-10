@@ -240,46 +240,6 @@ pub const Interpreter = struct {
         return object;
     }
 
-    /// Takes the `primitive_methods` of the `Interpreter` and makes them into a classes with only the primitive methods.
-    /// This is temporary, since later `primitive_methods` should be used only to retrive information about
-    /// primitive methods during the loading of a class
-    /// TODO: remove this once we can load individial classes and their definitions
-    pub fn TODO_REMOVE_THIS__add_implementations_of_primitive_classes(self: *Self) Error!void {
-        const integer_symbol_id = self.statics.symbols_manager.id_of("Integer").?;
-        const double_symbol_id = self.statics.symbols_manager.id_of("Double").?;
-        const string_symbol_id = self.statics.symbols_manager.id_of("String").?;
-
-        for (self.primitive_methods.sorted_classes.items) |primitive_class| {
-            const methods = try self.statics.allocator.alloc(MethodDefinition, primitive_class.methods.len());
-            for (primitive_class.methods.items, 0..) |primitive_method, idx| {
-                methods[idx] = MethodDefinition{
-                    .method_name = primitive_method.method_name,
-                    .body = MethodBody{ .primitive = primitive_method.function },
-                    .number_of_aditional_args = primitive_method.args_cnt - 1,
-                };
-            }
-            const sorted_methods = ClassDefinition.MethodMap.from_slice(methods).ok; // NOTE: we can use `.ok` here, since the primitive methods were parsed from a struct definition, if not and there is a duplicate method name, we crash :D
-            const class_definition = try self.statics.all_classes.addOne(self.statics.allocator);
-            class_definition.* = ClassDefinition{
-                .class_name = primitive_class.class_name,
-                .instance_methods = sorted_methods,
-            };
-
-            if (class_definition.class_name.idx == integer_symbol_id.idx) {
-                self.primitive_class_definitions.put(.integer, class_definition);
-            } else if (class_definition.class_name.idx == double_symbol_id.idx) {
-                self.primitive_class_definitions.put(.double, class_definition);
-            } else if (class_definition.class_name.idx == string_symbol_id.idx) {
-                self.primitive_class_definitions.put(.string, class_definition);
-            }
-        }
-    }
-
-    pub const ResultOfRegisterClass = struct {
-        is_already_registered: bool,
-        ptr_to_class: *ClassDefinition,
-    };
-
     // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) !void {
         while (true) {
