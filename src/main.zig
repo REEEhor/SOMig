@@ -7,7 +7,7 @@ const SymbolsManager = @import("interning/symbols_manager.zig").SymbolsManager;
 
 const codegen = @import("frontend/codegen.zig");
 
-const interpreter_module = @import("interpreter/interpreter.zig");
+const interpreter_module = @import("interpreter/__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Statics = interpreter_module.Statics;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;

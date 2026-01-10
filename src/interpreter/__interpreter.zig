@@ -27,7 +27,7 @@ const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
 
-const DO_DEBUG_TRACE: bool = false;
+pub const DO_DEBUG_TRACE: bool = false;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
