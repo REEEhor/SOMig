@@ -189,9 +189,9 @@ pub const Interpreter = struct {
         const string_symbol_id = self.statics.symbols_manager.id_of("String").?;
 
         for (self.primitive_methods.sorted_classes.items) |primitive_class| {
-            const methods = try self.statics.allocator.alloc(Method, primitive_class.methods.len());
+            const methods = try self.statics.allocator.alloc(MethodDefinition, primitive_class.methods.len());
             for (primitive_class.methods.items, 0..) |primitive_method, idx| {
-                methods[idx] = Method{
+                methods[idx] = MethodDefinition{
                     .method_name = primitive_method.method_name,
                     .body = MethodBody{ .primitive = primitive_method.function },
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
@@ -528,7 +528,7 @@ pub const Interpreter = struct {
     fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: VmObject = self.top_stack_object();
         const class: *const ClassDefinition = self.get_class_of(target_object);
-        const method: *const Method = class.get_method(call_info.message_name) orelse {
+        const method: *const MethodDefinition = class.get_method(call_info.message_name) orelse {
             self.report_runtime_error(
                 "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
                 .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
@@ -629,7 +629,7 @@ pub const ClassDefinition = struct {
     parent: ?*ClassDefinition,
 
     const Self = @This();
-    pub const MethodMap = SymbolArrayMap(Method, "method_name");
+    pub const MethodMap = SymbolArrayMap(MethodDefinition, "method_name");
 
     pub fn fields_count_including_parents(self: Self) usize {
         var result: usize = self.identifiers_of_instance_variables.len;
@@ -639,7 +639,7 @@ pub const ClassDefinition = struct {
         return result;
     }
 
-    pub fn get_method(self: Self, method_name: SymbolId) ?*const Method {
+    pub fn get_method(self: Self, method_name: SymbolId) ?*const MethodDefinition {
         const idx = self.instance_methods.get_idx(method_name) orelse return null;
         return &self.instance_methods.items[idx];
     }
@@ -791,7 +791,7 @@ pub const PrimitiveMethodsMap = struct {
     }
 };
 
-pub const Method = struct {
+pub const MethodDefinition = struct {
     /// The method selector.
     /// Some examples of selecetors are strings: "value", "+++", "get:with:andWith:".
     method_name: SymbolId,

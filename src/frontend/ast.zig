@@ -99,7 +99,7 @@ pub const ClassAstPortion = struct {
     }
 };
 
-/// Method definition
+/// Method definition in the AST
 pub const MethodAst = struct {
     span: TokenSpan,
     header: MethodHeader,

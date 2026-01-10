@@ -22,7 +22,7 @@ const interpreter_module = @import("../interpreter/__interpreter.zig");
 const VmObject = interpreter_module.VmObject;
 const ClassDefinition = interpreter_module.ClassDefinition;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
-const Method = interpreter_module.Method;
+const MethodDefinition = interpreter_module.MethodDefinition;
 const MethodBody = interpreter_module.MethodBody;
 const HeapData = interpreter_module.HeapData;
 const primitives = interpreter_module.primitives;
@@ -409,7 +409,7 @@ pub fn compile_class(
     defer lexical_scopes.pop_scope();
 
     const all_methods_len = ast.class_ast.instance_portion.methods.len + (if (compiled_parent) |p| p.instance_methods.items.len else 0);
-    var compiled_methods: []Method = try temporary_allocator.alloc(Method, all_methods_len);
+    var compiled_methods: []MethodDefinition = try temporary_allocator.alloc(MethodDefinition, all_methods_len);
     defer temporary_allocator.free(compiled_methods);
 
     const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
@@ -459,7 +459,7 @@ pub fn compile_class(
                     continue;
                 };
 
-                compiled_methods[method_idx] = Method{
+                compiled_methods[method_idx] = MethodDefinition{
                     .method_name = method_selector,
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
                     .body = MethodBody{ .primitive = primitive_method.function },
@@ -485,7 +485,7 @@ pub fn compile_class(
                     reporter.report_error(.{ .pos = ast.pos_of(method_ast.header.span()) }, "Too many arguments. Found {d} arguments, maximum is {d}.", .{ number_of_aditional_args, std.math.maxInt(u16) });
                     return error.too_many_arguments;
                 }
-                compiled_methods[method_idx] = Method{
+                compiled_methods[method_idx] = MethodDefinition{
                     .method_name = method_selector,
                     .number_of_aditional_args = @truncate(number_of_aditional_args),
                     .body = MethodBody{ .user_land = .{
@@ -538,7 +538,7 @@ pub fn compile_class(
         const parents_methods: ClassDefinition.MethodMap = if (compiled_parent) |parent_class|
             parent_class.instance_methods
         else
-            .{ .items = &[0]Method{} };
+            .{ .items = &[0]MethodDefinition{} };
         const combined_methods = try ClassDefinition.MethodMap.from_merge_of(
             only_instance_methods,
             parents_methods,
