@@ -70,6 +70,8 @@ pub const PrimitiveMethodsMap = struct {
         comptime primitives_module: type,
         symbols_manager: *SymbolsManager,
     ) Allocator.Error!Self {
+        @setEvalBranchQuota(2000);
+
         const primitive_fn_postfix = "__somig_primitive_fn";
         const fn_arity_postix = "__somig_arity";
         const module_info: std.builtin.Type.Struct = @typeInfo(primitives_module).@"struct";

@@ -44,6 +44,7 @@ pub const MethodBody = class_definition_module.MethodBody;
 pub const MethodDefinition = class_definition_module.MethodDefinition;
 
 pub const DO_DEBUG_TRACE: bool = false;
+pub const PRINT_PTR_MODULO: bool = true;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
@@ -267,6 +268,31 @@ pub const Interpreter = struct {
         return object;
     }
 
+    pub fn create_array_with_undefined_items(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        number_of_items: i48,
+    ) Error!VmObject {
+        try self.ensure_primitive_class_is_loaded(.array);
+
+        var header = HeapData.Header.new_undefined_with_tag(.array);
+        (accessors.ArrayAccessor{}).set_length(header.as_heap_data(), number_of_items);
+        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
+
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
+    pub fn create_array(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        items_to_copy_into_array: []VmObject,
+    ) Error!VmObject {
+        const array: VmObject = try self.create_array_with_undefined_items(alloc, @intCast(items_to_copy_into_array.len));
+        @memcpy((accessors.ArrayAccessor{}).items(array.data), items_to_copy_into_array);
+        return array;
+    }
+
     // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) !void {
         while (true) {
@@ -307,9 +333,19 @@ pub const Interpreter = struct {
                     try self.push_object(instance_variable);
                 },
                 .pop_into_new_array => |info| {
-                    const number_of_items = info.number_of_items;
-                    _ = number_of_items;
-                    return self.report_TODO("creating an array instruction", .{});
+                    // Get the items slice from the stack
+                    const items_count = info.number_of_items;
+                    const len = self.stack.objects.len;
+                    const items_start_idx = len - items_count;
+                    const items: []VmObject = self.stack.objects[items_start_idx..len];
+
+                    // Create the array object
+                    const array_object: VmObject = try self.create_array(.heap, items);
+
+                    // Pop all the objects that were copied into the new array
+                    self.stack.objects.len = items_start_idx;
+
+                    try self.push_object(array_object);
                 },
                 .set_instance_var => |instance_var_id| {
                     const top_object: VmObject = self.top_stack_object();
@@ -392,23 +428,46 @@ pub const Interpreter = struct {
         unreachable;
     }
 
-    pub fn print_object(self: *Self, object: VmObject) Error!void {
+    pub fn print_object_no_newline(self: *Self, object: VmObject) Error!void {
+        if (PRINT_PTR_MODULO) {
+            try self.stdout.print(" [{d:03}] ", .{@intFromPtr(object.data) % 999});
+        }
         switch (object.data.kind()) {
-            .integer => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
-            .double => |accessor| try self.stdout.print("{d}\n", .{accessor.get_value(object.data)}),
-            .string => |accessor| try self.stdout.print("'{s}'\n", .{accessor.contents(object.data)}),
+            .integer => |accessor| try self.stdout.print("{d}", .{accessor.get_value(object.data)}),
+            .double => |accessor| try self.stdout.print("{d}", .{accessor.get_value(object.data)}),
+            .string => |accessor| try self.stdout.print("'{s}'", .{accessor.contents(object.data)}),
             .generic_object => |accessor| {
                 const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                try self.stdout.print("Instance of class: '{s}'\n", .{class_name_string});
+                try self.stdout.print("Instance of class: '{s}'", .{class_name_string});
             },
             .nil => {
-                try self.stdout.print("nil\n", .{});
+                try self.stdout.print("nil", .{});
+            },
+            .class => |accessor| {
+                const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
+                const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
+                try self.stdout.print("Instance of class: '{s}_class'", .{class_name_string});
+            },
+            .array => |accessor| {
+                const items: []VmObject = accessor.items(object.data);
+                try self.stdout.print("Array: #(", .{});
+                for (items, 0..) |item, idx| {
+                    if (idx != 0) try self.stdout.print(", ", .{});
+                    try self.print_object_no_newline(item);
+                }
+                try self.stdout.print(")", .{});
             },
             else => {
                 return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{object.data.header.tag});
             },
         }
+    }
+
+    pub fn print_object(self: *Self, object: VmObject) Error!void {
+        try self.print_object_no_newline(object);
+        try self.stdout.print("\n", .{});
+        try self.stdout.flush();
     }
 
     pub fn debug_print_stack(self: *Self) Error!void {
@@ -574,7 +633,7 @@ pub const Interpreter = struct {
         return self.stack.objects[self.stack.objects.len - 1];
     }
 
-    fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
+    pub fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: VmObject = self.top_stack_object();
         const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const MethodDefinition = class.get_method(call_info.message_name) orelse {
@@ -628,6 +687,7 @@ pub const Interpreter = struct {
             .string => self.primitive_class_definitions.getAssertContains(.string),
             .class => self.primitive_class_definitions.getAssertContains(.class),
             .nil => self.primitive_class_definitions.getAssertContains(.nil),
+            .array => self.primitive_class_definitions.getAssertContains(.array),
 
             .generic_object => |accessor| accessor.get_class_definition(object.data),
             .empty_heap_segment => unreachable,
@@ -639,7 +699,7 @@ pub const Interpreter = struct {
     }
 
     // TODO: remove this once all the major features are implemented
-    fn report_TODO(self: *Self, comptime fmt: []const u8, args: anytype) error{TODO} {
+    pub fn report_TODO(self: *Self, comptime fmt: []const u8, args: anytype) error{TODO} {
         self.stderr.print(colors.ERR ++ "[TODO (not implemented)] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
         return error.TODO;
     }

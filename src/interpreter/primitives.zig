@@ -1,6 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const interning_module = @import("../interning/__interning.zig");
+const SymbolId = interning_module.SymbolId;
+
 const interpreter_module = @import("__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Heap = interpreter_module.Heap;
@@ -26,6 +29,7 @@ pub const Object = struct {
 
 pub const Class = struct {
     pub const new__somig_arity = 1;
+    /// TODO: this does not work! We have to handle cases for primtive classes
     pub fn new__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
             .class => |accessor| accessor.get_class_definition(target_object.data),
@@ -289,5 +293,71 @@ pub const String = struct {
 
         const result_string: VmObject = try interpreter.create_string(.heap, substring);
         return result_string;
+    }
+};
+
+pub const Array = struct {
+    pub const @"at:__somig_arity" = 2;
+    pub fn @"at:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const item_ptr: *VmObject = try get_pointer_to_item(target_object, interpreter);
+        return item_ptr.*;
+    }
+
+    pub const @"at:put:__somig_arity" = 2;
+    pub fn @"at:put:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const item_ptr: *VmObject = try get_pointer_to_item(target_object, interpreter);
+
+        // Pop the value that is supposed to replace item
+        const new_value: VmObject = interpreter.pop_object();
+        item_ptr.* = new_value;
+
+        // NOTE: We are returning the object that was assigned.
+        //       This might not be correct, but the language does not have a specified behaviour :)
+        //       If we are expected to return `Nil`, this cannot cause much issue anyway
+        //       and might have better usability.
+        //       Also, this could be faster, since we don't have to go fetching the `Nil` singleton.
+        return new_value;
+    }
+
+    pub const length__somig_arity = 1;
+    pub fn length__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const length_i48: i48 = switch (target_object.data.kind()) {
+            .array => |accessor| accessor.get_length(target_object.data.*),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+
+        try interpreter.ensure_primitive_class_is_loaded(.integer);
+
+        const header = HeapData.Header.new_undefined_with_tag(.integer);
+        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
+        (accessors.IntegerAccessor{}).set_value(result_object_data, length_i48);
+
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
+    /// Assumes there is index at the top of the runtime object stack
+    fn get_pointer_to_item(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!*VmObject {
+        const items: []VmObject = switch (target_object.data.kind()) {
+            .array => |accessor| accessor.items(target_object.data),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+
+        const index_object: VmObject = interpreter.pop_object();
+        const index_i48: i48 = switch (index_object.data.kind()) {
+            .integer => |accessor| accessor.get_value(index_object.data),
+            // TODO - probably create some generic function which validates indexes
+            .double => return interpreter.report_TODO("Indexing arrays with double", .{}),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+        if (index_i48 < 1 or index_i48 > items.len) {
+            interpreter.report_runtime_error(
+                "The argument `index` has value of {d}, which is invalid for an array with length {d}. Valid range is from 1 to {d} (including).",
+                .{ index_i48, items.len, items.len },
+            );
+            return Interpreter.Error.generic_runtime_error;
+        }
+
+        return &items[@intCast(index_i48 - 1)];
     }
 };

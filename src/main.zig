@@ -172,15 +172,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      array_example = (
         \\          | arr |
         \\          arr := #().
-        \\          arr println.
+        \\          ('Array length: ' + (arr length)) println.
         \\
         \\          arr := #( 10 ).
-        \\          arr println.
+        \\          ('Array length: ' + (arr length) + ' item: ' + (arr at: 1)) println.
         \\
         \\          arr := #( 10 20 30 ).
-        \\          arr println.
-        \\
-        \\          arr := #( 10 20 30 40 50 60 70 ).
+        \\          ('Array length: ' + (arr length) + ' items: ' + (arr at: 1) + ' ' + (arr at: 2) + ' ' + (arr at: 3)) println.
         \\          arr println.
         \\      )
         \\
@@ -260,6 +258,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      * _ = primitive
         \\      / _ = primitive
         \\      asString = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Array")).id,
+        \\ Array = (
+        \\     at: index            = primitive
+        \\     at: index put: value = primitive
+        \\     length               = primitive
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("String")).id,

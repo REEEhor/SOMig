@@ -130,6 +130,30 @@ pub const DoubleAccessor = struct {
     }
 };
 
+pub const ArrayAccessor = packed struct {
+    const Self = @This();
+
+    pub fn get_bytes_count_after_header(self: Self, heap_data: HeapData) usize {
+        return @intCast(self.get_length(heap_data) * @sizeOf(VmObject));
+    }
+
+    pub fn get_length(self: Self, heap_data: HeapData) i48 {
+        _ = self;
+        return @intCast(heap_data.header.payload);
+    }
+    pub fn set_length(self: Self, heap_data: *HeapData, new_length: i48) void {
+        _ = self;
+        assert(new_length >= 0);
+        heap_data.header.payload = @intCast(new_length);
+    }
+    pub fn items(self: Self, heap_data: *HeapData) []VmObject {
+        _ = self;
+        const items_ptr = heap_data.get_after_header_ptr([*]VmObject);
+        const length = heap_data.header.payload;
+        return items_ptr[0..length];
+    }
+};
+
 pub const StringAccessor = packed struct {
     const Self = @This();
 
