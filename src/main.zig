@@ -312,15 +312,10 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-
-    var header = interpreter_module.HeapData.Header.new_undefined_with_tag(.generic_object);
-    (interpreter_module.accessors.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), 0);
-    const main_object_data = try interpreter.statics.allocate_for_static_object(header);
-    (interpreter_module.accessors.GenericObjectAccessor{}).set_class_definition(main_object_data, main_class);
-    const main_object = main_object_data.as_vm_object();
+    const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
 
     try interpreter.push_object(main_object);
-    try interpreter.push_frame(run_method.body.user_land.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO: remove hack with return instruction id!!!
+    try interpreter.push_frame(run_method.body.user_land.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
     interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
 
     // Dump the bytecode

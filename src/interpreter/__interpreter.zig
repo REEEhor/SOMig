@@ -240,6 +240,33 @@ pub const Interpreter = struct {
         return object;
     }
 
+    pub fn create_string_fmt(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        comptime fmt: []const u8,
+        fmt_args: anytype,
+    ) Error!VmObject {
+        try self.ensure_primitive_class_is_loaded(.string);
+
+        const length_usize: usize = std.fmt.count(fmt, fmt_args);
+        if (length_usize > std.math.maxInt(i48)) {
+            @branchHint(.cold);
+            self.report_runtime_error("Tried to create a string with {d} characters, which is more than possible maximum (which is {d}).", .{ length_usize, std.math.maxInt(i48) });
+            return Error.generic_runtime_error;
+        }
+        const length_i48: i48 = @intCast(length_usize);
+
+        var header = HeapData.Header.new_undefined_with_tag(.string);
+        (accessors.StringAccessor{}).set_length(header.as_heap_data(), length_i48);
+        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
+
+        // SAFETY: We got the length from `std.fmt.count` above.
+        _ = std.fmt.bufPrint((accessors.StringAccessor{}).contents(result_object_data), fmt, fmt_args) catch unreachable;
+
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
     // TODO: here will be argument for an entire class that is being run.. I think
     pub fn run(self: *Self) !void {
         while (true) {
@@ -334,12 +361,8 @@ pub const Interpreter = struct {
                             break :blk result_object_data.as_vm_object();
                         },
                         .string => |value| {
-                            try self.ensure_primitive_class_is_loaded(.string);
-                            var header = HeapData.Header.new_undefined_with_tag(.string);
-                            (accessors.StringAccessor{}).set_length(header.as_heap_data(), @intCast(value.len));
-                            const result_object_data: *HeapData = try self.heap.allocate(header);
-                            @memcpy((accessors.StringAccessor{}).contents(result_object_data), value);
-                            break :blk result_object_data.as_vm_object();
+                            const string_object: VmObject = try self.create_string(.heap, value);
+                            break :blk string_object;
                         },
                         .nil => {
                             const nil_object: VmObject = try self.get_nil_singleton();

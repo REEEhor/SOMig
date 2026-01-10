@@ -100,24 +100,8 @@ pub const Integer = struct {
     pub const asString__somig_arity = 1;
     pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const receiver_as_int: i48 = (accessors.IntegerAccessor{}).get_value(target_object.data);
-
-        // TODO: use interpter string allocator (??? i don't know what that means :D)
-        var print_buffer: [128]u8 = undefined;
-        const receiver_as_str: []u8 = std.fmt.bufPrint(&print_buffer, "{d}", .{receiver_as_int}) catch {
-            std.debug.panic("Could not print the integer: '{d}', because it was too long.", .{receiver_as_int});
-        };
-        const length: i48 = @intCast(receiver_as_str.len);
-
-        try interpreter.ensure_primitive_class_is_loaded(.string);
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), length);
-        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-        // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
-        @memcpy((accessors.StringAccessor{}).contents(result_object_data), receiver_as_str);
-
-        const result_object = result_object_data.as_vm_object();
-
-        return result_object;
+        const string: VmObject = try interpreter.create_string_fmt(.heap, "{d}", .{receiver_as_int});
+        return string;
     }
 
     fn binary_method(
@@ -187,24 +171,8 @@ pub const Double = struct {
     pub const asString__somig_arity = 1;
     pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const receiver_as_double: f64 = (accessors.DoubleAccessor{}).get_value(target_object.data);
-
-        // TODO: use interpter string allocator (??? i don't know what that means :D)
-        var print_buffer: [256]u8 = undefined;
-        const receiver_as_str: []u8 = std.fmt.bufPrint(&print_buffer, "{d}", .{receiver_as_double}) catch {
-            std.debug.panic("Could not print the double: '{d}', because it was too long.", .{receiver_as_double});
-        };
-        const length: i48 = @intCast(receiver_as_str.len);
-
-        try interpreter.ensure_primitive_class_is_loaded(.string);
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), length);
-        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-        // TODO(speed): figure out the length of the string before printing it so that we don't have to memcpy here and we can just print to the buffer directly
-        @memcpy((accessors.StringAccessor{}).contents(result_object_data), receiver_as_str);
-
-        const result_object = result_object_data.as_vm_object();
-
-        return result_object;
+        const string: VmObject = try interpreter.create_string_fmt(.heap, "{d}", .{receiver_as_double});
+        return string;
     }
 
     fn binary_method(
@@ -268,15 +236,9 @@ pub const String = struct {
             .string => |accessor| accessor.contents(rhs_object.data),
             else => return Interpreter.Error.primitive_type_error,
         };
-        const total_length: i48 = @intCast(lhs_string.len + rhs_string.len);
 
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), total_length);
-        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-        const written = std.fmt.bufPrint((accessors.StringAccessor{}).contents(result_object_data), "{s}{s}", .{ lhs_string, rhs_string }) catch unreachable;
-        assert(written.len == total_length);
-
-        return result_object_data.as_vm_object();
+        const result_string: VmObject = try interpreter.create_string_fmt(.heap, "{s}{s}", .{ lhs_string, rhs_string });
+        return result_string;
     }
 
     pub const @"primSubstringFrom:to:__somig_arity" = 3;
@@ -325,11 +287,7 @@ pub const String = struct {
 
         const substring: []const u8 = original_string[@intCast(som_idx_from - 1)..@intCast(som_idx_to)];
 
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), @intCast(substring.len));
-        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-        @memcpy((accessors.StringAccessor{}).contents(result_object_data), substring);
-
-        return result_object_data.as_vm_object();
+        const result_string: VmObject = try interpreter.create_string(.heap, substring);
+        return result_string;
     }
 };
