@@ -40,7 +40,7 @@ pub const ClassDefinition = struct {
 /// Runtime definition of any method in SOM
 pub const MethodDefinition = struct {
     /// The method selector.
-    /// Some examples of selecetors are strings: "value", "+++", "get:with:andWith:".
+    /// Some examples of selectors are strings: "value", "+++", "get:with:andWith:".
     method_name: SymbolId,
 
     /// Number of arguments of this method **excluding** the first argument
