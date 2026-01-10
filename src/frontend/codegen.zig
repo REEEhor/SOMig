@@ -9,10 +9,10 @@ const dbgx = debug_module.dbgx;
 const dbg_assert_eql = debug_module.dbg_assert_eql;
 const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
-const interning_module = @import("../interning/symbols_manager.zig");
+const interning_module = @import("../interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
-const SymbolArrayMap = @import("../interning/symbol_array_map.zig").SymbolArrayMap;
+const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const lexer_module = @import("../frontend/lexer.zig");
 const TokenizedFile = lexer_module.TokenizedFile;

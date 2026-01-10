@@ -10,10 +10,10 @@ const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
 const dbgx = debug_module.dbgx;
 
-const interning_module = @import("../interning/symbols_manager.zig");
+const interning_module = @import("../interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
-const SymbolArrayMap = @import("../interning/symbol_array_map.zig").SymbolArrayMap;
+const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const InstructionDecoder = codegen_module.InstructionDecoder;

@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-const SymbolId = @import("symbols_manager.zig").SymbolId;
+const SymbolId = @import("symbol_id.zig").SymbolId;
 
 ///
 /// A wrapper around the slice `[]Item`.
