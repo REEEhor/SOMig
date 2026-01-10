@@ -50,15 +50,11 @@ pub const Class = struct {
             else => unreachable,
         };
         const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
-
-        // TODO(str): consider making a proper interpreter method for this *already*
-        try interpreter.ensure_primitive_class_is_loaded(.string);
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), @intCast(name_as_u8_slice.len));
-        const result_object_data: *HeapData = try interpreter.heap.allocate(header);
-        @memcpy((accessors.StringAccessor{}).contents(result_object_data), name_as_u8_slice);
-
-        const name_as_string_object = result_object_data.as_vm_object();
+        const name_as_string_object = accessors.StringAccessor.new_string(
+            &interpreter.heap,
+            Heap.allocate,
+            name_as_u8_slice,
+        );
         return name_as_string_object;
     }
 };

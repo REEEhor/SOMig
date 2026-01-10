@@ -155,6 +155,23 @@ pub const DoubleAccessor = struct {
 
 pub const StringAccessor = packed struct {
     const Self = @This();
+
+    pub fn new_string(
+        context: anytype,
+        alloc_function: AllocateHeapDataFn(@TypeOf(context)),
+        new_string_contents: []const u8,
+    ) error{OutOfMemory}!VmObject {
+        const self = Self{};
+
+        var header = HeapData.Header.new_undefined_with_tag(.string);
+        self.set_length(header.as_heap_data(), @intCast(new_string_contents.len));
+        const result_object_data: *HeapData = try alloc_function(context, header);
+        @memcpy(self.contents(result_object_data), new_string_contents);
+
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
     pub fn get_length(self: Self, heap_data: HeapData) i48 {
         _ = self;
         const raw: u48 = @truncate(heap_data.header.payload);
