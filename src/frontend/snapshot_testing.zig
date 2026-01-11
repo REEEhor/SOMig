@@ -138,7 +138,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
 
         // Check that the snapshot exists
         const snapshot_contents: []const u8 = get_snapshot_contents: {
-            const snapshot_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".som.snapshot.txt" });
+            const snapshot_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".snapshot.txt" });
             defer gpa.free(snapshot_filename);
 
             if (snapshots_dir.openFile(snapshot_filename, .{})) |snapshot_file| {
