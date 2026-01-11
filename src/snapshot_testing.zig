@@ -5,7 +5,7 @@ const fs = std.fs;
 const Dir = fs.Dir;
 const File = fs.File;
 
-const colors = @import("../terminal.zig");
+const colors = @import("terminal.zig");
 const RED = colors.RED;
 const GREEN = colors.GREEN;
 const YELLOW = colors.YELLOW;

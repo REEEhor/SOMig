@@ -864,7 +864,7 @@ pub fn print_tokens(
 }
 
 test "snapshot test on example files" {
-    const snapshot_testing = @import("snapshot_testing.zig");
+    const snapshot_testing = @import("../snapshot_testing.zig");
     // TODO: check if the path is not empty to ignore the test
     const opts = snapshot_testing.opts;
     try snapshot_testing.do_snapshot_tests(.{
