@@ -1264,7 +1264,7 @@ test "snapshot test on example files" {
     const opts = snapshot_testing.opts;
     try snapshot_testing.do_snapshot_tests(.{
         .snapshots_directory = opts.snapshots_path ++ "/parser",
-        .tested_files_directory = opts.test_files_path,
+        .tested_files_directory = opts.test_parser_files_path,
         .output_producer = print_class_ast,
     }, "Parsing");
 }

@@ -100,18 +100,27 @@ pub fn build(b: *std.Build) void {
     const snapshot_test_options = b.addOptions();
     var buffer: [4096]u8 = undefined;
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch @panic("Filepath too long");
+        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch unreachable;
         const tests_path = b.option(
             []const u8,
-            "snap-test-files",
-            "Absolute path to the directory containing SOM code, that are to be run by the snapshot tester.",
+            "snap-lexer-test-files",
+            "Absolute path to the directory containing SOM code for the lexer tests.",
         ) orelse default_path;
-        snapshot_test_options.addOption([]const u8, "test_files_path", tests_path);
+        snapshot_test_options.addOption([]const u8, "test_lexer_files_path", tests_path);
+    }
+    {
+        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch unreachable;
+        const tests_path = b.option(
+            []const u8,
+            "snap-parser-test-files",
+            "Absolute path to the directory containing SOM code for the parser tests.",
+        ) orelse default_path;
+        snapshot_test_options.addOption([]const u8, "test_parser_files_path", tests_path);
     }
     {
         const sub_path = "snapshot_tests/snapshots/";
         std.fs.cwd().makePath(sub_path) catch @panic("Could not assert the existance of a directory or create a new one");
-        const default_path = std.fs.cwd().realpath(sub_path, &buffer) catch @panic("Filepath too long");
+        const default_path = std.fs.cwd().realpath(sub_path, &buffer) catch unreachable;
         const snapshots_path = b.option(
             []const u8,
             "snap-snapshots-files",
@@ -124,14 +133,14 @@ pub fn build(b: *std.Build) void {
             \\When this flag is turned on and a snapshot file is not found during snapshot testing, a new snapshot file will be created from the program output.
             \\This can be used for a workflow, where the developer runs the snapshot tests, deletes the snapshot files that are no longer valid and re-runs the test with this flag on.
             \\This option is `false` by default.
-        ) orelse false;
+        ) orelse b.option(bool, "sa", "Alias to `snap-accept-all`") orelse false;
         snapshot_test_options.addOption(bool, "accept_all", accept_missing_snapshots);
     }
     {
         const show_diff = b.option(bool, "snap-diff",
             \\Whether to show or hide diff when the snapshot is different to the output file.
             \\This option is `true` by default.
-        ) orelse true;
+        ) orelse b.option(bool, "sd", "Alias to `snap-diff`") orelse true;
         snapshot_test_options.addOption(bool, "show_diff", show_diff);
     }
 
