@@ -171,6 +171,10 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\
         \\      array_example = (
         \\          | arr |
+        \\
+        \\          '' println.
+        \\          '== Array example ==' println.
+        \\
         \\          arr := #().
         \\          ('Array length: ' + (arr length)) println.
         \\
@@ -179,7 +183,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\
         \\          arr := #( 10 20 30 ).
         \\          ('Array length: ' + (arr length) + ' items: ' + (arr at: 1) + ' ' + (arr at: 2) + ' ' + (arr at: 3)) println.
+        \\
+        \\          'Array at index 2: ' print. (arr at: 2) println.
+        \\          arr at: 2 put: 42.
+        \\          'Array at index 2: ' print. (arr at: 2) print. ' (after update)' println.
+        \\
         \\          arr println.
+        \\          '' println.
         \\      )
         \\
         \\      some_other_method = (
