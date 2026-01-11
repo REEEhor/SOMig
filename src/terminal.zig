@@ -11,3 +11,6 @@ pub const ERR = RED ++ BOLD;
 pub const WARN = YELLOW ++ BOLD;
 
 pub const RESET = "\x1b[0m";
+
+pub const ERASE_ENTIRE_LINE = "\x1b[2K";
+// pub const GO_TO_FIRST_COLUMN = "\x1b[0E";

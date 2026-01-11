@@ -63,10 +63,17 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
     var updated_snapshots_count: i32 = 0;
     var different_to_snapshot_count: i32 = 0;
 
-    print("\n" ++ verb ++ " the code in: {s}\n", .{options.tested_files_directory});
+    print("\n" ++ BOLD ++ verb ++ RESET ++ " the code in: {s}\n", .{options.tested_files_directory});
     var som_source_dir_it = som_source_dir.iterate();
     next_test: while (try som_source_dir_it.next()) |entry| {
-        defer print("\n", .{});
+        var test_is_ok: bool = false;
+        defer {
+            if (!opts.be_verbose and test_is_ok) {
+                print(colors.ERASE_ENTIRE_LINE ++ "\r", .{});
+            } else {
+                print("\n", .{});
+            }
+        }
 
         // Check if the entry is a SOM source code file
         if (entry.kind != .file) continue;
@@ -128,7 +135,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
             if (err_output.len == 0) {
                 print("(output:  ok) ", .{});
             } else {
-                print("(output: err) ", .{});
+                print("(output: " ++ RED ++ FAINT ++ "err" ++ RESET ++ ") ", .{});
             }
             print("| ", .{});
 
@@ -169,6 +176,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         // Compare the snapshot to the program of the output
         const diff = switch (find_diff(program_output, snapshot_contents)) {
             .same => {
+                test_is_ok = true;
                 ok_tests_count += 1;
                 print(GREEN ++ BOLD ++ "OK!" ++ RESET, .{});
                 continue :next_test;
@@ -201,30 +209,38 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
     }
 
     // Print results
-    print("Stats:\n", .{});
-    print(" - total test count: {d}\n", .{total_tests_count});
-    if (tests_without_snapshots_count != 0) {
-        print(WARN ++ " - tests without a snapshot: {d}\n" ++ RESET, .{tests_without_snapshots_count});
-        if (!opts.accept_all) {
-            print("   (Run the tests with `" ++ BOLD ++ "-Dsnap-accept-all=true" ++ RESET ++ "` to accept program outputs as new snapshots for the ones that are missing)\n", .{});
-        }
-    }
-    if (updated_snapshots_count != 0) {
-        print(GREEN ++ " - created new snapshots: {d}\n" ++ RESET, .{updated_snapshots_count});
-    }
-    if (different_to_snapshot_count != 0) {
-        print(ERR ++ " - tests where the snapshot was different: {d}\n" ++ RESET, .{different_to_snapshot_count});
-    }
-    if (failed_tests_count != 0) {
-        print(ERR ++ " - tests where the program returned an error: {d}\n" ++ RESET, .{failed_tests_count});
-    }
-    if (error_tests_count != 0) {
-        print(ERR ++ " - tests where there was some file error: {d}\n" ++ RESET, .{error_tests_count});
-    }
-    if (ok_tests_count == total_tests_count) {
-        print(GREEN ++ BOLD ++ "All tests passed!\n" ++ RESET, .{});
+    const all_tests_passed = ok_tests_count == total_tests_count;
+    if (all_tests_passed and !opts.be_verbose) {
+        print(colors.ERASE_ENTIRE_LINE ++ "\r", .{});
+        print(GREEN ++ "All " ++ BOLD ++ "{d}" ++ RESET ++ GREEN ++ " tests passed!\n" ++ RESET, .{total_tests_count});
     } else {
-        print(" - ok tests: {d}\n", .{ok_tests_count});
+        print(BOLD ++ "Stats:\n" ++ RESET, .{});
+        print(" - total test count: {d}\n", .{total_tests_count});
+        if (tests_without_snapshots_count != 0) {
+            print(WARN ++ " - tests without a snapshot: {d}\n" ++ RESET, .{tests_without_snapshots_count});
+            if (!opts.accept_all) {
+                print(FAINT ++ YELLOW, .{});
+                print("     Run the tests with `" ++ BOLD ++ "-Dsnap-accept-all=true" ++ RESET ++ FAINT ++ YELLOW ++ "` (or " ++ BOLD ++ "`-Dsa=true`" ++ RESET ++ FAINT ++ YELLOW ++ " for short)\n     to accept program outputs as new snapshots for the ones that are missing)\n", .{});
+                print(RESET, .{});
+            }
+        }
+        if (updated_snapshots_count != 0) {
+            print(GREEN ++ " - created new snapshots: {d}\n" ++ RESET, .{updated_snapshots_count});
+        }
+        if (different_to_snapshot_count != 0) {
+            print(ERR ++ " - tests where the snapshot was different: {d}\n" ++ RESET, .{different_to_snapshot_count});
+        }
+        if (failed_tests_count != 0) {
+            print(ERR ++ " - tests where the program returned an error: {d}\n" ++ RESET, .{failed_tests_count});
+        }
+        if (error_tests_count != 0) {
+            print(ERR ++ " - tests where there was some file error: {d}\n" ++ RESET, .{error_tests_count});
+        }
+        if (ok_tests_count == total_tests_count) {
+            print(GREEN ++ "All " ++ BOLD ++ "{d}" ++ RESET ++ GREEN ++ " tests passed!\n" ++ RESET, .{total_tests_count});
+        } else {
+            print(" - ok tests: {d}\n", .{ok_tests_count});
+        }
     }
 }
 

@@ -137,6 +137,13 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption(bool, "accept_all", accept_missing_snapshots);
     }
     {
+        const opt = b.option(bool, "snap-verbose",
+            \\Whether to show output even for tests that passed.
+            \\This option is `false` by default.
+        ) orelse b.option(bool, "sv", "Alias to `snap-verbose`") orelse false;
+        snapshot_test_options.addOption(bool, "be_verbose", opt);
+    }
+    {
         const show_diff = b.option(bool, "snap-diff",
             \\Whether to show or hide diff when the snapshot is different to the output file.
             \\This option is `true` by default.
