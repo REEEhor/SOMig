@@ -746,3 +746,7 @@ pub const PrimitiveClassType = enum {
         };
     }
 };
+
+test {
+    _ = @import("testing.zig");
+}

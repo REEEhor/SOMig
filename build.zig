@@ -118,6 +118,15 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption([]const u8, "test_parser_files_path", tests_path);
     }
     {
+        const default_path = std.fs.cwd().realpath("snapshot_tests/interpreter_tests/", &buffer) catch unreachable;
+        const tests_path = b.option(
+            []const u8,
+            "snap-interpreter-test-files",
+            "Absolute path to the directory containing SOM code for the interpreter tests.",
+        ) orelse default_path;
+        snapshot_test_options.addOption([]const u8, "test_interpreter_files_path", tests_path);
+    }
+    {
         const sub_path = "snapshot_tests/snapshots/";
         std.fs.cwd().makePath(sub_path) catch @panic("Could not assert the existance of a directory or create a new one");
         const default_path = std.fs.cwd().realpath(sub_path, &buffer) catch unreachable;
