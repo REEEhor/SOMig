@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
     const snapshot_test_options = b.addOptions();
     var buffer: [4096]u8 = undefined;
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("snapshot_tests/frontend_tests/", &buffer) catch unreachable;
         const tests_path = b.option(
             []const u8,
             "snap-lexer-test-files",
@@ -109,7 +109,7 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption([]const u8, "test_lexer_files_path", tests_path);
     }
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/som_files/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("snapshot_tests/frontend_tests/", &buffer) catch unreachable;
         const tests_path = b.option(
             []const u8,
             "snap-parser-test-files",
