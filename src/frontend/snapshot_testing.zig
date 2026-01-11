@@ -1,6 +1,9 @@
 const std = @import("std");
 pub const opts = @import("snapshot_test_options");
 const print = std.debug.print;
+const fs = std.fs;
+const Dir = fs.Dir;
+const File = fs.File;
 
 const colors = @import("../terminal.zig");
 const RED = colors.RED;
@@ -39,14 +42,14 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
     const gpa = std.testing.allocator;
     const read_limit = 100_000;
 
-    var som_source_dir = try std.fs.openDirAbsolute(
+    var som_source_dir: Dir = try std.fs.openDirAbsolute(
         options.tested_files_directory,
         .{ .iterate = true },
     );
     defer som_source_dir.close();
 
     std.fs.makeDirAbsolute(options.snapshots_directory) catch {};
-    var snapshots_dir = std.fs.openDirAbsolute(options.snapshots_directory, .{}) catch |err| {
+    var snapshots_dir: Dir = std.fs.openDirAbsolute(options.snapshots_directory, .{}) catch |err| {
         print("Could not open directory {s}, because: {t}\n", .{ options.snapshots_directory, err });
         return err;
     };
@@ -62,116 +65,139 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
 
     print("\n" ++ verb ++ " the code in: {s}\n", .{options.tested_files_directory});
     var som_source_dir_it = som_source_dir.iterate();
-    while (try som_source_dir_it.next()) |entry| {
+    next_test: while (try som_source_dir_it.next()) |entry| {
+        defer print("\n", .{});
 
         // Check if the entry is a SOM source code file
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".som")) continue;
         total_tests_count += 1;
 
-        // Open the file
-        var som_source_file = som_source_dir.openFile(entry.name, .{}) catch |err| {
-            error_tests_count += 1;
-            print(ERR ++ "Could not open file, because: {s}\n" ++ RESET, .{@errorName(err)});
-            continue;
+        // Read in the file
+        const source_code: []const u8 = blk: {
+            var som_source_file = som_source_dir.openFile(entry.name, .{}) catch |err| {
+                error_tests_count += 1;
+                print(ERR ++ "Could not open file {s}, because: {s}" ++ RESET, .{ entry.name, @errorName(err) });
+                continue :next_test;
+            };
+            defer som_source_file.close();
+            break :blk try som_source_file.readToEndAlloc(gpa, read_limit);
         };
-        defer som_source_file.close();
-        const source_code = try som_source_file.readToEndAlloc(gpa, read_limit);
         defer gpa.free(source_code);
 
-        // Run the test
-        var writer = std.io.Writer.Allocating.init(gpa);
-        defer writer.deinit();
-        var err_writer = std.io.Writer.Allocating.init(gpa);
-        defer err_writer.deinit();
-        //
-        print(" - Test " ++ BOLD ++ "{s:<40}" ++ RESET ++ " ...", .{std.mem.sliceTo(entry.name, '.')});
-        options.output_producer(source_code, gpa, &writer.writer, &err_writer.writer) catch |err| {
-            failed_tests_count += 1;
-            print(ERR ++ "Error occured: {t}\n" ++ RESET, .{err});
-            continue;
+        // Generate the test name
+        const current_test_name: []const u8 = blk: {
+            // TODO: add the current directory
+            break :blk std.mem.sliceTo(entry.name, '.');
         };
-        try err_writer.writer.flush();
-        const err_output: []u8 = try err_writer.toOwnedSlice();
-        defer gpa.free(err_output);
-        if (err_output.len != 0) {
-            _ = try writer.writer.print("\n======== ERROR OUTPUT FROM THE PROGRAM ========\n", .{});
-            _ = try writer.writer.write(err_output);
-        }
-        try writer.writer.flush();
+        // TODO: uncomment this:
+        // defer gpa.free(current_test_name);
 
-        const program_output = try writer.toOwnedSlice();
+        // Run the test
+        const program_output: []const u8 = running_the_tested_function: {
+            var writer = std.io.Writer.Allocating.init(gpa);
+            defer writer.deinit();
+            var err_writer = std.io.Writer.Allocating.init(gpa);
+            defer err_writer.deinit();
+            //
+            print(" - Test " ++ BOLD ++ "{s}" ++ RESET, .{current_test_name});
+            { // Print the dots after the test name
+                var buffer: [64]u8 = undefined;
+                const bw = std.debug.lockStderrWriter(&buffer);
+                defer std.debug.unlockStderrWriter();
+                for (current_test_name.len..@max(current_test_name.len, 40)) |_| {
+                    try bw.writeByte('.');
+                }
+                try bw.flush();
+            }
+            options.output_producer(source_code, gpa, &writer.writer, &err_writer.writer) catch |err| {
+                failed_tests_count += 1;
+                print(ERR ++ "Error occured: {t}\n" ++ RESET, .{err});
+                continue;
+            };
+            try err_writer.writer.flush();
+            const err_output: []u8 = try err_writer.toOwnedSlice();
+            defer gpa.free(err_output);
+            if (err_output.len != 0) {
+                _ = try writer.writer.print("\n======== ERROR OUTPUT FROM THE PROGRAM ========\n", .{});
+                _ = try writer.writer.write(err_output);
+            }
+            try writer.writer.flush();
+
+            print(GREEN ++ "DONE! " ++ RESET, .{});
+            if (err_output.len == 0) {
+                print("(output:  ok) ", .{});
+            } else {
+                print("(output: err) ", .{});
+            }
+            print("| ", .{});
+
+            break :running_the_tested_function try writer.toOwnedSlice();
+        };
         defer gpa.free(program_output);
 
-        print(GREEN ++ "DONE! " ++ RESET, .{});
-        if (err_output.len == 0) {
-            print("(output:  ok) ", .{});
-        } else {
-            print("(output: err) ", .{});
-        }
-        print("| ", .{});
-
-        // Save the program output
-        const program_output_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ entry.name, ".new.txt" });
-        defer gpa.free(program_output_filename);
-        {
-            const error_message = ERR ++ "Could not save the program output, because: {t}\n" ++ RESET;
-
-            var program_output_file = snapshots_dir.createFile(program_output_filename, .{}) catch |err| {
-                error_tests_count += 1;
-                print(error_message, .{err});
-                continue;
-            };
-            defer program_output_file.close();
-
-            program_output_file.writeAll(program_output) catch |err| {
-                error_tests_count += 1;
-                print(error_message, .{err});
-                continue;
-            };
-        }
-
-        print("Comparing to snapshot... ", .{});
-
         // Check that the snapshot exists
-        const snapshot_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ entry.name, ".snapshot.txt" });
-        defer gpa.free(snapshot_filename);
-        snapshots_dir.access(snapshot_filename, .{}) catch |err| if (err == error.FileNotFound) {
-            if (opts.accept_all) {
-                snapshots_dir.rename(program_output_filename, snapshot_filename) catch |e| {
-                    error_tests_count += 1;
-                    print(ERR ++ "Could not update the snapshot file, because: {t}\n" ++ RESET, .{e});
-                    continue;
-                };
-                updated_snapshots_count += 1;
-                print(BOLD ++ GREEN ++ "CREATED NEW SNAPSHOT!\n" ++ RESET, .{});
+        const snapshot_contents: []const u8 = get_snapshot_contents: {
+            const snapshot_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".som.snapshot.txt" });
+            defer gpa.free(snapshot_filename);
+
+            if (snapshots_dir.openFile(snapshot_filename, .{})) |snapshot_file| {
+                break :get_snapshot_contents try snapshot_file.readToEndAlloc(gpa, read_limit);
+            } else |file_open_err| if (file_open_err == error.FileNotFound) {
+                if (opts.accept_all) {
+                    snapshots_dir.writeFile(.{ .data = program_output, .sub_path = snapshot_filename }) catch |file_write_err| {
+                        error_tests_count += 1;
+                        print(ERR ++ "Could not update the snapshot file, because: {t}" ++ RESET, .{file_write_err});
+                        continue :next_test;
+                    };
+                    updated_snapshots_count += 1;
+                    print(BOLD ++ GREEN ++ "CREATED NEW SNAPSHOT!" ++ RESET, .{});
+                    continue :next_test;
+                } else {
+                    tests_without_snapshots_count += 1;
+                    print(WARN ++ "SNAPSHOT NOT FOUND!" ++ RESET, .{});
+                    continue :next_test;
+                }
             } else {
-                tests_without_snapshots_count += 1;
-                print(WARN ++ "SNAPSHOT FILE NOT FOUND!\n" ++ RESET, .{});
+                error_tests_count += 1;
+                print(ERR ++ "Could open the snapshot file, because: {t}\n" ++ RESET, .{file_open_err});
+                continue :next_test;
             }
-            continue;
-        } else {
-            error_tests_count += 1;
-            print(ERR ++ "Could not check if snapshot exists, because: {t}\n" ++ RESET, .{err});
-            continue;
         };
+        defer gpa.free(snapshot_contents);
 
         // Compare the snapshot to the program of the output
-        const compare_result = find_diff(program_output_filename, snapshot_filename, options.snapshots_directory, gpa) catch {
-            error_tests_count += 1;
-            continue;
+        const diff = switch (find_diff(program_output, snapshot_contents)) {
+            .same => {
+                ok_tests_count += 1;
+                print(GREEN ++ BOLD ++ "OK!" ++ RESET, .{});
+                continue :next_test;
+            },
+            .different => |diff| diff,
         };
-        if (!compare_result.were_same) {
-            different_to_snapshot_count += 1;
-            continue;
+        print(ERR ++ "SNAPSHOT DIFFERS!" ++ RESET, .{});
+
+        different_to_snapshot_count += 1;
+        if (opts.show_diff) {
+            // Print diff
+            print(ERR ++ "\n" ++ "=" ** 87 ++ RESET ++ "\n", .{}); // Separator line
+            //
+            print("   - " ++ colors.CYAN ++ "Snapshot contains" ++ RESET ++ " / " ++ YELLOW ++ "Program output contains" ++ RESET ++ ":\n", .{});
+            print(FAINT ++ "     (line number {d}) |" ++ RESET, .{diff.first_different_line_number});
+            print(colors.CYAN ++ "{s}\n" ++ RESET, .{diff.expected_line orelse FAINT ++ "(this line is not in the snapshot)"});
+            print(FAINT ++ "     (line number {d}) |" ++ RESET, .{diff.first_different_line_number});
+            print(YELLOW ++ "{s}\n" ++ RESET, .{diff.actual_line orelse FAINT ++ "(this line is not in the program output)"});
+            //
+            print(ERR ++ "=" ** 87 ++ RESET ++ "\n", .{}); // Separator line
         }
-        ok_tests_count += 1;
-        print(GREEN ++ "OK! " ++ RESET, .{});
-        snapshots_dir.deleteFile(program_output_filename) catch |err| {
-            print(ERR ++ "(could not remove the program output file: {s}, because: {t}) " ++ RESET, .{ program_output_filename, err });
+
+        // Write the program output into a file
+        const program_output_filename: []const u8 = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".new.txt" });
+        defer gpa.free(program_output_filename);
+        snapshots_dir.writeFile(.{ .data = program_output, .sub_path = program_output_filename }) catch |err| {
+            print(ERR ++ " Error while writing the program output into a file, because: {t}" ++ RESET, .{err});
             error_tests_count += 1;
         };
-        print("\n", .{});
     }
 
     // Print results
@@ -184,7 +210,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         }
     }
     if (updated_snapshots_count != 0) {
-        print(" - created new snapshots: {d}\n", .{updated_snapshots_count});
+        print(GREEN ++ " - created new snapshots: {d}\n" ++ RESET, .{updated_snapshots_count});
     }
     if (different_to_snapshot_count != 0) {
         print(ERR ++ " - tests where the snapshot was different: {d}\n" ++ RESET, .{different_to_snapshot_count});
@@ -196,69 +222,52 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         print(ERR ++ " - tests where there was some file error: {d}\n" ++ RESET, .{error_tests_count});
     }
     if (ok_tests_count == total_tests_count) {
-        print(GREEN ++ "All tests passed!\n" ++ RESET, .{});
+        print(GREEN ++ BOLD ++ "All tests passed!\n" ++ RESET, .{});
     } else {
         print(" - ok tests: {d}\n", .{ok_tests_count});
     }
 }
 
-fn find_diff(
-    program_output_filename: []const u8,
-    snapshot_filename: []const u8,
-    snapshots_directory: []const u8,
-    allocator: std.mem.Allocator,
-) !struct { were_same: bool } {
-    const argv = &[_][]const u8{
-        "git",
-        "diff",
-        "--no-index",
-        "--color=always",
-        "--ignore-cr-at-eol",
-        program_output_filename,
-        snapshot_filename,
-    };
-    const git_diff = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv,
-        .cwd = snapshots_directory,
-    });
-    defer allocator.free(git_diff.stderr);
-    defer allocator.free(git_diff.stdout);
+const FindDiffResult = union(enum) {
+    same,
+    different: struct {
+        first_different_line_number: usize,
+        actual_line: ?[]const u8 = null,
+        expected_line: ?[]const u8 = null,
+        line_diff_idx: ?usize = null,
+    },
+};
 
-    switch (git_diff.term) {
-        .Exited => |exit_code| if (exit_code == 0) return .{ .were_same = true },
-        else => {},
+fn find_diff(actual: []const u8, expected: []const u8) FindDiffResult {
+    if (std.mem.eql(u8, actual, expected)) {
+        return .same;
     }
 
-    if (git_diff.stderr.len > 1) {
-        const text = git_diff.stderr;
-        print(ERR ++ "Error while diffing: \"{s}\"\n" ++ RESET, .{text[0 .. text.len - 2]});
-        return error.git_diff_error;
-    }
+    var actual_line_iter = std.mem.splitScalar(u8, actual, '\n');
+    var expected_line_iter = std.mem.splitScalar(u8, expected, '\n');
 
-    const separator = ERR ++ ("=" ** 120) ++ RESET ++ "\n";
-    print(ERR ++ "DIFFERENT!\n" ++ RESET, .{});
-    if (opts.show_diff) {
-        print(separator, .{});
+    var line_idx: usize = 1;
+    while (true) : (line_idx += 1) {
+        const maybe_actual_line = actual_line_iter.next();
+        const maybe_expected_line = expected_line_iter.next();
 
-        print(FAINT ++ "Command: ", .{});
-        for (argv) |arg| {
-            print("{s} ", .{arg});
+        if (maybe_actual_line == null and maybe_expected_line == null) {
+            @panic("This should not happen. This means `std.mem.eql` returned `true` and we got to the end anyway.");
         }
-        print("\n" ++ RESET, .{});
-        // Skip the first two lines
-        const lines_to_skip = 4;
-        var lines_iter = std.mem.splitScalar(u8, git_diff.stdout, '\n');
-        for (0..lines_to_skip) |_| _ = lines_iter.next();
-        print("{s}", .{lines_iter.rest()});
-
-        print(separator ++ "\n", .{});
+        if (maybe_actual_line == null) {
+            return .{ .different = .{ .expected_line = maybe_expected_line.?, .first_different_line_number = line_idx } };
+        }
+        if (maybe_expected_line == null) {
+            return .{ .different = .{ .actual_line = maybe_actual_line.?, .first_different_line_number = line_idx } };
+        }
+        const actual_line, const expected_line = .{ maybe_actual_line.?, maybe_expected_line.? };
+        if (std.mem.indexOfDiff(u8, actual_line, expected_line)) |diff_idx| {
+            return .{ .different = .{
+                .actual_line = actual_line,
+                .expected_line = expected_line,
+                .first_different_line_number = line_idx,
+                .line_diff_idx = diff_idx,
+            } };
+        }
     }
-    return .{ .were_same = false };
-}
-
-fn write_all_to_non_existing_filename(dir: std.fs.Dir, filename: []const u8, data: []const u8) !void {
-    var file = try dir.createFile(filename, .{});
-    defer file.close();
-    try file.writeAll(data);
 }
