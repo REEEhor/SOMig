@@ -348,7 +348,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
 
     try interpreter.push_object(main_object);
-    try interpreter.push_frame(run_method.body.user_land.constants_base_id, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
+    try interpreter.push_frame(run_method, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
     interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
 
     // Dump the bytecode

@@ -99,12 +99,19 @@ pub const Stack = struct {
     pub const Frame = struct {
         /// Index into the array `objects`
         base_idx: u32,
-
-        /// Index into the array `objects`
-        self_object_idx: u32,
-
-        constants_base_id: ConstantId,
         after_return_instruction_id: InstructionId,
+
+        /// Has guaranteed that the `body` is of type `user_land`.
+        method: *const MethodDefinition,
+
+        pub fn self_object_idx(self: @This()) u32 {
+            const number_of_args = self.method.number_of_aditional_args;
+            return self.base_idx - number_of_args;
+        }
+
+        pub fn constants_base_id(self: @This()) ConstantId {
+            return self.method.body.user_land.constants_base_id;
+        }
 
         pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
             return &objects[self.base_idx + offset];
@@ -323,7 +330,7 @@ pub const Interpreter = struct {
                     self.stack.objects[self.top_frame().base_idx + local_to_set_id.idx] = to_assign;
                 },
                 .load_instance_var => |instance_var_id| {
-                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];
+                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
                     const instance_variable = switch (self_object.data.kind()) {
                         .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, instance_var_id.idx),
                         // TODO: maybe this will not be a different case?
@@ -349,7 +356,7 @@ pub const Interpreter = struct {
                 },
                 .set_instance_var => |instance_var_id| {
                     const top_object: VmObject = self.top_stack_object();
-                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx];
+                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
                     switch (self_object.data.kind()) {
                         .generic_object => |accessor| accessor.set_instance_var_with_idx(
                             self_object.data,
@@ -381,7 +388,7 @@ pub const Interpreter = struct {
                     try self.push_object(object);
                 },
                 .load_constant => |constant_info| {
-                    const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id);
+                    const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
                     const constant = self.statics.constants_manager.get_constant(constant_id);
                     const object: VmObject = blk: switch (constant) {
                         .integer => |value| {
@@ -566,7 +573,7 @@ pub const Interpreter = struct {
 
     pub fn push_frame(
         self: *Self,
-        constants_base_id: ConstantId,
+        method: *const MethodDefinition,
         arguments_count_without_self: u16,
         locals_count: u16,
         after_return_instruction_id: InstructionId,
@@ -586,9 +593,8 @@ pub const Interpreter = struct {
         const new_base_index: u32 = @intCast(self.stack.objects.len - arguments_count);
         self.stack.frames.len += 1;
         self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
-            .constants_base_id = constants_base_id,
             .base_idx = new_base_index,
-            .self_object_idx = @intCast(self.stack.objects.len - 1),
+            .method = method,
             .after_return_instruction_id = after_return_instruction_id,
         };
         self.stack.objects.len += locals_count;
@@ -669,7 +675,7 @@ pub const Interpreter = struct {
         switch (method.body) {
             .user_land => |method_body_info| {
                 try self.push_frame(
-                    method_body_info.constants_base_id,
+                    method,
                     method.number_of_aditional_args,
                     method_body_info.number_of_locals,
                     self.decoder.id_of_next_instruction(),
