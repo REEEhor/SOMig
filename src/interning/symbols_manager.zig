@@ -128,7 +128,7 @@ test "interining" {
     var arena = Arena.init(std.testing.allocator);
     defer arena.deinit();
 
-    var manager = try SymbolsManager.create(arena.allocator(), 0);
+    var manager = try GenericSymbolsManager(&[_][]const u8{}).create(arena.allocator(), 0);
 
     for (0..5) |idx| {
         const id = SymbolId.new(@truncate(idx));
