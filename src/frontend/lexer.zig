@@ -17,9 +17,6 @@ const error_reporter = @import("reporter.zig");
 const ErrorReporter: type = error_reporter.ErrorReporter;
 const debug_reporter = error_reporter.debug_reporter;
 
-const string_literals_manager = @import("string_literals_manager.zig");
-const StringLiteralsManager: type = string_literals_manager.StringLiteralsManager;
-
 pub const token_module = @import("token.zig");
 pub const minimal_separator_length = token_module.minimal_separator_length;
 pub const Token = token_module.Token;
