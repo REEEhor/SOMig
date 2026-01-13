@@ -523,13 +523,12 @@ pub const Interpreter = struct {
             self.report_runtime_error("Got error '{t}' while compiling a primitive class \"{s}\".", .{ err, primitive_class_type.as_string() });
             return Error.compilation_error;
         };
-        // TODO: we have to walk the linked-list of `class_definition.parent.parent.parent...` so we can properly update the primitive classes list
-        // TODO: I think this should be in the `load_class` method and not here, since there is a possibility that `load_class` will be called from elsewhere (for example in the following SOM code: `Integer new.` should force a load of the `Integer` class.)
-        self.primitive_class_definitions.put(primitive_class_type, class_definition);
+        assert(self.primitive_class_definitions.getAssertContains(primitive_class_type) == class_definition);
     }
 
     pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
-        const class_definition = try compile_class_with_its_parents(.{
+        const number_of_classes_before_load: usize = self.statics.all_classes.len;
+        const class_definition: *ClassDefinition = try compile_class_with_its_parents(.{
             .bottom_class_name = class_name,
             .error_writer = self.stderr,
             .globals = &self.globals,
@@ -538,6 +537,28 @@ pub const Interpreter = struct {
             .statics = self.statics,
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
         });
+        const number_of_classes_after_load: usize = self.statics.all_classes.len;
+
+        // We have to register primitive classes that might have gotten loaded
+        // during the compilation.
+        var class_iter: ?*ClassDefinition = class_definition;
+        for (number_of_classes_before_load..number_of_classes_after_load) |_| {
+            const class = class_iter orelse break;
+            defer class_iter = class.parent;
+            const primitive_class_type: PrimitiveClassType = switch (class.class_name.idx) {
+                SymbolsManager.comptime_id_of("Object").idx => .object,
+                SymbolsManager.comptime_id_of("Array").idx => .array,
+                SymbolsManager.comptime_id_of("String").idx => .string,
+                SymbolsManager.comptime_id_of("Double").idx => .double,
+                SymbolsManager.comptime_id_of("Integer").idx => .integer,
+                SymbolsManager.comptime_id_of("Class").idx => .class,
+                SymbolsManager.comptime_id_of("Nil").idx => .nil,
+                else => continue,
+            };
+            // If this fails, then was already compiled a definition of the primitive class. Which should not happen.
+            assert(null == self.primitive_class_definitions.fetchPut(primitive_class_type, class));
+        }
+
         // The bytecode array might have gotten reallocated during the compilation
         self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
         return class_definition;
@@ -726,6 +747,7 @@ pub const Interpreter = struct {
 };
 
 pub const PrimitiveClassType = enum {
+    object,
     integer,
     double,
     string,
@@ -737,6 +759,7 @@ pub const PrimitiveClassType = enum {
     const Self = @This();
     pub fn as_string(self: Self) []const u8 {
         return switch (self) {
+            .object => "object",
             .integer => "Integer",
             .double => "Double",
             .string => "String",
