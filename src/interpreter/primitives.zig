@@ -32,7 +32,7 @@ pub const Class = struct {
     /// TODO: this does not work! We have to handle cases for primtive classes
     pub fn new__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
-            .class => |accessor| accessor.get_class_definition(target_object.data),
+            .class => |accessor| accessor.get_represented_class(target_object.data),
             else => unreachable,
         };
 
@@ -43,9 +43,10 @@ pub const Class = struct {
     pub const name__somig_arity = 1;
     pub fn name__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
-            .class => |accessor| accessor.get_class_definition(target_object.data),
+            .class => |accessor| accessor.get_represented_class(target_object.data),
             else => unreachable,
         };
+        // TODO: return a `Symbol` object once we have those??
         const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
         const name_as_string_object = try interpreter.create_string(.heap, name_as_u8_slice);
         return name_as_string_object;

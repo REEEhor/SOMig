@@ -452,9 +452,9 @@ pub const Interpreter = struct {
                 try self.stdout.print("nil", .{});
             },
             .class => |accessor| {
-                const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
+                const class_name: SymbolId = accessor.get_represented_class(object.data).class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                try self.stdout.print("Instance of class: '{s}_class'", .{class_name_string});
+                try self.stdout.print("Instance of class: '{s} class'", .{class_name_string});
             },
             .array => |accessor| {
                 const items: []VmObject = accessor.items(object.data);

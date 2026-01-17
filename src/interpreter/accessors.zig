@@ -83,14 +83,75 @@ pub const GenericObjectAccessor = struct {
     }
 };
 
-/// TODO(consultation): read the TODO below this one and ask if it is correct or not
-/// TODO: This is probably not exactly correct according to the SOM class hiearchy (with Metaclasses and such), so consider chaning it later.
+/// The structure of an `VmObject` representing a class is this:
+///    .__________________________.__________________________.__________________________.__________________________.__________________________.
+///    | Header                   | *ClassDefinition         | *ClassDefinition         | VmObject (class var 1)   | VmObject (class var 2)   |
+///    |--------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+///    | - tag=.class             | The class that the       | The class of the         |                          |                          |
+///    | - class_variables_count  | VmObject represents      | VmObject represents.     |                          |                          |  ... (the rest of class variables)
+///    |                          |                          |                          |                          |                          |
+///    |                          |                          | Contains the methods     |                          |                          |
+///    |                          |                          | of the VmObject.         |                          |                          |
+///    |__________________________|__________________________|__________________________|__________________________|__________________________|
 ///
-/// Same as a generic object, but `*ClassDefinition` which can be accessed
-/// does not point to the primitive class `Class` but to the `ClassDefinition`
-/// which is represented by the SOM runtime object.
-///
-pub const ClassAccessor = GenericObjectAccessor;
+pub const ClassAccessor = packed struct {
+    pub const Self = @This();
+
+    pub fn get_bytes_count_after_header(self: Self, heap_data: HeapData) usize {
+        const class_vars_count = self.get_class_variables_count(heap_data);
+
+        // We need space for two pointers to `ClassDefinition` and for the class variables
+        const total_size_in_bytes = 2 * @sizeOf(*ClassDefinition) + (@sizeOf(VmObject) * class_vars_count);
+        return total_size_in_bytes;
+    }
+
+    pub fn get_class_variables_count(self: Self, heap_data: HeapData) u32 {
+        _ = self;
+        return @truncate(heap_data.header.payload);
+    }
+
+    /// WARN: This does not affect the actual number of items, just sets the field describing the number of variables the object holds.
+    pub fn set_class_variables_count(self: Self, heap_data: *HeapData, new_count: u32) void {
+        _ = self;
+        heap_data.header.payload = new_count;
+    }
+
+    pub fn get_represented_class(self: Self, heap_data: *const HeapData) *ClassDefinition {
+        _ = self;
+        const ptr = heap_data.get_after_header_ptr([*]*ClassDefinition);
+        return ptr[0];
+    }
+
+    pub fn set_represented_class(self: Self, heap_data: *HeapData, class: *ClassDefinition) void {
+        _ = self;
+        const ptr = heap_data.get_after_header_ptr([*]*ClassDefinition);
+        ptr[0] = class;
+    }
+
+    pub fn get_class_of_represented_class(self: Self, heap_data: *const HeapData) *ClassDefinition {
+        _ = self;
+        const ptr = heap_data.get_after_header_ptr([*]*ClassDefinition);
+        return ptr[1];
+    }
+
+    pub fn set_class_of_represented_class(self: Self, heap_data: *const HeapData, class: *ClassDefinition) void {
+        _ = self;
+        const ptr = heap_data.get_after_header_ptr([*]*ClassDefinition);
+        ptr[1] = class;
+    }
+
+    pub fn get_class_var_with_idx(self: Self, heap_data: *const HeapData, class_var_idx: u32) VmObject {
+        assert(class_var_idx < self.get_class_variables_count(heap_data.*));
+        const instances = heap_data.get_after_header_ptr([*]VmObject);
+        return instances[class_var_idx + 2]; // `+2` since we store the two `*ClassDefinition`s at the indexes 0 and 1
+    }
+
+    pub fn set_class_var_with_idx(self: Self, heap_data: *HeapData, class_var_idx: u32, object: VmObject) void {
+        assert(class_var_idx < self.get_class_variables_count(heap_data.*));
+        const instances = heap_data.get_after_header_ptr([*]VmObject);
+        instances[class_var_idx + 2] = object; // `+2` since we store the two `*ClassDefinition`s at the indexes 0 and 1
+    }
+};
 
 pub const IntegerAccessor = packed struct {
     pub inline fn get_bytes_count_after_header(self: IntegerAccessor) usize {

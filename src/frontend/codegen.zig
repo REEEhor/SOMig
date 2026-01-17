@@ -317,7 +317,7 @@ pub fn compile_class_with_its_parents(
         // TODO(consultation): Can we look-up the globals like this here? I think it makes sense.
         if (globals.get(parent_being_resolved)) |parent_definition| {
             break switch (parent_definition.data.kind()) {
-                .class => |accessor| accessor.get_class_definition(parent_definition.data),
+                .class => |accessor| accessor.get_represented_class(parent_definition.data),
                 else => return error.parent_is_not_a_class,
             };
         }
@@ -563,9 +563,9 @@ pub fn compile_class(
 
     // Create a new global object which represents the newly compiled class
     var header = HeapData.Header.new_undefined_with_tag(.class);
-    (accessors.ClassAccessor{}).set_instance_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
+    (accessors.ClassAccessor{}).set_class_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
     const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-    (accessors.ClassAccessor{}).set_class_definition(heap_data, compiled_class);
+    (accessors.ClassAccessor{}).set_represented_class(heap_data, compiled_class);
     const class_as_som_object: VmObject = heap_data.as_vm_object();
     // We assert that there was no such global before.
     // This should hold, otherwise we would have looked up the
