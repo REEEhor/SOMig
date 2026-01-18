@@ -9,6 +9,8 @@ const debug_module = @import("../debug/debug.zig");
 const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
 const dbgx = debug_module.dbgx;
+const dbg_assert_eql = debug_module.dbg_assert_eql;
+const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
 const interning_module = @import("../interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
@@ -16,6 +18,7 @@ const SymbolId = interning_module.SymbolId;
 const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const codegen_module = @import("../frontend/codegen.zig");
+const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
 const InstructionDecoder = codegen_module.InstructionDecoder;
 const Instruction = codegen_module.Instruction;
 const ConstantsManager = codegen_module.ConstantsManager;
@@ -535,7 +538,7 @@ pub const Interpreter = struct {
 
     pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
         const number_of_classes_before_load: usize = self.statics.all_classes.len;
-        const class_definition: *ClassDefinition = try compile_class_with_its_parents(.{
+        const class_definition_pair: ClassDefinitionPair = try compile_class_with_its_parents(.{
             .bottom_class_name = class_name,
             .error_writer = self.stderr,
             .globals = &self.globals,
@@ -544,6 +547,7 @@ pub const Interpreter = struct {
             .statics = self.statics,
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
         });
+        const class_definition: *ClassDefinition = class_definition_pair.class;
         const number_of_classes_after_load: usize = self.statics.all_classes.len;
 
         // We have to register primitive classes that might have gotten loaded
@@ -562,8 +566,7 @@ pub const Interpreter = struct {
                 SymbolsManager.comptime_id_of("Nil").idx => .nil,
                 else => continue,
             };
-            // If this fails, then was already compiled a definition of the primitive class. Which should not happen.
-            assert(null == self.primitive_class_definitions.fetchPut(primitive_class_type, class));
+            self.primitive_class_definitions.put(primitive_class_type, class);
         }
 
         // The bytecode array might have gotten reallocated during the compilation
@@ -712,7 +715,7 @@ pub const Interpreter = struct {
             .integer => self.primitive_class_definitions.getAssertContains(.integer),
             .double => self.primitive_class_definitions.getAssertContains(.double),
             .string => self.primitive_class_definitions.getAssertContains(.string),
-            .class => self.primitive_class_definitions.getAssertContains(.class),
+            .class => |accessor| accessor.get_class_of_represented_class(object.data),
             .nil => self.primitive_class_definitions.getAssertContains(.nil),
             .array => self.primitive_class_definitions.getAssertContains(.array),
 

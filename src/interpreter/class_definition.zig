@@ -24,6 +24,9 @@ pub const ClassDefinition = struct {
     pub const MethodMap = SymbolArrayMap(MethodDefinition, "method_name");
 
     pub fn fields_count_including_parents(self: Self) usize {
+        // TODO: - Check this
+        // TODO: - This doesn't probably work, we have to loop over all parent in the hiearchy and sum their instance variables coujnt
+        // TODO: - It might be better to store the number of instance variables of the parent (maybe we are doing this here???)
         var result: usize = self.identifiers_of_instance_variables.len;
         if (self.parent) |parent| {
             result += parent.identifiers_of_instance_variables.len;

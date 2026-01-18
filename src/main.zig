@@ -156,7 +156,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\           "12345678"
         \\          ('knihovna' substringFrom: 2 to: 5) println.
         \\
-        \\          self println.
+        \\          "self println."  "TODO: uncomment this"
         \\
         \\          self some_other_method.
         \\          1.
@@ -188,13 +188,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          arr at: 2 put: 42.
         \\          'Array at index 2: ' print. (arr at: 2) print. ' (after update)' println.
         \\
-        \\          arr println.
+        \\          "arr println." "TODO: uncomment this"
         \\          '' println.
         \\      )
         \\
         \\      some_other_method = (
         \\          | some_variable cat |
-        \\          cat := Cat new.
+        \\          "cat := Cat new.
         \\          cat say_hi.
         \\          cat println.
         \\          cat set_name_to: 'Shrodinger'.
@@ -202,6 +202,9 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\          cat set_jump_height_to: 150 + 2.
         \\          cat say_hi.
         \\          cat jump.
+        \\
+        \\          'Cat static_say_hi: ' print."
+        \\          Cat static_say_hi.
         \\      )
         \\
         \\      get_message = (
@@ -237,7 +240,13 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      name print.
         \\      '" says "hi!"' println.
         \\    )
+        \\
+        \\  ------------------------------------------------------
+        \\    static_say_hi = (
+        \\        'Static "Hi!" from the Animal class' println.
+        \\    )
         \\ )
+        \\
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Cat")).id,
         \\ Cat = Animal (
@@ -299,6 +308,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Class")).id,
         \\ Class = (
         \\      name = primitive
+        \\      asString = ( ^self name asString )
         \\
         \\      "Constructor"
         \\      new = primitive

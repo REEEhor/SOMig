@@ -276,7 +276,7 @@ pub const CompileClassWithItsParentsParams = struct {
 
 pub fn compile_class_with_its_parents(
     params: CompileClassWithItsParentsParams,
-) !*ClassDefinition {
+) !ClassDefinitionPair {
     const bottom_class_name = params.bottom_class_name;
     const statics = params.statics;
     const temporary_allocator = params.temporary_allocator;
@@ -293,7 +293,7 @@ pub fn compile_class_with_its_parents(
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
     var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.super_class_name, &statics.symbols_manager, bottom_ast);
 
-    // Parsed classes to be compiled. This invariant should hold:
+    // Parsed files to be compiled. This invariant should hold:
     //    (∀ idx in 1..len-1 ) ( classes_to_compile[idx] is_parent_of classes_to_compile[idx-1] )
     //
     // This means, we will have to compile them in the reverse order, so that the compiled version of the parent class
@@ -301,10 +301,10 @@ pub fn compile_class_with_its_parents(
     //
     // The order of classes in this ArrayList is "reversed" like this, because we encounter and parse the classes in this order.
     //
-    const CompiledClass = struct { name: SymbolId, ast: ParsedFile };
-    var classes_to_compile = try std.ArrayList(CompiledClass).initCapacity(temporary_allocator, 5);
+    const ParsedFileToCompile = struct { name: SymbolId, ast: ParsedFile };
+    var classes_to_compile = try std.ArrayList(ParsedFileToCompile).initCapacity(temporary_allocator, 5);
     defer classes_to_compile.deinit(temporary_allocator);
-    try classes_to_compile.append(temporary_allocator, CompiledClass{ .name = bottom_class_name, .ast = bottom_ast });
+    try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = bottom_class_name, .ast = bottom_ast });
 
     const parent_of_last_class: ?*ClassDefinition = while (maybe_parent_being_resolved) |parent_being_resolved| {
 
@@ -322,7 +322,7 @@ pub fn compile_class_with_its_parents(
             };
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
-        try classes_to_compile.append(temporary_allocator, CompiledClass{ .name = parent_being_resolved, .ast = parent_ast });
+        try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });
         maybe_parent_being_resolved = try symbol_of_parents_name(parent_ast.class_ast.super_class_name, &statics.symbols_manager, parent_ast);
     } else null;
 
@@ -330,17 +330,21 @@ pub fn compile_class_with_its_parents(
     try statics.all_classes.growCapacity(statics.allocator, statics.all_classes.len + classes_to_compile.items.len);
 
     // Compile the classes
-    var current_parent: ?*ClassDefinition = parent_of_last_class;
+    var current_parent: ?ClassDefinitionPair = blk: {
+        const parent_definition = parent_of_last_class orelse break :blk null;
+        const parent_metaclass = (accessors.ClassAccessor{}).get_class_of_represented_class(parent_definition.as_vm_object.data);
+        break :blk ClassDefinitionPair{ .class = parent_definition, .metaclass = parent_metaclass };
+    };
     var iter = std.mem.reverseIterator(classes_to_compile.items);
     while (iter.nextPtr()) |class_to_compile| {
         var reporter = ErrorReporter{
             .source = class_to_compile.ast.source_code,
-            // TODO: add filepath here
-            .source_path = "TODO the filepath here :D",
+            // TODO: add an actual filepath here
+            .source_path = statics.symbols_manager.symbol_with_id(class_to_compile.name),
             .use_color = true,
             .writer = error_writer,
         };
-        const compiled_class = try compile_class(
+        const compiled_class: ClassDefinitionPair = try compile_class(
             class_to_compile.ast,
             class_to_compile.name,
             current_parent,
@@ -363,18 +367,103 @@ pub fn compile_class_with_its_parents(
     return compiled_root_class;
 }
 
+pub const ClassDefinitionPair = struct {
+    class: *ClassDefinition,
+    metaclass: *ClassDefinition,
+};
+
 pub fn compile_class(
     ast: ParsedFile,
+    class_name_symbol: SymbolId,
+    compiled_parent: ?ClassDefinitionPair,
+    temporary_allocator: Allocator,
+    statics: *Statics,
+    reporter: *ErrorReporter,
+    primitive_methods_map: PrimitiveMethodsMap,
+    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+) !ClassDefinitionPair {
+    // Concatenated name of the class with the string " class" (yes, with the space in front of it).
+    const class_class_name_symbol: SymbolId = blk: {
+        const class_name_string: []const u8 = statics.symbols_manager.symbol_with_id(class_name_symbol);
+        const class_class_name: []const u8 = try std.fmt.allocPrint(temporary_allocator, "{s} class", .{class_name_string});
+        break :blk ((try statics.symbols_manager.id_or_intern(class_class_name)).id);
+    };
+    const class_accessor = accessors.ClassAccessor{};
+
+    // Compile the class portion
+    const class_portion_definition: *ClassDefinition = blk: {
+        const compiled_class = try compile_portion(
+            ast,
+            ast.class_ast.class_portion,
+            class_class_name_symbol,
+            if (compiled_parent) |p| p.metaclass else null,
+            temporary_allocator,
+            statics,
+            reporter,
+            primitive_methods_map,
+        );
+        // Create a new global object which represents the newly compiled class
+        var header = HeapData.Header.new_undefined_with_tag(.class);
+        class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
+        const heap_data: *HeapData = try statics.allocate_for_static_object(header);
+        class_accessor.set_represented_class(heap_data, compiled_class);
+        class_accessor.set_class_of_represented_class(heap_data, undefined); // TODO: set to `Metaclass` here probably ?
+        const class_as_som_object: VmObject = heap_data.as_vm_object();
+        // Someone might have tried to create a global variable with the name of the class of the represented class.
+        // (for example it is concievable that someone could have created a global with the name "Integer class")
+        // Therefore we do not assert, that the global does not exist already.
+        try globals.put(compiled_class.class_name, class_as_som_object);
+
+        break :blk compiled_class;
+    };
+
+    // Compile the instance portion
+    const instance_portion_definition: *ClassDefinition = blk: {
+        const compiled_class = try compile_portion(
+            ast,
+            ast.class_ast.instance_portion,
+            class_name_symbol,
+            if (compiled_parent) |p| p.class else null,
+            temporary_allocator,
+            statics,
+            reporter,
+            primitive_methods_map,
+        );
+        // Create a new global object which represents the newly compiled class
+        var header = HeapData.Header.new_undefined_with_tag(.class);
+        class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
+        const heap_data: *HeapData = try statics.allocate_for_static_object(header);
+        class_accessor.set_represented_class(heap_data, compiled_class);
+        class_accessor.set_class_of_represented_class(heap_data, class_portion_definition);
+        const class_as_som_object: VmObject = heap_data.as_vm_object();
+
+        // We assert that there was no such global before.
+        // This should hold, otherwise we would have looked up the
+        // class previously when we were figuring out the class hiearchy above.
+        try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
+
+        compiled_class.as_vm_object = class_as_som_object;
+
+        break :blk compiled_class;
+    };
+
+    return .{
+        .class = instance_portion_definition,
+        .metaclass = class_portion_definition,
+    };
+}
+
+/// WARN: The returned class has the `ClassDefinition.as_vm_object` set to `undefined`!
+pub fn compile_portion(
+    ast: ParsedFile,
+    ast_portion: Ast.ClassAstPortion,
     class_name_symbol: SymbolId,
     compiled_parent: ?*ClassDefinition,
     temporary_allocator: Allocator,
     statics: *Statics,
     reporter: *ErrorReporter,
     primitive_methods_map: PrimitiveMethodsMap,
-    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
 ) !*ClassDefinition {
-    // TODO: class portion is ignored here, we assume only the instance portion for now
-
     var bytecode_generator = BytecodeGenerator{
         .allocator = statics.allocator,
         .symbols_manager = &statics.symbols_manager,
@@ -388,12 +477,12 @@ pub fn compile_class(
     // Create a list of fields and create a lexical scope out of them
     var field_identifiers = try statics.allocator.alloc(
         SymbolId,
-        if (ast.class_ast.instance_portion.fields) |f| f.number_of_tokens() else 0,
+        if (ast_portion.fields) |f| f.number_of_tokens() else 0,
     );
     {
         const parent_fields_count: u32 = if (compiled_parent) |p| @intCast(p.identifiers_of_instance_variables.len) else 0;
         var lexical_scope = lexical_scopes.new_scope();
-        var iter = token_iterator(ast.class_ast.instance_portion.fields);
+        var iter = token_iterator(ast_portion.fields);
         var idx: u32 = 0;
         while (iter.next()) |field_token| : (idx += 1) {
             const field_text = ast.text_at(field_token);
@@ -409,7 +498,7 @@ pub fn compile_class(
     }
     defer lexical_scopes.pop_scope();
 
-    const all_methods_len = ast.class_ast.instance_portion.methods.len + (if (compiled_parent) |p| p.instance_methods.items.len else 0);
+    const all_methods_len = ast_portion.methods.len + (if (compiled_parent) |p| p.instance_methods.items.len else 0);
     var compiled_methods: []MethodDefinition = try temporary_allocator.alloc(MethodDefinition, all_methods_len);
     defer temporary_allocator.free(compiled_methods);
 
@@ -420,7 +509,7 @@ pub fn compile_class(
     var selector_writer = std.io.Writer.fixed(&buffer_for_selectors);
 
     var method_idx: usize = 0;
-    for (ast.class_ast.instance_portion.methods) |method_ast| {
+    for (ast_portion.methods) |method_ast| {
         const method_selector: SymbolId = try get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter);
 
         // TODO: if we ever want to mark methods if they are inherited or defined in the class, we can mark them as such here :D
@@ -510,8 +599,7 @@ pub fn compile_class(
             const class_name = ast.text_at(ast.class_ast.class_name);
             const duplicate_selector_text: []const u8 = statics.symbols_manager.symbol_with_id(duplicate_method_selector);
             var first_encounter = true;
-            // TODO: when we re-factor the method to compile a portion of the class AST, we have to change what we are iterating over
-            for (ast.class_ast.instance_portion.methods) |method_ast| {
+            for (ast_portion.methods) |method_ast| {
                 selector_writer.end = 0;
                 const selector = get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter) catch unreachable;
                 if (selector.idx == duplicate_method_selector.idx) {
@@ -531,6 +619,7 @@ pub fn compile_class(
                     }
                 }
             }
+            assert(first_encounter == false);
             return error.duplicate_method_definition;
         },
     };
@@ -560,19 +649,6 @@ pub fn compile_class(
         };
         break :blk ptr;
     };
-
-    // Create a new global object which represents the newly compiled class
-    var header = HeapData.Header.new_undefined_with_tag(.class);
-    (accessors.ClassAccessor{}).set_class_variables_count(header.as_heap_data(), 0); // TODO: replace the `0` with something like `compiled_class.class_variables.count`
-    const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-    (accessors.ClassAccessor{}).set_represented_class(heap_data, compiled_class);
-    const class_as_som_object: VmObject = heap_data.as_vm_object();
-    // We assert that there was no such global before.
-    // This should hold, otherwise we would have looked up the
-    // class previously when we were figuring out the class hiearchy above.
-    try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
-
-    compiled_class.as_vm_object = class_as_som_object;
 
     return compiled_class;
 }
