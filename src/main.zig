@@ -136,7 +136,75 @@ fn playground(allocator: std.mem.Allocator) !void {
     //
     var source_code_files = codegen.SourceCodeFiles{ .cached_source_files = codegen.SourceCodeFiles.Map.empty };
     defer source_code_files.cached_source_files.deinit(allocator);
+    try add_temprorary_source_code(allocator, &source_code_files, &statics);
 
+    // // Print bytecode
+    // try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
+    // try codegen.print_bytecode(
+    //     &statics.symbols_manager,
+    //     &statics.constants_manager,
+    //     statics.constants_manager.current_base_id,
+    //     bytecode,
+    //     stdout,
+    // );
+
+    // Allocate stack
+    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 10);
+    defer allocator.free(frames);
+    const objects = try allocator.alloc(interpreter_module.VmObject, 100);
+    defer allocator.free(objects);
+
+    // Setup interpreter
+    var interpreter = Interpreter.new(
+        // TODO: use a different allocator for heap, globals
+        interpreter_allocator,
+        interpreter_allocator,
+        stdout,
+        stdout,
+        &statics,
+        &source_code_files,
+        primitive_methods_map,
+        objects,
+        frames,
+    );
+
+    // NOTE: This will probably have to be also in the final implementation together with loading of the `Metaclass`
+    try interpreter.ensure_primitive_class_is_loaded(.class);
+
+    const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
+    const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
+    const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
+
+    try interpreter.push_object(main_object);
+    try interpreter.push_frame(run_method, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
+    interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
+
+    // Dump the bytecode
+    try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
+    try codegen.print_bytecode(
+        &statics.symbols_manager,
+        &statics.constants_manager,
+        run_method.body.user_land.constants_base_id,
+        statics.instruction_encoder.view_bytecode(),
+        stdout,
+    );
+    try stdout.print("\n", .{});
+
+    // Run the program
+    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
+    try interpreter.run();
+}
+
+// Forcing for `zig build test` to run tests in all files that
+// are recursively imported from here.
+test {
+    _ = @import("frontend/parser.zig");
+    // _ = @import("frontend/codegen.zig");
+    // _ = @import("interning/symbol_array_map.zig");
+    std.testing.refAllDeclsRecursive(@This());
+}
+
+fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *codegen.SourceCodeFiles, statics: *Statics) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Main")).id,
         \\  Main = (
         \\      run = (
@@ -319,69 +387,4 @@ fn playground(allocator: std.mem.Allocator) !void {
         \\      asString = ( ^ 'nil' )
         \\ )
     );
-
-    // // Print bytecode
-    // try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
-    // try codegen.print_bytecode(
-    //     &statics.symbols_manager,
-    //     &statics.constants_manager,
-    //     statics.constants_manager.current_base_id,
-    //     bytecode,
-    //     stdout,
-    // );
-
-    // Allocate stack
-    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 10);
-    defer allocator.free(frames);
-    const objects = try allocator.alloc(interpreter_module.VmObject, 100);
-    defer allocator.free(objects);
-
-    // Setup interpreter
-    var interpreter = Interpreter.new(
-        // TODO: use a different allocator for heap, globals
-        interpreter_allocator,
-        interpreter_allocator,
-        stdout,
-        stdout,
-        &statics,
-        &source_code_files,
-        primitive_methods_map,
-        objects,
-        frames,
-    );
-
-    // NOTE: This will probably have to be also in the final implementation together with loading of the `Metaclass`
-    try interpreter.ensure_primitive_class_is_loaded(.class);
-
-    const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
-    const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-    const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
-
-    try interpreter.push_object(main_object);
-    try interpreter.push_frame(run_method, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
-    interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
-
-    // Dump the bytecode
-    try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
-    try codegen.print_bytecode(
-        &statics.symbols_manager,
-        &statics.constants_manager,
-        run_method.body.user_land.constants_base_id,
-        statics.instruction_encoder.view_bytecode(),
-        stdout,
-    );
-    try stdout.print("\n", .{});
-
-    // Run the program
-    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
-    try interpreter.run();
-}
-
-// Forcing for `zig build test` to run tests in all files that
-// are recursively imported from here.
-test {
-    _ = @import("frontend/parser.zig");
-    // _ = @import("frontend/codegen.zig");
-    // _ = @import("interning/symbol_array_map.zig");
-    std.testing.refAllDeclsRecursive(@This());
 }
