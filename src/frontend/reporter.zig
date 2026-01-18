@@ -171,9 +171,14 @@ pub const ErrorReporter = struct {
         var start_column_id = position.start_idx - location.first_line_start;
         var end_column_id = idx - location.first_line_start;
 
-        // Add dots at the end in case the error is multiline
         if (location.is_multi_line()) {
+            // Add dots at the end in case the error is multiline
             self.print("{s} ...", .{faint_color});
+        } else {
+            self.print("{s}", .{color_reset});
+            while (idx < self.source.len and self.source[idx] != '\n') : (idx += 1) {
+                self.write(self.source[idx]);
+            }
         }
         self.write('\n');
         self.print("{s}", .{color_reset});
