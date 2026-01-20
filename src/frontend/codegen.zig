@@ -392,16 +392,16 @@ pub fn compile_class(
 
     // Compile the class portion
     const class_portion_definition: *ClassDefinition = blk: {
-        const compiled_class = try compile_portion(
-            ast,
-            ast.class_ast.class_portion,
-            class_class_name_symbol,
-            if (compiled_parent) |p| p.metaclass else null,
-            temporary_allocator,
-            statics,
-            reporter,
-            primitive_methods_map,
-        );
+        const compiled_class = try compile_portion(.{
+            .ast = ast,
+            .ast_portion = ast.class_ast.class_portion,
+            .class_name_symbol = class_class_name_symbol,
+            .compiled_parent = if (compiled_parent) |p| p.metaclass else null,
+            .temporary_allocator = temporary_allocator,
+            .statics = statics,
+            .reporter = reporter,
+            .primitive_methods_map = primitive_methods_map,
+        });
         // Create a new global object which represents the newly compiled class
         var header = HeapData.Header.new_undefined_with_tag(.class);
         class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
@@ -419,16 +419,16 @@ pub fn compile_class(
 
     // Compile the instance portion
     const instance_portion_definition: *ClassDefinition = blk: {
-        const compiled_class = try compile_portion(
-            ast,
-            ast.class_ast.instance_portion,
-            class_name_symbol,
-            if (compiled_parent) |p| p.class else null,
-            temporary_allocator,
-            statics,
-            reporter,
-            primitive_methods_map,
-        );
+        const compiled_class = try compile_portion(.{
+            .ast = ast,
+            .ast_portion = ast.class_ast.instance_portion,
+            .class_name_symbol = class_name_symbol,
+            .compiled_parent = if (compiled_parent) |p| p.class else null,
+            .temporary_allocator = temporary_allocator,
+            .statics = statics,
+            .reporter = reporter,
+            .primitive_methods_map = primitive_methods_map,
+        });
         // Create a new global object which represents the newly compiled class
         var header = HeapData.Header.new_undefined_with_tag(.class);
         class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
@@ -453,8 +453,7 @@ pub fn compile_class(
     };
 }
 
-/// WARN: The returned class has the `ClassDefinition.as_vm_object` set to `undefined`!
-pub fn compile_portion(
+pub const CompilePortionParams = struct {
     ast: ParsedFile,
     ast_portion: Ast.ClassAstPortion,
     class_name_symbol: SymbolId,
@@ -463,7 +462,19 @@ pub fn compile_portion(
     statics: *Statics,
     reporter: *ErrorReporter,
     primitive_methods_map: PrimitiveMethodsMap,
-) !*ClassDefinition {
+};
+
+/// WARN: The returned class has the `ClassDefinition.as_vm_object` set to `undefined`!
+pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
+    const ast = params.ast;
+    const ast_portion = params.ast_portion;
+    const class_name_symbol = params.class_name_symbol;
+    const compiled_parent = params.compiled_parent;
+    const temporary_allocator = params.temporary_allocator;
+    const statics = params.statics;
+    const reporter = params.reporter;
+    const primitive_methods_map = params.primitive_methods_map;
+
     var bytecode_generator = BytecodeGenerator{
         .allocator = statics.allocator,
         .symbols_manager = &statics.symbols_manager,
