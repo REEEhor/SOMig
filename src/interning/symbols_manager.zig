@@ -105,13 +105,22 @@ pub fn GenericSymbolsManager(
     };
 }
 
+/// Manages symbols (interned strings) in the SOM runtime.
+/// See `SymbolId` for more info.
 pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
+    // Needed for the initial class hiearchy setup
     "Object",
+    "Object class",
+    "Class",
+    "Class class",
+    "MetaClass",
+    "MetaClass class",
+
+    // Primitives
     "Array",
     "String",
     "Double",
     "Integer",
-    "Class",
     "Nil",
 });
 
