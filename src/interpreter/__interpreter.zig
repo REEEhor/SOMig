@@ -26,6 +26,8 @@ const ConstantId = codegen_module.ConstantId;
 const RelativeConstantId = codegen_module.RelativeConstantId;
 const InstructionId = codegen_module.InstructionId;
 const compile_class_with_its_parents = codegen_module.compile_class_with_its_parents;
+const compile_class = codegen_module.compile_class;
+const compile_class_ignoring_parents = codegen_module.compile_class_ignoring_parents;
 const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
@@ -312,7 +314,7 @@ pub const Interpreter = struct {
                 return;
             };
             if (DO_DEBUG_TRACE) {
-                const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id, .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
+                const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id(), .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
                 std.debug.print("\n[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             switch (instruction) {
@@ -503,7 +505,7 @@ pub const Interpreter = struct {
             std.debug.print("Frame number {d:02}: \n - base_idx: {d}\n - constant_base_id: {d}\n - return_instr_id:{d}\n", .{
                 next_frame_idx - 1,
                 current_frame.base_idx,
-                current_frame.constants_base_id.idx,
+                current_frame.constants_base_id().idx,
                 current_frame.after_return_instruction_id.idx,
             });
             std.debug.print(" - Objects: \n", .{});
@@ -536,6 +538,23 @@ pub const Interpreter = struct {
         assert(self.primitive_class_definitions.getAssertContains(primitive_class_type) == class_definition);
     }
 
+    pub fn load_class_ignore_parent(self: *Self, class_name: SymbolId) !*ClassDefinition {
+        const class_pair = try compile_class_ignoring_parents(.{
+            .class_name = class_name,
+            .error_writer = self.stderr,
+            .globals = &self.globals,
+            .primitive_methods_map = self.primitive_methods,
+            .source_code_files = self.source_code_files,
+            .statics = self.statics,
+            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+        });
+        self.register_newly_compiled_class(class_pair, 1);
+
+        // The bytecode array might have gotten reallocated during the compilation
+        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
+        return class_pair.class;
+    }
+
     pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
         const number_of_classes_before_load: usize = self.statics.all_classes.len;
         const class_definition_pair: ClassDefinitionPair = try compile_class_with_its_parents(.{
@@ -547,16 +566,24 @@ pub const Interpreter = struct {
             .statics = self.statics,
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
         });
-        const class_definition: *ClassDefinition = class_definition_pair.class;
         const number_of_classes_after_load: usize = self.statics.all_classes.len;
+        const number_of_compiled_classes = number_of_classes_after_load - number_of_classes_before_load;
+        self.register_newly_compiled_class(class_definition_pair, number_of_compiled_classes);
 
+        // The bytecode array might have gotten reallocated during the compilation
+        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
+        return class_definition_pair.class;
+    }
+
+    fn register_newly_compiled_class(self: *Self, class_pair: ClassDefinitionPair, number_of_compiled_classes: usize) void {
         // We have to register primitive classes that might have gotten loaded
         // during the compilation.
-        var class_iter: ?*ClassDefinition = class_definition;
-        for (number_of_classes_before_load..number_of_classes_after_load) |_| {
+        var class_iter: ?*ClassDefinition = class_pair.class;
+        for (0..number_of_compiled_classes) |_| {
             const class = class_iter orelse break;
             defer class_iter = class.parent;
             const primitive_class_type: PrimitiveClassType = switch (class.class_name.idx) {
+                SymbolsManager.comptime_id_of("Metaclass").idx => .metaclass,
                 SymbolsManager.comptime_id_of("Object").idx => .object,
                 SymbolsManager.comptime_id_of("Array").idx => .array,
                 SymbolsManager.comptime_id_of("String").idx => .string,
@@ -568,10 +595,17 @@ pub const Interpreter = struct {
             };
             self.primitive_class_definitions.put(primitive_class_type, class);
         }
-
-        // The bytecode array might have gotten reallocated during the compilation
-        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
-        return class_definition;
+        // Register new metaclasses if we have a metaclass loaded
+        if (self.primitive_class_definitions.get(.metaclass)) |metaclass_definition| {
+            class_iter = class_pair.class;
+            const class_accessor = accessors.ClassAccessor{};
+            for (0..number_of_compiled_classes) |_| {
+                const class = class_iter orelse break;
+                defer class_iter = class.parent;
+                const metaclass = class_accessor.get_class_of_represented_class(class.as_vm_object.data);
+                class_accessor.set_class_of_represented_class(metaclass.as_vm_object.data, metaclass_definition);
+            }
+        }
     }
 
     pub fn push_frame(
@@ -763,6 +797,7 @@ pub const PrimitiveClassType = enum {
     nil,
     array,
     class,
+    metaclass,
     // TODO: remaining primitive classes
 
     const Self = @This();
@@ -775,6 +810,7 @@ pub const PrimitiveClassType = enum {
             .nil => "Nil",
             .array => "Array",
             .class => "Class",
+            .metaclass => "Metaclass",
         };
     }
 };

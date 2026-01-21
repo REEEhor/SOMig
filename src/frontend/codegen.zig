@@ -227,6 +227,41 @@ pub fn allocate_heap_data(allocator: Allocator, header: HeapData.Header) Allocat
     return ptr;
 }
 
+pub fn set_parent_and_leak_original_methods(
+    class: *ClassDefinition,
+    new_parent: *ClassDefinition,
+    statics: *Statics,
+) Allocator.Error!void {
+    // NOTE:
+    // We have to assert that the class had no parent before,
+    // since the `class` could have contained methods from its original parent.
+    //
+    // At the time of implementing this method, there is no way to know which methods are inherited
+    // and which are defined in the class.
+    //
+    // If that changes in the future, we can reimplment this method to also accomodate
+    // for classes with existing parents via filtering the inherited methods out.
+    //
+    // For now, we assert that there was no parent.
+    assert(class.parent == null);
+
+    // The methods for this class are already compiled.
+    // The `load_instance_var` instruction are already set.
+    // These instructions rely on the number of fields
+    // staying the same.
+    assert(class.fields_count_including_parents() == 0);
+
+    const new_methods = try ClassDefinition.MethodMap.from_merge_of(
+        class.instance_methods,
+        new_parent.instance_methods,
+        statics.allocator,
+    );
+    class.instance_methods = new_methods;
+    class.parent = new_parent;
+
+    // TODO: once we re-work the implementation of how the instance variables are stored, we have to update that here
+}
+
 pub fn find_file_and_parse_it(
     class_name: SymbolId,
     source_code_files: *SourceCodeFiles,
@@ -262,6 +297,41 @@ pub fn symbol_of_parents_name(maybe_parent_name_token: ?Ast.TokenId, symbols_man
     const intern_result = try symbols_manager.id_or_intern(text);
     return intern_result.id;
 }
+pub const CompileClassIgnoringParents = struct {
+    class_name: SymbolId,
+    statics: *Statics,
+    temporary_allocator: Allocator,
+    source_code_files: *SourceCodeFiles,
+    error_writer: *std.io.Writer,
+    primitive_methods_map: PrimitiveMethodsMap,
+    /// Used for lookup of class definitions.
+    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+};
+
+/// Sets the parent to null.
+/// The metaclass has the VM object set to undefined.
+pub fn compile_class_ignoring_parents(
+    params: CompileClassIgnoringParents,
+) !ClassDefinitionPair {
+    const class_name = params.class_name;
+    const statics = params.statics;
+    const temporary_allocator = params.temporary_allocator;
+    const source_code_files = params.source_code_files;
+    const error_writer = params.error_writer;
+    const primitive_methods_map = params.primitive_methods_map;
+    const globals = params.globals;
+
+    const ast = try find_file_and_parse_it(class_name, source_code_files, statics, error_writer, temporary_allocator);
+    var reporter = ErrorReporter{
+        .source = ast.source_code,
+        // TODO: use actual filepath
+        .source_path = statics.symbols_manager.symbol_with_id(class_name),
+        .use_color = true,
+        .writer = error_writer,
+    };
+    const class_pair = try compile_class(ast, class_name, null, temporary_allocator, statics, &reporter, primitive_methods_map, globals);
+    return class_pair;
+}
 
 pub const CompileClassWithItsParentsParams = struct {
     bottom_class_name: SymbolId,
@@ -274,6 +344,7 @@ pub const CompileClassWithItsParentsParams = struct {
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
 };
 
+/// The metaclass has the VM object set to undefined.
 pub fn compile_class_with_its_parents(
     params: CompileClassWithItsParentsParams,
 ) !ClassDefinitionPair {
@@ -392,7 +463,7 @@ pub fn compile_class(
 
     // Compile the class portion
     const class_portion_definition: *ClassDefinition = blk: {
-        const compiled_class = try compile_portion(.{
+        var compiled_class = try compile_portion(.{
             .ast = ast,
             .ast_portion = ast.class_ast.class_portion,
             .class_name_symbol = class_class_name_symbol,
@@ -409,6 +480,7 @@ pub fn compile_class(
         class_accessor.set_represented_class(heap_data, compiled_class);
         class_accessor.set_class_of_represented_class(heap_data, undefined); // TODO: set to `Metaclass` here probably ?
         const class_as_som_object: VmObject = heap_data.as_vm_object();
+        compiled_class.as_vm_object = class_as_som_object;
         // Someone might have tried to create a global variable with the name of the class of the represented class.
         // (for example it is concievable that someone could have created a global with the name "Integer class")
         // Therefore we do not assert, that the global does not exist already.
@@ -419,7 +491,7 @@ pub fn compile_class(
 
     // Compile the instance portion
     const instance_portion_definition: *ClassDefinition = blk: {
-        const compiled_class = try compile_portion(.{
+        var compiled_class = try compile_portion(.{
             .ast = ast,
             .ast_portion = ast.class_ast.instance_portion,
             .class_name_symbol = class_name_symbol,
@@ -436,6 +508,7 @@ pub fn compile_class(
         class_accessor.set_represented_class(heap_data, compiled_class);
         class_accessor.set_class_of_represented_class(heap_data, class_portion_definition);
         const class_as_som_object: VmObject = heap_data.as_vm_object();
+        compiled_class.as_vm_object = class_as_som_object;
 
         // We assert that there was no such global before.
         // This should hold, otherwise we would have looked up the

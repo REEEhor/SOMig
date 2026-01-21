@@ -1,4 +1,8 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
+const debug_module = @import("debug/debug.zig");
+const dbg = debug_module.dbg;
 
 const parser_module = @import("frontend/parser.zig");
 const Parser = parser_module.Parser;
@@ -168,6 +172,37 @@ fn playground(allocator: std.mem.Allocator) !void {
         frames,
     );
 
+    // Setup the base class hiearchy
+    // TODO: assert correct hiearchy (meaning the classes actually point to each other)
+    {
+        const object_definition, const object_class_definition = blk: {
+            const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Object"));
+            break :blk .{ class, class.get_metaclass_through_vm_object() catch unreachable };
+        };
+        const class_definition, const class_class_definition = blk: {
+            const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Class"));
+            break :blk .{ class, class.get_metaclass_through_vm_object() catch unreachable };
+        };
+
+        // Assign the parents
+        try codegen.set_parent_and_leak_original_methods(class_definition, object_definition, interpreter.statics);
+        try codegen.set_parent_and_leak_original_methods(object_class_definition, class_definition, interpreter.statics);
+        try codegen.set_parent_and_leak_original_methods(class_class_definition, object_class_definition, interpreter.statics);
+
+        const metaclass_definition = try interpreter.load_class(SymbolsManager.comptime_id_of("Metaclass"));
+
+        const class_accessor = interpreter_module.accessors.ClassAccessor{};
+        // Update all VM objects which represent some metaclass in the runtime,
+        // so the "class of the class they are representing" is actually metaclass and not undefined.
+        class_accessor.set_class_of_represented_class(object_class_definition.as_vm_object.data, metaclass_definition);
+        class_accessor.set_class_of_represented_class(class_class_definition.as_vm_object.data, metaclass_definition);
+        {
+            // This should already be done by the interpreter via the `.load_class` method.
+            const metaclass_class_definition = metaclass_definition.get_metaclass_through_vm_object() catch unreachable;
+            assert(metaclass_class_definition.get_metaclass_through_vm_object() catch unreachable == metaclass_definition);
+        }
+    }
+
     // NOTE: This will probably have to be also in the final implementation together with loading of the `Metaclass`
     try interpreter.ensure_primitive_class_is_loaded(.class);
 
@@ -224,7 +259,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\           "12345678"
         \\          ('knihovna' substringFrom: 2 to: 5) println.
         \\
-        \\          "self println."  "TODO: uncomment this"
+        \\          self println.
         \\
         \\          self some_other_method.
         \\          1.
@@ -256,13 +291,13 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          arr at: 2 put: 42.
         \\          'Array at index 2: ' print. (arr at: 2) print. ' (after update)' println.
         \\
-        \\          "arr println." "TODO: uncomment this"
+        \\          arr println.
         \\          '' println.
         \\      )
         \\
         \\      some_other_method = (
         \\          | some_variable cat |
-        \\          "cat := Cat new.
+        \\          cat := Cat new.
         \\          cat say_hi.
         \\          cat println.
         \\          cat set_name_to: 'Shrodinger'.
@@ -271,8 +306,11 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          cat say_hi.
         \\          cat jump.
         \\
-        \\          'Cat static_say_hi: ' print."
+        \\          '`Cat static_say_hi:`       ' print.
         \\          Cat static_say_hi.
+        \\
+        \\          '`cat class static_say_hi:` ' print.
+        \\          cat class static_say_hi.
         \\      )
         \\
         \\      get_message = (
@@ -386,5 +424,8 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\ Nil = (
         \\      asString = ( ^ 'nil' )
         \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Metaclass")).id,
+        \\ Metaclass = Class ( )
     );
 }

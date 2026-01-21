@@ -53,7 +53,7 @@ pub fn GenericSymbolsManager(
 
         pub fn comptime_id_of(comptime symbol: []const u8) SymbolId {
             inline for (comptime_known_symbols, 0..) |known_symbol, idx| {
-                if (std.mem.eql(u8, symbol, known_symbol)) {
+                if (comptime std.mem.eql(u8, symbol, known_symbol)) {
                     return SymbolId.new(@intCast(idx));
                 }
             }
@@ -113,10 +113,10 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Object class",
     "Class",
     "Class class",
-    "MetaClass",
-    "MetaClass class",
+    "Metaclass",
+    "Metaclass class",
 
-    // Primitives
+    // Rest of the primitives
     "Array",
     "String",
     "Double",

@@ -23,6 +23,13 @@ pub const ClassDefinition = struct {
     const Self = @This();
     pub const MethodMap = SymbolArrayMap(MethodDefinition, "method_name");
 
+    pub fn get_metaclass_through_vm_object(self: Self) Interpreter.Error!*ClassDefinition {
+        return switch (self.as_vm_object.data.kind()) {
+            .class => |accessor| accessor.get_class_of_represented_class(self.as_vm_object.data),
+            else => Interpreter.Error.primitive_type_error,
+        };
+    }
+
     pub fn fields_count_including_parents(self: Self) usize {
         // TODO: - Check this
         // TODO: - This doesn't probably work, we have to loop over all parent in the hiearchy and sum their instance variables coujnt
