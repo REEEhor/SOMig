@@ -1,6 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const interning_module = @import("../interning/__interning.zig");
+const SymbolId = interning_module.SymbolId;
+
 const vm_object_module = @import("vm_object.zig");
 const HeapData = vm_object_module.HeapData;
 const VmObject = vm_object_module.VmObject;
@@ -246,5 +249,28 @@ pub const StringAccessor = packed struct {
         const length: usize = self.get_length_usize(heap_data.*);
         const slice: []u8 = ptr[0..length];
         return slice;
+    }
+};
+
+pub const SymbolAccessor = struct {
+    const Self = @This();
+
+    pub fn get_symbol_id(self: Self, heap_data: HeapData) SymbolId {
+        _ = self;
+        assert(heap_data.header.tag == .symbol);
+        const idx: SymbolId.IdRepr = @intCast(heap_data.header.payload);
+        return SymbolId.new(idx);
+    }
+
+    pub fn set_symbol_id(self: Self, heap_data: *HeapData, new_id: SymbolId) void {
+        _ = self;
+        assert(heap_data.header.tag == .symbol);
+        heap_data.header.payload = new_id.idx;
+    }
+
+    pub fn get_bytes_count_after_header(self: Self) usize {
+        _ = self;
+        // We need just the header
+        return 0;
     }
 };

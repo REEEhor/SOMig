@@ -117,10 +117,11 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Metaclass class",
 
     // Rest of the primitives
-    "Array",
-    "String",
     "Double",
     "Integer",
+    "String",
+    "Symbol",
+    "Array",
     "Nil",
 });
 

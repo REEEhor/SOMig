@@ -261,6 +261,10 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          self println.
         \\
+        \\          'This-is-symbol' asSymbol println.
+        \\          "123456"
+        \\          ('SYMBOL' asSymbol substringFrom: 1 to: 3) println.
+        \\
         \\          self some_other_method.
         \\          1.
         \\          self get_message println.
@@ -397,10 +401,21 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\      + obj = ( ^ self concatWith: obj asString  )
         \\      concatWith: otherString = primitive
         \\      asString = ( ^ self )
+        \\      asSymbol = primitive
         \\      print = primitive
         \\      println = primitive
         \\      substringFrom: from to: to = ( ^ self primSubstringFrom: from to: to. )
         \\      primSubstringFrom: _ to: _ = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Symbol")).id,
+        \\ Symbol = String (
+        \\    asString = primitive
+        \\    asSymbol = ( ^ self )
+        \\    " TODO: here should be `super print` "
+        \\    print = ( '#' print. self asString print )
+        \\    " TODO: this method shouldn't be here "
+        \\    println = ( '#' print. self asString println )
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,

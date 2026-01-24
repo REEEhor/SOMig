@@ -48,6 +48,7 @@ pub const HeapData = struct {
                 .string => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .class => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .array => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
+                .symbol => |accessor| accessor.get_bytes_count_after_header(),
                 .nil => 0,
                 .generic_object => |accessor| accessor.get_bytes_count_after_header(.{ .header = self }),
                 .empty_heap_segment => |accessor| accessor.get_bytes_count_after_header(),
@@ -63,6 +64,7 @@ pub const HeapData = struct {
             nil,
             array: accessors.ArrayAccessor,
             class: accessors.ClassAccessor,
+            symbol: accessors.SymbolAccessor,
             // TODO: rest of the primitives
 
             generic_object: accessors.GenericObjectAccessor,

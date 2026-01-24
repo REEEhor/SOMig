@@ -280,6 +280,29 @@ pub const Interpreter = struct {
         return object;
     }
 
+    pub fn create_symbol_object(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        symbol: SymbolId,
+    ) Error!VmObject {
+        try self.ensure_primitive_class_is_loaded(.symbol);
+
+        var header = HeapData.Header.new_undefined_with_tag(.symbol);
+        (accessors.SymbolAccessor{}).set_symbol_id(header.as_heap_data(), symbol);
+        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
+        const object: VmObject = result_object_data.as_vm_object();
+        return object;
+    }
+
+    pub fn create_symbol_object_from_string(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        string_to_intern: []const u8,
+    ) Error!VmObject {
+        const symbol_id: SymbolId = (try self.statics.symbols_manager.id_or_intern(string_to_intern)).id;
+        return self.create_symbol_object(alloc, symbol_id);
+    }
+
     pub fn create_array_with_undefined_items(
         self: *Self,
         comptime alloc: NewObjectAllocationStrategy,
@@ -382,6 +405,10 @@ pub const Interpreter = struct {
                         const newly_loaded_class: *ClassDefinition = try self.load_class(global_symbol_id);
                         try self.push_object(newly_loaded_class.as_vm_object);
                     }
+                },
+                .load_symbol => |symbol_id| {
+                    const object: VmObject = try self.create_symbol_object(.heap, symbol_id);
+                    try self.push_object(object);
                 },
                 .print => {
                     const to_print: VmObject = self.pop_object();
@@ -589,6 +616,7 @@ pub const Interpreter = struct {
                 SymbolsManager.comptime_id_of("String").idx => .string,
                 SymbolsManager.comptime_id_of("Double").idx => .double,
                 SymbolsManager.comptime_id_of("Integer").idx => .integer,
+                SymbolsManager.comptime_id_of("Symbol").idx => .symbol,
                 SymbolsManager.comptime_id_of("Class").idx => .class,
                 SymbolsManager.comptime_id_of("Nil").idx => .nil,
                 else => continue,
@@ -752,6 +780,7 @@ pub const Interpreter = struct {
             .class => |accessor| accessor.get_class_of_represented_class(object.data),
             .nil => self.primitive_class_definitions.getAssertContains(.nil),
             .array => self.primitive_class_definitions.getAssertContains(.array),
+            .symbol => self.primitive_class_definitions.getAssertContains(.symbol),
 
             .generic_object => |accessor| accessor.get_class_definition(object.data),
             .empty_heap_segment => unreachable,
@@ -795,6 +824,7 @@ pub const PrimitiveClassType = enum {
     double,
     string,
     nil,
+    symbol,
     array,
     class,
     metaclass,
@@ -807,6 +837,7 @@ pub const PrimitiveClassType = enum {
             .integer => "Integer",
             .double => "Double",
             .string => "String",
+            .symbol => "Symbol",
             .nil => "Nil",
             .array => "Array",
             .class => "Class",

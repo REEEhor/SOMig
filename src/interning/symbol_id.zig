@@ -33,7 +33,7 @@ pub const SymbolId = packed struct {
     idx: IdRepr,
     pub const IdRepr = u24;
 
-    pub fn new(idx: u24) SymbolId {
+    pub fn new(idx: IdRepr) SymbolId {
         return .{ .idx = idx };
     }
 };

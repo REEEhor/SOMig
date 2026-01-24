@@ -33,7 +33,7 @@ pub const Class = struct {
     pub fn new__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
             .class => |accessor| accessor.get_represented_class(target_object.data),
-            else => unreachable,
+            else => return Interpreter.Error.primitive_type_error,
         };
 
         const new_object = try interpreter.create_object(.heap, class_definition);
@@ -44,12 +44,9 @@ pub const Class = struct {
     pub fn name__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
             .class => |accessor| accessor.get_represented_class(target_object.data),
-            else => unreachable,
+            else => return Interpreter.Error.primitive_type_error,
         };
-        // TODO: return a `Symbol` object once we have those??
-        const name_as_u8_slice: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(class_definition.class_name);
-        const name_as_string_object = try interpreter.create_string(.heap, name_as_u8_slice);
-        return name_as_string_object;
+        return interpreter.create_symbol_object(.heap, class_definition.class_name);
     }
 };
 
@@ -208,6 +205,7 @@ pub const Double = struct {
 
 pub const String = struct {
     pub const println__somig_arity = 1;
+    /// FIXME: this method should be defined in object, not here
     pub fn println__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const str: []const u8 = switch (target_object.data.kind()) {
             .string => |accessor| accessor.contents(target_object.data),
@@ -229,6 +227,15 @@ pub const String = struct {
         return try interpreter.get_nil_singleton();
     }
 
+    pub const asSymbol__somig_arity = 1;
+    pub fn asSymbol__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const str: []const u8 = switch (target_object.data.kind()) {
+            .string => |accessor| accessor.contents(target_object.data),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+        return try interpreter.create_symbol_object_from_string(.heap, str);
+    }
+
     pub const @"concatWith:__somig_arity" = 2;
     pub fn @"concatWith:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const lhs_string: []const u8 = switch (target_object.data.kind()) {
@@ -248,11 +255,7 @@ pub const String = struct {
 
     pub const @"primSubstringFrom:to:__somig_arity" = 3;
     pub fn @"primSubstringFrom:to:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const original_string: []const u8 = switch (target_object.data.kind()) {
-            .string => |accessor| accessor.contents(target_object.data),
-            else => return Interpreter.Error.primitive_type_error,
-        };
-
+        const original_string: []const u8 = try get_u8_slice_from_string_or_symbol(target_object, interpreter);
         const som_idx_from = blk: {
             const obj = interpreter.pop_object();
             const idx = switch (obj.data.kind()) {
@@ -294,6 +297,31 @@ pub const String = struct {
 
         const result_string: VmObject = try interpreter.create_string(.heap, substring);
         return result_string;
+    }
+
+    fn get_u8_slice_from_string_or_symbol(object: VmObject, interpreter: *Interpreter) Interpreter.Error![]const u8 {
+        const string: []const u8 = sw: switch (object.data.kind()) {
+            .string => |accessor| break :sw accessor.contents(object.data),
+            .symbol => |accessor| {
+                const symbol_id: SymbolId = accessor.get_symbol_id(object.data.*);
+                break :sw interpreter.statics.symbols_manager.symbol_with_id(symbol_id);
+            },
+            else => return Interpreter.Error.primitive_type_error,
+        };
+        return string;
+    }
+};
+
+pub const Symbol = struct {
+    pub const asString__somig_arity = 1;
+    pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const symbol_id: SymbolId = switch (target_object.data.kind()) {
+            .symbol => |accessor| accessor.get_symbol_id(target_object.data.*),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+        const symbol_as_string: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(symbol_id);
+        const object = try interpreter.create_string(.heap, symbol_as_string);
+        return object;
     }
 };
 

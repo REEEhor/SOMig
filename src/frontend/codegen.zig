@@ -928,7 +928,7 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .string_literal => |token_id| {
-                // TODO: parse escaped special characters from the text here (or make a function for that and use it)
+                // FIXME: parse escaped special characters from the text here (or make a function for that and use it)
                 const text = self.ast.text_at(token_id);
                 assert(text.len >= 2); // This assert should not fail, since the string literal must be at least `''`.
                 const trimmed_string = text[1 .. text.len - 1];
@@ -1038,6 +1038,20 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .pop_into_new_array = .{
                     .number_of_items = @truncate(sub_expressions.len),
                 } });
+            },
+            .symbol => |original_tokens_span| {
+                // The symbol should consist of at least a `#` symbol and one more token
+                assert(original_tokens_span.number_of_tokens() > 1);
+                const token_span = Ast.TokenSpan.create(original_tokens_span.start_id.idx + 1, original_tokens_span.end_id.idx);
+                if (self.ast.kind_of(token_span.start_id) == .string_literal) {
+                    // FIXME: compile all kinds of symbols. Especially string literals
+                    // NOTE: probably compile string literals properly first
+                    self.reporter.report_error(.{ .pos = self.ast.pos_of(expr_id) }, "TODO: Compiling of symbols which are string literals", .{});
+                    return error.TODO;
+                }
+                const symbol_as_string = self.ast.text_at(token_span);
+                const symbol_id = (try self.symbols_manager.id_or_intern(symbol_as_string)).id;
+                try self.add_instruction(.{ .load_symbol = symbol_id });
             },
             else => |todo_expr| {
                 self.reporter.report_error(
@@ -1186,6 +1200,10 @@ pub const InstructionDecoder = struct {
                 const identifier = self.read_id(SymbolId);
                 break :sw Instruction{ .load_global = identifier };
             },
+            .load_symbol => {
+                const id = self.read_id(SymbolId);
+                break :sw Instruction{ .load_symbol = id };
+            },
             .send_message => {
                 const ArgsCount = @FieldType(Instruction.SendMessage, "aditional_args_count");
                 const args_cout = self.read_integer(ArgsCount);
@@ -1284,6 +1302,9 @@ pub const InstructionEncoder = struct {
             .pop_into_new_array => |info| {
                 try self.write_integer(allocator, info.number_of_items);
             },
+            .load_symbol => |symbol_id| {
+                try self.write_integer(allocator, symbol_id.idx);
+            },
             // NOTE(epic-zig): comptime assert
             inline else => |payload, tag| {
                 if (@TypeOf(payload) != void) {
@@ -1365,6 +1386,10 @@ pub const InstructionFormatter = struct {
                 .load_global => |global_var_id| {
                     const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ identifier, global_var_id.idx });
+                },
+                .load_symbol => |id| {
+                    const string: []const u8 = self.symbols_manager.symbol_with_id(id);
+                    try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
                 },
                 // NOTE(epic-zig): comptime assert
                 inline else => |payload, tag| {
@@ -1453,6 +1478,8 @@ pub const Instruction = union(enum(u8)) {
 
     pop_into_new_array: PopIntoNewArray = 12,
 
+    load_symbol: SymbolId = 13,
+
     print, // TODO: remove this after development
 
     pub const PopIntoNewArray = packed struct {
@@ -1510,6 +1537,7 @@ pub const Instruction = union(enum(u8)) {
     pub fn is_load_instruction(self: Self) bool {
         return switch (self) {
             .no_op => false,
+            .load_symbol => true,
             .pop_into_new_array => false,
             .load_constant => true,
             .send_message => false,
