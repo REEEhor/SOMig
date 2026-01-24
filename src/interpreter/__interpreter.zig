@@ -451,6 +451,10 @@ pub const Interpreter = struct {
                     };
                     try self.push_object(object);
                 },
+                .resolved_method_call => |call_info| {
+                    const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
+                    try self.call_method(method_ptr);
+                },
                 .send_message => |call_info| {
                     try self.send_message(call_info);
                 },
@@ -725,6 +729,32 @@ pub const Interpreter = struct {
         return self.stack.objects[self.stack.objects.len - 1];
     }
 
+    pub fn call_method(self: *Self, method: *const MethodDefinition) Error!void {
+        switch (method.body) {
+            .user_land => |method_body_info| {
+                try self.push_frame(
+                    method,
+                    method.number_of_aditional_args,
+                    method_body_info.number_of_locals,
+                    self.decoder.id_of_next_instruction(),
+                );
+                self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
+            },
+            .primitive => |primitive_method| {
+                const target_object = self.pop_object();
+                const result_object: VmObject = primitive_method(target_object, self) catch |err| {
+                    // TODO: remove this once we have a propper stack trace
+                    self.report_info(
+                        "Error happened in the primitive method `{s}`",
+                        .{self.statics.symbols_manager.symbol_with_id(method.method_name)},
+                    ) catch {};
+                    return err;
+                };
+                try self.push_object(result_object);
+            },
+        }
+    }
+
     pub fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
         const target_object: VmObject = self.top_stack_object();
         const class: *const ClassDefinition = self.get_class_of(target_object);
@@ -737,29 +767,7 @@ pub const Interpreter = struct {
             return Error.method_not_found;
         };
 
-        switch (method.body) {
-            .user_land => |method_body_info| {
-                try self.push_frame(
-                    method,
-                    method.number_of_aditional_args,
-                    method_body_info.number_of_locals,
-                    self.decoder.id_of_next_instruction(),
-                );
-                self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
-            },
-            .primitive => |primitive_method| {
-                _ = self.pop_object(); // The primitive methods get `target_object` via an argument
-                const result_object: VmObject = primitive_method(target_object, self) catch |err| {
-                    // TODO: remove this once we have a propper stack trace
-                    self.report_info(
-                        "Error happened in the primitive method `{s}` of class `{s}`",
-                        .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
-                    ) catch {};
-                    return err;
-                };
-                try self.push_object(result_object);
-            },
-        }
+        try self.call_method(method);
     }
 
     inline fn fetch_class_by_name(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {

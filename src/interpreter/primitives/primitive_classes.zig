@@ -210,10 +210,7 @@ pub const String = struct {
     /// FIXME: this method should be defined in object, not here
     pub fn println__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         assert_arity_is(@src(), 1);
-        const str: []const u8 = switch (target_object.data.kind()) {
-            .string => |accessor| accessor.contents(target_object.data),
-            else => return Interpreter.Error.primitive_type_error,
-        };
+        const str = try get_u8_slice_from_string_or_symbol(target_object, interpreter);
         _ = try interpreter.stdout.write(str);
         _ = try interpreter.stdout.writeByte('\n');
         try interpreter.stdout.flush();
@@ -222,10 +219,7 @@ pub const String = struct {
 
     pub fn print__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         assert_arity_is(@src(), 1);
-        const str: []const u8 = switch (target_object.data.kind()) {
-            .string => |accessor| accessor.contents(target_object.data),
-            else => return Interpreter.Error.primitive_type_error,
-        };
+        const str = try get_u8_slice_from_string_or_symbol(target_object, interpreter);
         _ = try interpreter.stdout.write(str);
         return try interpreter.get_nil_singleton();
     }

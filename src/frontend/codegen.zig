@@ -9,6 +9,8 @@ const dbgx = debug_module.dbgx;
 const dbg_assert_eql = debug_module.dbg_assert_eql;
 const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
+const SmallPtr = @import("../interpreter/small_ptr.zig").SmallPtr;
+
 const interning_module = @import("../interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
@@ -645,6 +647,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                 const start_instruction_id: InstructionId = try bytecode_generator.compile_method(
                     &ast,
                     &lexical_scopes,
+                    if (compiled_parent) |p| &p.instance_methods else null,
                     method_ast.span,
                     function_body,
                     method_ast.header,
@@ -780,6 +783,15 @@ pub fn get_selector_symbol(
     return method_selector_symbol;
 }
 
+pub const CompileError = error{
+    keyword_selector_too_long,
+    too_many_items_in_array_literal,
+    super_call_in_class_without_parent,
+    could_not_find_method_in_parent,
+    /// FIXME: This shouldn't be here at the end of implementation
+    TODO,
+} || Allocator.Error;
+
 pub const BytecodeGenerator = struct {
     const Self = @This();
 
@@ -798,25 +810,32 @@ pub const BytecodeGenerator = struct {
     /// Invalid between calls to `compile_method`.
     scope_stack: *ScopeStack = undefined,
 
+    /// WARN: Do not use from outside of this `struct`!
+    /// Invalid between calls to `compile_method`.
+    compiled_parent_methods: ?*const ClassDefinition.MethodMap = undefined,
+
     last_instruction: ?Instruction = null,
 
     pub fn compile_method(
         self: *Self,
         ast: *const ParsedFile,
         scope_stack: *ScopeStack,
+        compiled_parent_methods: ?*const ClassDefinition.MethodMap,
         //
         method_span: Ast.TokenSpan,
         body: Ast.FunctionBody,
         method_header: Ast.MethodHeader,
-    ) !InstructionId {
+    ) CompileError!InstructionId {
         _ = method_span;
 
         const start_instruction_id = self.builder.id_of_the_next_instruction();
 
         self.ast = ast;
         self.scope_stack = scope_stack;
+        self.compiled_parent_methods = compiled_parent_methods;
         defer self.ast = undefined;
         defer self.scope_stack = undefined;
+        defer self.compiled_parent_methods = undefined;
 
         // TODO: think about reporting a warning that a local is shadowing a variable
 
@@ -909,7 +928,42 @@ pub const BytecodeGenerator = struct {
         self.last_instruction = instruction;
     }
 
-    fn compile_expression(self: *Self, expr_id: Ast.ExprId) !void {
+    fn compile_message_send(self: *Self, receiver: Ast.ExprId, message_selector: SymbolId) CompileError!void {
+        const receiver_tag: Ast.Expression.Tag = self.ast.tag_of(receiver);
+        const is_receiver_super = switch (receiver_tag) {
+            .variable => std.mem.eql(u8, self.ast.text_at(receiver), "super"),
+            else => false,
+        };
+
+        if (!is_receiver_super) {
+            try self.compile_expression(receiver);
+            try self.add_instruction(Instruction{
+                // FIXME: remove field `aditional_args_count`, it is not needed
+                .send_message = .{ .message_name = message_selector, .aditional_args_count = undefined },
+            });
+            return;
+        }
+
+        // We have to compile a call to a method in the super class
+        const parent_methods = if (self.compiled_parent_methods) |methods| methods else {
+            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver) }, "Referencing `super` inside a class without a parent class.", .{});
+            return CompileError.super_call_in_class_without_parent;
+        };
+        const method_ptr: *const MethodDefinition = parent_methods.get_ptr(message_selector) orelse {
+            // SAFETY: we can access `self.ast.class_ast.super_class_name.?` because the current class has a parent in this branch of code (we are currently compiling a call to a method from the parent)
+            const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.super_class_name.?);
+            const parent_name = self.ast.text_at(position_of_parent_declaration);
+            const selector_as_string = self.symbols_manager.symbol_with_id(message_selector);
+            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver) }, "Call to a `super` with method `{s}`, but the parent class is `{s}`, which doesn't have that method defined.", .{ selector_as_string, parent_name });
+            self.reporter.add_note(.{ .pos = position_of_parent_declaration }, "The parent is defined here.", .{});
+            return CompileError.could_not_find_method_in_parent;
+        };
+        try self.add_instruction(Instruction{
+            .resolved_method_call = .{ .method_ptr = SmallPtr(*const MethodDefinition).new(method_ptr) },
+        });
+    }
+
+    fn compile_expression(self: *Self, expr_id: Ast.ExprId) CompileError!void {
         const expr = self.ast.expressions.get(expr_id);
         switch (expr) {
             .integer_literal => |token_id| {
@@ -936,24 +990,18 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .unary_message_call => |unary_call| {
-                try self.compile_expression(unary_call.argument);
                 const message_symbol: SymbolId = try self.symbol_from_token(unary_call.message);
-                try self.add_instruction(Instruction{
-                    .send_message = .{ .message_name = message_symbol, .aditional_args_count = 0 },
-                });
+                try self.compile_message_send(unary_call.argument, message_symbol);
             },
             .binary_message_call => |raw_binary_call| {
                 const binary_call = raw_binary_call.decompress(self.ast.extras);
+                const message_symbol: SymbolId = try self.symbol_from_token(binary_call.message);
 
                 // The calling convention mandates that the order of the arguments is
                 // pushed onto the stack in the *REVERSE* order in comparison to the
                 // order of the arguments in code.
                 try self.compile_expression(binary_call.rhs);
-                try self.compile_expression(binary_call.lhs);
-                const message_symbol: SymbolId = try self.symbol_from_token(binary_call.message);
-                try self.add_instruction(Instruction{
-                    .send_message = .{ .message_name = message_symbol, .aditional_args_count = 1 },
-                });
+                try self.compile_message_send(binary_call.lhs, message_symbol);
             },
             .keyword_message_call => |keyword_message_call| {
                 // TODO: the length of the `buffer` should be the same as in `get_selector_symbol`
@@ -985,11 +1033,7 @@ pub const BytecodeGenerator = struct {
                     const argument_ast: Ast.ExprId = arguments.nth_argument(argument_idx);
                     try self.compile_expression(argument_ast);
                 }
-                try self.compile_expression(keyword_message_call.first_argument);
-                try self.add_instruction(.{ .send_message = .{
-                    .message_name = selector_symbol,
-                    .aditional_args_count = @intCast(arguments.number_of_args()),
-                } });
+                try self.compile_message_send(keyword_message_call.first_argument, selector_symbol);
             },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
@@ -1214,6 +1258,11 @@ pub const InstructionDecoder = struct {
                     .message_name = message_name_id,
                 } };
             },
+            .resolved_method_call => {
+                const pointer_bits = self.read_integer(SmallPtr(*const MethodDefinition).BitsRepresentation);
+                const small_ptr = SmallPtr(*const MethodDefinition){ .bits = pointer_bits };
+                break :sw Instruction{ .resolved_method_call = .{ .method_ptr = small_ptr } };
+            },
             .no_op => break :sw .no_op,
             .duplicate => break :sw .duplicate,
             .halt => break :sw .halt,
@@ -1305,6 +1354,9 @@ pub const InstructionEncoder = struct {
             .load_symbol => |symbol_id| {
                 try self.write_integer(allocator, symbol_id.idx);
             },
+            .resolved_method_call => |info| {
+                try self.write_integer(allocator, info.method_ptr.bits);
+            },
             // NOTE(epic-zig): comptime assert
             inline else => |payload, tag| {
                 if (@TypeOf(payload) != void) {
@@ -1390,6 +1442,17 @@ pub const InstructionFormatter = struct {
                 .load_symbol => |id| {
                     const string: []const u8 = self.symbols_manager.symbol_with_id(id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
+                },
+                .resolved_method_call => |info| {
+                    const method_ptr: *const MethodDefinition = info.method_ptr.pointee();
+                    try writer.print(
+                        " method-name=\"{s}\" is_primitive={s} ptr={x}",
+                        .{
+                            self.symbols_manager.symbol_with_id(method_ptr.method_name),
+                            if (std.meta.activeTag(method_ptr.body) == .primitive) "YES" else "NO",
+                            @as(usize, @intFromPtr(method_ptr)),
+                        },
+                    );
                 },
                 // NOTE(epic-zig): comptime assert
                 inline else => |payload, tag| {
@@ -1480,6 +1543,8 @@ pub const Instruction = union(enum(u8)) {
 
     load_symbol: SymbolId = 13,
 
+    resolved_method_call: struct { method_ptr: SmallPtr(*const MethodDefinition) },
+
     print, // TODO: remove this after development
 
     pub const PopIntoNewArray = packed struct {
@@ -1541,6 +1606,7 @@ pub const Instruction = union(enum(u8)) {
             .pop_into_new_array => false,
             .load_constant => true,
             .send_message => false,
+            .resolved_method_call => false,
             .duplicate => true,
             .halt => false,
             .set_instance_var => false,

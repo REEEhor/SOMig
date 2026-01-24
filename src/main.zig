@@ -309,6 +309,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          cat set_jump_height_to: 150 + 2.
         \\          cat say_hi.
         \\          cat jump.
+        \\          cat print_likability.
         \\
         \\          '`Cat static_say_hi:`       ' print.
         \\          Cat static_say_hi.
@@ -351,6 +352,13 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\      '" says "hi!"' println.
         \\    )
         \\
+        \\    " Used for super call shinenigans "
+        \\    get_likability = ( ^ 5. )
+        \\
+        \\    print_likability = (
+        \\       ('The likability is: ' + self get_likability + '/10') println.
+        \\    )
+        \\
         \\  ------------------------------------------------------
         \\    static_say_hi = (
         \\        'Static "Hi!" from the Animal class' println.
@@ -373,6 +381,14 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\       (' jumped ' + (jump_height) + ' cm high!') println.
         \\    )
         \\
+        \\    " Used for super call shinenigans "
+        \\    get_likability = (
+        \\       |parent_likability|
+        \\       ''println.
+        \\       '  (calling to super to get likability...)' println.
+        \\       parent_likability := super get_likability.
+        \\       ^ parent_likability + 5.
+        \\    )
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("SomeClassWithSyntaxErrorInItsDefinition")).id,
@@ -412,10 +428,8 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\ Symbol = String (
         \\    asString = primitive
         \\    asSymbol = ( ^ self )
-        \\    " TODO: here should be `super print` "
-        \\    print = ( '#' print. self asString print )
-        \\    " TODO: this method shouldn't be here "
-        \\    println = ( '#' print. self asString println )
+        \\    print = ( '#' print. super print )
+        \\    println = ( '#' print. super println )
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Object")).id,

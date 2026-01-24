@@ -19,8 +19,9 @@ pub fn SmallPtr(comptime Ptr: type) type {
     }
 
     return packed struct {
-        bits: u48,
+        bits: BitsRepresentation,
 
+        pub const BitsRepresentation = u48;
         const Self = @This();
 
         pub fn pointee(self: Self) Ptr {
