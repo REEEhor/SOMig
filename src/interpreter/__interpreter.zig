@@ -36,12 +36,12 @@ pub const vm_object_module = @import("vm_object.zig");
 pub const VmObject = vm_object_module.VmObject;
 pub const HeapData = vm_object_module.HeapData;
 
-pub const primitives = @import("primitives.zig");
 pub const accessors = @import("accessors.zig");
 
-const primitive_methods_map_module = @import("primitive_methods_map.zig");
-pub const PrimitiveMethodsMap = primitive_methods_map_module.PrimitiveMethodsMap;
-pub const PrimitiveMethodImplementation = primitive_methods_map_module.PrimitiveMethodImplementation;
+const primitives_module = @import("primitives/__primitives.zig");
+pub const primitives = primitives_module.primitive_classes;
+pub const PrimitiveMethodsMap = primitives_module.PrimitiveMethodsMap;
+pub const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImplementation;
 
 pub const class_definition_module = @import("class_definition.zig");
 pub const ClassDefinition = class_definition_module.ClassDefinition;

@@ -1,21 +1,21 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const interning_module = @import("../interning/__interning.zig");
+const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 
-const interpreter_module = @import("__interpreter.zig");
+const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Heap = interpreter_module.Heap;
 
-const class_definition_module = @import("class_definition.zig");
+const class_definition_module = @import("../class_definition.zig");
 const ClassDefinition = class_definition_module.ClassDefinition;
 
-const vm_object_module = @import("vm_object.zig");
+const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
 const HeapData = vm_object_module.HeapData;
 
-const accessors = @import("accessors.zig");
+const accessors = @import("../accessors.zig");
 
 // TODO: split the classes definitions into "instance" and "class" parts
 

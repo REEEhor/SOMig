@@ -2,15 +2,15 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const interpreter_module = @import("__interpreter.zig");
+const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 
-const interning_module = @import("../interning/__interning.zig");
+const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolArrayMap = interning_module.SymbolArrayMap;
 
-const vm_object_module = @import("vm_object.zig");
+const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
 
 pub const PrimitiveMethodsMap = struct {
