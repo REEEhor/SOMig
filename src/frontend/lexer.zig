@@ -460,7 +460,7 @@ pub fn tokenize(allocator: Allocator, source_code: []const u8, reporter: *ErrorR
 
 const digits = "0123456789";
 
-inline fn is_binary_message_char(chr: u8) bool {
+pub inline fn is_binary_message_char(chr: u8) bool {
     return std.mem.indexOfScalar(u8, binary_message_chars, chr) != null;
 }
 

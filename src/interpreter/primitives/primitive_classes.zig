@@ -4,6 +4,9 @@ const assert = std.debug.assert;
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 
+const helpers_module = @import("helpers.zig");
+const assert_arity_is = helpers_module.assert_arity_is;
+
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Heap = interpreter_module.Heap;
@@ -20,17 +23,17 @@ const accessors = @import("../accessors.zig");
 // TODO: split the classes definitions into "instance" and "class" parts
 
 pub const Object = struct {
-    pub const class__somig_arity = 1;
     pub fn class__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const class_definition = interpreter.get_class_of(target_object);
         return class_definition.as_vm_object;
     }
 };
 
 pub const Class = struct {
-    pub const new__somig_arity = 1;
     /// TODO: this does not work! We have to handle cases for primtive classes
     pub fn new__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
             .class => |accessor| accessor.get_represented_class(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -40,8 +43,8 @@ pub const Class = struct {
         return new_object;
     }
 
-    pub const name__somig_arity = 1;
     pub fn name__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const class_definition: *ClassDefinition = switch (target_object.data.kind()) {
             .class => |accessor| accessor.get_represented_class(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -51,8 +54,8 @@ pub const Class = struct {
 };
 
 pub const Integer = struct {
-    pub const @"+__somig_arity" = 2;
     pub fn @"+__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return try binary_method(target_object, interpreter, struct {
             fn f(lhs: i48, rhs: i48) Interpreter.Error!i48 {
                 return lhs + rhs;
@@ -60,8 +63,8 @@ pub const Integer = struct {
         }.f);
     }
 
-    pub const @"-__somig_arity" = 2;
     pub fn @"-__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return try binary_method(target_object, interpreter, struct {
             fn f(lhs: i48, rhs: i48) Interpreter.Error!i48 {
                 return lhs - rhs;
@@ -69,8 +72,8 @@ pub const Integer = struct {
         }.f);
     }
 
-    pub const @"*__somig_arity" = 2;
     pub fn @"*__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return try binary_method(target_object, interpreter, struct {
             fn f(lhs: i48, rhs: i48) Interpreter.Error!i48 {
                 return lhs * rhs;
@@ -78,8 +81,8 @@ pub const Integer = struct {
         }.f);
     }
 
-    pub const @"/__somig_arity" = 2;
     pub fn @"/__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         const i48_dividion = struct {
             fn f(lhs: i48, rhs: i48) Interpreter.Error!i48 {
                 if (rhs == 0) {
@@ -99,8 +102,8 @@ pub const Integer = struct {
         return result_object;
     }
 
-    pub const asString__somig_arity = 1;
     pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const receiver_as_int: i48 = (accessors.IntegerAccessor{}).get_value(target_object.data);
         const string: VmObject = try interpreter.create_string_fmt(.heap, "{d}", .{receiver_as_int});
         return string;
@@ -134,8 +137,8 @@ pub const Integer = struct {
 };
 
 pub const Double = struct {
-    pub const @"+__somig_arity" = 2;
     pub fn @"+__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return binary_method(target_object, interpreter, struct {
             fn f(lhs: f64, rhs: f64) Interpreter.Error!f64 {
                 return lhs + rhs;
@@ -143,8 +146,8 @@ pub const Double = struct {
         }.f);
     }
 
-    pub const @"-__somig_arity" = 2;
     pub fn @"-__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return binary_method(target_object, interpreter, struct {
             fn f(lhs: f64, rhs: f64) Interpreter.Error!f64 {
                 return lhs - rhs;
@@ -152,8 +155,8 @@ pub const Double = struct {
         }.f);
     }
 
-    pub const @"*__somig_arity" = 2;
     pub fn @"*__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return binary_method(target_object, interpreter, struct {
             fn f(lhs: f64, rhs: f64) Interpreter.Error!f64 {
                 return lhs * rhs;
@@ -161,8 +164,8 @@ pub const Double = struct {
         }.f);
     }
 
-    pub const @"/__somig_arity" = 2;
     pub fn @"/__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         return binary_method(target_object, interpreter, struct {
             fn f(lhs: f64, rhs: f64) Interpreter.Error!f64 {
                 return lhs / rhs;
@@ -170,8 +173,8 @@ pub const Double = struct {
         }.f);
     }
 
-    pub const asString__somig_arity = 1;
     pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const receiver_as_double: f64 = (accessors.DoubleAccessor{}).get_value(target_object.data);
         const string: VmObject = try interpreter.create_string_fmt(.heap, "{d}", .{receiver_as_double});
         return string;
@@ -204,9 +207,9 @@ pub const Double = struct {
 };
 
 pub const String = struct {
-    pub const println__somig_arity = 1;
     /// FIXME: this method should be defined in object, not here
     pub fn println__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const str: []const u8 = switch (target_object.data.kind()) {
             .string => |accessor| accessor.contents(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -217,8 +220,8 @@ pub const String = struct {
         return try interpreter.get_nil_singleton();
     }
 
-    pub const print__somig_arity = 1;
     pub fn print__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const str: []const u8 = switch (target_object.data.kind()) {
             .string => |accessor| accessor.contents(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -227,8 +230,8 @@ pub const String = struct {
         return try interpreter.get_nil_singleton();
     }
 
-    pub const asSymbol__somig_arity = 1;
     pub fn asSymbol__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const str: []const u8 = switch (target_object.data.kind()) {
             .string => |accessor| accessor.contents(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -236,8 +239,8 @@ pub const String = struct {
         return try interpreter.create_symbol_object_from_string(.heap, str);
     }
 
-    pub const @"concatWith:__somig_arity" = 2;
     pub fn @"concatWith:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         const lhs_string: []const u8 = switch (target_object.data.kind()) {
             .string => |accessor| accessor.contents(target_object.data),
             else => return Interpreter.Error.primitive_type_error,
@@ -253,8 +256,8 @@ pub const String = struct {
         return result_string;
     }
 
-    pub const @"primSubstringFrom:to:__somig_arity" = 3;
     pub fn @"primSubstringFrom:to:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 3);
         const original_string: []const u8 = try get_u8_slice_from_string_or_symbol(target_object, interpreter);
         const som_idx_from = blk: {
             const obj = interpreter.pop_object();
@@ -313,8 +316,8 @@ pub const String = struct {
 };
 
 pub const Symbol = struct {
-    pub const asString__somig_arity = 1;
     pub fn asString__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const symbol_id: SymbolId = switch (target_object.data.kind()) {
             .symbol => |accessor| accessor.get_symbol_id(target_object.data.*),
             else => return Interpreter.Error.primitive_type_error,
@@ -326,14 +329,14 @@ pub const Symbol = struct {
 };
 
 pub const Array = struct {
-    pub const @"at:__somig_arity" = 2;
     pub fn @"at:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 2);
         const item_ptr: *VmObject = try get_pointer_to_item(target_object, interpreter);
         return item_ptr.*;
     }
 
-    pub const @"at:put:__somig_arity" = 2;
     pub fn @"at:put:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 3);
         const item_ptr: *VmObject = try get_pointer_to_item(target_object, interpreter);
 
         // Pop the value that is supposed to replace item
@@ -348,8 +351,8 @@ pub const Array = struct {
         return new_value;
     }
 
-    pub const length__somig_arity = 1;
     pub fn length__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        assert_arity_is(@src(), 1);
         const length_i48: i48 = switch (target_object.data.kind()) {
             .array => |accessor| accessor.get_length(target_object.data.*),
             else => return Interpreter.Error.primitive_type_error,

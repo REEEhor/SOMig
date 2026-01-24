@@ -2,6 +2,10 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const helpers_module = @import("helpers.zig");
+const primitive_fn_postfix = helpers_module.primitive_fn_postfix;
+const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
+
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 
@@ -72,8 +76,6 @@ pub const PrimitiveMethodsMap = struct {
     ) Allocator.Error!Self {
         @setEvalBranchQuota(2000);
 
-        const primitive_fn_postfix = "__somig_primitive_fn";
-        const fn_arity_postix = "__somig_arity";
         const module_info: std.builtin.Type.Struct = @typeInfo(primitives_module).@"struct";
 
         // Get the number of primitive classes and their methods
@@ -104,7 +106,7 @@ pub const PrimitiveMethodsMap = struct {
             inline for (primitive_type_info.decls) |decl| {
                 if (comptime !std.mem.endsWith(u8, decl.name, primitive_fn_postfix)) continue;
                 const fn_name = decl.name[0..(decl.name.len - primitive_fn_postfix.len)];
-                const fn_arity: comptime_int = @field(PrimitiveType, fn_name ++ fn_arity_postix);
+                const fn_arity: comptime_int = comptime get_method_arity_from_selector(fn_name);
                 const fn_impl: PrimitiveMethodImplementation = @field(PrimitiveType, decl.name);
 
                 const primitive_method = PrimitiveMethod{
