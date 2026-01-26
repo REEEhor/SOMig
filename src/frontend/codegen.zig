@@ -1175,6 +1175,7 @@ pub const Bytecode = struct {
     bytes: []const u8,
 };
 
+/// TODO: maybe the `idx` could be smaller?
 pub const InstructionId = struct { idx: usize };
 
 pub const InstructionDecoder = struct {
