@@ -865,28 +865,19 @@ pub const BytecodeGenerator = struct {
 
         // Setup arguments
         var arguments_scope = self.scope_stack.new_scope();
-        //
-        switch (method_header) {
-            .unary => {},
-            .binary => |header_info| {
-                const parameter_symbol: SymbolId = try self.symbol_from_token(header_info.parameter);
-                try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = 0 });
-            },
-            .keyword => |header_info| {
-                var idx: u32 = 0;
-                while (idx < header_info.number_of_args_excluding_self()) : (idx += 1) {
-                    const parameter_token = header_info.nth_parameter((idx));
-                    const parameter_symbol: SymbolId = try self.symbol_from_token(parameter_token);
-                    const argument_idx = header_info.number_of_args_excluding_self() - idx - 1;
-                    try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = argument_idx });
-                }
-            },
+        {
+            var arguments_iterator = method_header.iterate_argument_identifiers_excluding_self();
+            // We want to register the identifiers with reverse indexes
+            var idx: i64 = @as(i64, method_header.number_of_arguments_including_self()) - 2;
+            while (arguments_iterator.next()) |argument_identifier_token| : (idx -= 1) {
+                const identifier_symbol: SymbolId = try self.symbol_from_token(argument_identifier_token);
+                try arguments_scope.register_variable(.{ .identifier = identifier_symbol, .idx = @intCast(idx) });
+            }
+            try arguments_scope.register_variable(.{
+                .identifier = SymbolsManager.comptime_id_of("self"),
+                .idx = method_header.number_of_arguments_including_self() - 1,
+            });
         }
-        const identifier_self: SymbolId = (try self.symbols_manager.id_or_intern("self")).id;
-        try arguments_scope.register_variable(
-            .{ .identifier = identifier_self, .idx = method_header.number_of_arguments_including_self() - 1 },
-        );
-
         try self.scope_stack.push_scope(arguments_scope);
         defer self.scope_stack.pop_scope();
 

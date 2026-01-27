@@ -127,6 +127,37 @@ pub const MethodHeader = union(enum) {
             .keyword => |info| info.number_of_args_excluding_self() + 1,
         };
     }
+
+    pub const ArgumentIterator = union(enum) {
+        unary,
+        binary: struct { rhs_identifier: TokenId, idx: u1 = 0 },
+        keyword: struct { keyword_method_header: KeywordMethodHeader, idx: u32 = 0 },
+
+        pub fn next(self: *@This()) ?TokenId {
+            return switch (self.*) {
+                .unary => null,
+                .binary => |*info| blk: {
+                    if (info.idx == 1) return null;
+                    info.idx = 1;
+                    break :blk info.rhs_identifier;
+                },
+                .keyword => |*info| blk: {
+                    const length = info.keyword_method_header.number_of_args_excluding_self();
+                    if (info.idx >= length) return null;
+                    info.idx += 1;
+                    break :blk info.keyword_method_header.nth_parameter(info.idx - 1);
+                },
+            };
+        }
+    };
+
+    pub fn iterate_argument_identifiers_excluding_self(self: Self) ArgumentIterator {
+        return switch (self) {
+            .unary => .unary,
+            .binary => |info| .{ .binary = .{ .rhs_identifier = info.parameter } },
+            .keyword => |info| .{ .keyword = .{ .keyword_method_header = info } },
+        };
+    }
 };
 
 pub const KeywordMethodHeader = struct {
