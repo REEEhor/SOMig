@@ -129,7 +129,6 @@ fn playground(allocator: std.mem.Allocator) !void {
             break :blk manager;
         },
         .constants_manager = codegen.ConstantsManager.init(interpreter_allocator),
-        .instruction_encoder = codegen.InstructionEncoder{ .bytes = .empty },
     };
     //
     const primitive_methods_map = try PrimitiveMethodsMap.init_from(
@@ -211,8 +210,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
 
     try interpreter.push_object(main_object);
-    try interpreter.push_frame(run_method, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
-    interpreter.decoder.set_id_of_the_next_instruction(run_method.body.user_land.start_instruction);
+    try interpreter.push_frame(run_method, run_method.body.user_land.bytecode, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
 
     // Dump the bytecode
     try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
@@ -220,7 +218,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         &statics.symbols_manager,
         &statics.constants_manager,
         run_method.body.user_land.constants_base_id,
-        statics.instruction_encoder.view_bytecode(),
+        run_method.body.user_land.bytecode,
         stdout,
     );
     try stdout.print("\n", .{});

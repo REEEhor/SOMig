@@ -11,6 +11,7 @@ const VmObject = vm_object_module.VmObject;
 const codegen_module = @import("../frontend/codegen.zig");
 const InstructionId = codegen_module.InstructionId;
 const ConstantId = codegen_module.ConstantId;
+const Bytecode = codegen_module.Bytecode;
 
 /// Runtime definition of any class in SOM
 pub const ClassDefinition = struct {
@@ -67,13 +68,19 @@ pub const MethodDefinition = struct {
 
 pub const MethodBody = union(enum) {
     primitive: PrimitiveMethodImplementation_,
-    user_land: struct {
-        start_instruction: InstructionId,
-        number_of_locals: u16,
-        constants_base_id: ConstantId,
-    },
+    user_land: FunctionBody,
 };
 
-/// Same as `PrimitiveMethodImplementation`, but made into a different type, because of circular dependency reasons.
-/// (Having two aliases for these function pointers remove the circular depenedency errors, maybe in future versions of Zig, they will not be a problem.)
+/// Same as `PrimitiveMethodImplementation` (without `_` at the end) which is defined elsewhere,
+/// but made into a different type, because of circular dependency reasons.
+/// (Having two aliases for these function pointers removes the circular depenedency errors, maybe in future versions of Zig, they will not be a problem.)
 pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
+
+pub const FunctionBody = struct {
+    bytecode: Bytecode,
+
+    /// Number of local variables in the code of the function body.
+    /// Used primarily for stackframe creation.
+    number_of_locals: u16,
+    constants_base_id: ConstantId,
+};

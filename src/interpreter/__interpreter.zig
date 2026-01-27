@@ -19,6 +19,7 @@ const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
+const Bytecode = codegen_module.Bytecode;
 const InstructionDecoder = codegen_module.InstructionDecoder;
 const Instruction = codegen_module.Instruction;
 const ConstantsManager = codegen_module.ConstantsManager;
@@ -63,8 +64,6 @@ pub const Statics = struct {
     /// NOTE: This must be a `SegmentedList`, because we want to be able to store pointers to `ClassDefinition` in other structures.
     ///       If this was just an `ArrayList`, then the pointers to `ClassDefinition`s would get invalidated during reallocations.
     all_classes: std.SegmentedList(ClassDefinition, 64),
-
-    instruction_encoder: InstructionEncoder,
 
     constants_manager: ConstantsManager,
 
@@ -461,7 +460,15 @@ pub const Interpreter = struct {
                 .normal_return => {
                     const next_instruction = self.top_frame().after_return_instruction_id;
                     self.decoder.set_id_of_the_next_instruction(next_instruction);
+
                     self.pop_frame();
+                    if (self.stack.frames.len == 0) {
+                        try self.report_info("The program's entry point function has returned", .{});
+                        return;
+                    }
+
+                    const bytecode = self.top_frame().method.body.user_land.bytecode;
+                    self.decoder.bytes = bytecode.bytes;
                 },
             }
             if (DO_DEBUG_TRACE) {
@@ -580,9 +587,6 @@ pub const Interpreter = struct {
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
         });
         self.register_newly_compiled_class(class_pair, 1);
-
-        // The bytecode array might have gotten reallocated during the compilation
-        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
         return class_pair.class;
     }
 
@@ -602,7 +606,6 @@ pub const Interpreter = struct {
         self.register_newly_compiled_class(class_definition_pair, number_of_compiled_classes);
 
         // The bytecode array might have gotten reallocated during the compilation
-        self.decoder.bytes = self.statics.instruction_encoder.view_bytecode().bytes;
         return class_definition_pair.class;
     }
 
@@ -640,6 +643,7 @@ pub const Interpreter = struct {
     pub fn push_frame(
         self: *Self,
         method: *const MethodDefinition,
+        bytecode: Bytecode,
         arguments_count_without_self: u16,
         locals_count: u16,
         after_return_instruction_id: InstructionId,
@@ -664,6 +668,7 @@ pub const Interpreter = struct {
             .after_return_instruction_id = after_return_instruction_id,
         };
         self.stack.objects.len += locals_count;
+        self.decoder = .new(bytecode);
     }
 
     /// Asserts that the stack is not empty
@@ -731,11 +736,12 @@ pub const Interpreter = struct {
             .user_land => |method_body_info| {
                 try self.push_frame(
                     method,
+                    method_body_info.bytecode,
                     method.number_of_aditional_args,
                     method_body_info.number_of_locals,
                     self.decoder.id_of_next_instruction(),
                 );
-                self.decoder.set_id_of_the_next_instruction(method_body_info.start_instruction);
+                // TODO(continue-here): not exactly here, ale padá to v pop_frame asi, protože accessujeme `top_frame` i když tam už žádný není
             },
             .primitive => |primitive_method| {
                 const target_object = self.pop_object();

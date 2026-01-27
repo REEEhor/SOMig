@@ -550,13 +550,12 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     const reporter = params.reporter;
     const primitive_methods_map = params.primitive_methods_map;
 
-    var bytecode_generator = BytecodeGenerator{
+    var bytecode_generator = BytecodeGenerator.init(.{
         .allocator = statics.allocator,
         .symbols_manager = &statics.symbols_manager,
-        .builder = &statics.instruction_encoder,
         .constants_manager = &statics.constants_manager,
         .reporter = reporter,
-    };
+    });
 
     var lexical_scopes = try ScopeStack.init(temporary_allocator, 5, 30);
 
@@ -644,14 +643,14 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             },
             .impl => |function_body| {
                 const method_constants_base_id: ConstantId = statics.constants_manager.new_base_id_for_method();
-                const start_instruction_id: InstructionId = try bytecode_generator.compile_method(
-                    &ast,
-                    &lexical_scopes,
-                    if (compiled_parent) |p| &p.instance_methods else null,
-                    method_ast.span,
-                    function_body,
-                    method_ast.header,
-                );
+                const bytecode: Bytecode = try bytecode_generator.compile_method(.{
+                    .ast = &ast,
+                    .scope_stack = &lexical_scopes,
+                    .compiled_parent_methods = if (compiled_parent) |p| &p.instance_methods else null,
+                    .method_span = method_ast.span,
+                    .body = function_body,
+                    .method_header = method_ast.header,
+                });
                 const number_of_locals = function_body.number_of_locals();
                 if (number_of_locals > std.math.maxInt(u16)) {
                     reporter.report_error(.{ .pos = ast.pos_of(function_body.locals.?) }, "Too many locals. Found {d} locals, maximum is {d}.", .{ number_of_locals, std.math.maxInt(u16) });
@@ -666,7 +665,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .method_name = method_selector,
                     .number_of_aditional_args = @truncate(number_of_aditional_args),
                     .body = MethodBody{ .user_land = .{
-                        .start_instruction = start_instruction_id,
+                        .bytecode = bytecode,
                         .number_of_locals = @truncate(number_of_locals),
                         .constants_base_id = method_constants_base_id,
                     } },
@@ -799,8 +798,11 @@ pub const BytecodeGenerator = struct {
 
     symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
-    builder: *InstructionEncoder,
     reporter: *ErrorReporter,
+
+    /// WARN: Do not use from outside of this `struct`!
+    /// Invalid between calls to `compile_method`.
+    builder: InstructionEncoder = undefined,
 
     /// WARN: Do not use from outside of this `struct`!
     /// Invalid between calls to `compile_method`.
@@ -816,26 +818,48 @@ pub const BytecodeGenerator = struct {
 
     last_instruction: ?Instruction = null,
 
+    pub fn init(params: struct {
+        allocator: Allocator,
+        symbols_manager: *SymbolsManager,
+        constants_manager: *ConstantsManager,
+        reporter: *ErrorReporter,
+    }) Self {
+        return Self{
+            .allocator = params.allocator,
+            .symbols_manager = params.symbols_manager,
+            .constants_manager = params.constants_manager,
+            .reporter = params.reporter,
+        };
+    }
+
     pub fn compile_method(
         self: *Self,
-        ast: *const ParsedFile,
-        scope_stack: *ScopeStack,
-        compiled_parent_methods: ?*const ClassDefinition.MethodMap,
-        //
-        method_span: Ast.TokenSpan,
-        body: Ast.FunctionBody,
-        method_header: Ast.MethodHeader,
-    ) CompileError!InstructionId {
+        params: struct {
+            ast: *const ParsedFile,
+            scope_stack: *ScopeStack,
+            compiled_parent_methods: ?*const ClassDefinition.MethodMap,
+            //
+            method_span: Ast.TokenSpan,
+            body: Ast.FunctionBody,
+            method_header: Ast.MethodHeader,
+        },
+    ) CompileError!Bytecode {
+        const method_span = params.method_span;
         _ = method_span;
+        const body = params.body;
+        const method_header = params.method_header;
 
-        const start_instruction_id = self.builder.id_of_the_next_instruction();
-
-        self.ast = ast;
-        self.scope_stack = scope_stack;
-        self.compiled_parent_methods = compiled_parent_methods;
+        self.ast = params.ast;
         defer self.ast = undefined;
+        //
+        self.scope_stack = params.scope_stack;
         defer self.scope_stack = undefined;
+        //
+        self.compiled_parent_methods = params.compiled_parent_methods;
         defer self.compiled_parent_methods = undefined;
+        //
+        self.builder = InstructionEncoder{ .bytes = .empty };
+        defer self.builder = undefined;
 
         // TODO: think about reporting a warning that a local is shadowing a variable
 
@@ -914,7 +938,7 @@ pub const BytecodeGenerator = struct {
 
         try self.add_instruction(.normal_return);
 
-        return start_instruction_id;
+        return try self.builder.get_final_bytecode(self.allocator);
     }
 
     fn symbol_from_token(self: *Self, token_id: Ast.TokenId) Allocator.Error!SymbolId {
@@ -1309,8 +1333,9 @@ pub const InstructionEncoder = struct {
     const Self = @This();
     bytes: std.ArrayList(u8),
 
-    pub fn view_bytecode(self: Self) Bytecode {
-        return Bytecode{ .bytes = self.bytes.items };
+    pub fn get_final_bytecode(self: *Self, allocator: Allocator) Allocator.Error!Bytecode {
+        const bytecode_bytes = try self.bytes.toOwnedSlice(allocator);
+        return Bytecode{ .bytes = bytecode_bytes };
     }
 
     pub fn id_of_the_next_instruction(self: Self) InstructionId {
@@ -1652,7 +1677,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{},
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1660,7 +1685,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{0},
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1668,7 +1693,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1676,7 +1701,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .halt);
@@ -1684,7 +1709,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .duplicate);
@@ -1692,7 +1717,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, Instruction{
@@ -1702,7 +1727,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1710,7 +1735,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 
     id = try encoder.add_instruction(allocator, Instruction{ .send_message = .{
@@ -1721,7 +1746,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0 },
-        encoder.view_bytecode().bytes,
+        (try encoder.get_final_bytecode(allocator)).bytes,
     );
 }
 
