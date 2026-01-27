@@ -123,6 +123,10 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Symbol",
     "Array",
     "Nil",
+    "Block",
+    "Block1",
+    "Block2",
+    "Block3",
 });
 
 const testing = struct {

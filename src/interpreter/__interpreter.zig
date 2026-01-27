@@ -613,18 +613,15 @@ pub const Interpreter = struct {
         for (0..number_of_compiled_classes) |_| {
             const class = class_iter orelse break;
             defer class_iter = class.parent;
-            const primitive_class_type: PrimitiveClassType = switch (class.class_name.idx) {
-                SymbolsManager.comptime_id_of("Metaclass").idx => .metaclass,
-                SymbolsManager.comptime_id_of("Object").idx => .object,
-                SymbolsManager.comptime_id_of("Array").idx => .array,
-                SymbolsManager.comptime_id_of("String").idx => .string,
-                SymbolsManager.comptime_id_of("Double").idx => .double,
-                SymbolsManager.comptime_id_of("Integer").idx => .integer,
-                SymbolsManager.comptime_id_of("Symbol").idx => .symbol,
-                SymbolsManager.comptime_id_of("Class").idx => .class,
-                SymbolsManager.comptime_id_of("Nil").idx => .nil,
-                else => continue,
-            };
+            // NOTE(epic-zig): This is nice
+            // TODO: don't forget to update the names of the variables here once `PrimitiveClassType` gets renamed
+            const primitive_class_type: PrimitiveClassType = inline for (std.meta.fields(PrimitiveClassType)) |primimitive_class_type_field| {
+                const primitive_class_type: PrimitiveClassType = @field(PrimitiveClassType, primimitive_class_type_field.name);
+                const primitive_class_name: []const u8 = comptime primitive_class_type.as_string();
+                if (SymbolsManager.comptime_id_of(primitive_class_name).idx == class.class_name.idx) {
+                    break primitive_class_type;
+                }
+            } else continue;
             self.primitive_class_definitions.put(primitive_class_type, class);
         }
         // Register new metaclasses if we have a metaclass loaded
@@ -836,12 +833,16 @@ pub const PrimitiveClassType = enum {
     array,
     class,
     metaclass,
+    block_base,
+    block1,
+    block2,
+    block3,
     // TODO: remaining primitive classes
 
     const Self = @This();
     pub fn as_string(self: Self) []const u8 {
         return switch (self) {
-            .object => "object",
+            .object => "Object",
             .integer => "Integer",
             .double => "Double",
             .string => "String",
@@ -850,6 +851,10 @@ pub const PrimitiveClassType = enum {
             .array => "Array",
             .class => "Class",
             .metaclass => "Metaclass",
+            .block_base => "Block",
+            .block1 => "Block1",
+            .block2 => "Block2",
+            .block3 => "Block3",
         };
     }
 };
