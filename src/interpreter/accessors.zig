@@ -1,5 +1,22 @@
+//!
+//! An "accessor" is a zero-sized struct, which has methods for accessing (getting and setting) properties of runtime objects.
+//! This results in a bit of a bloated code, since we write a lot of getters and setters,
+//! but the accessors are quite convinient to use and are typesafe.
+//!
+//! The type safety is nice, since the runtime objects are defined in a low level way
+//! and there is a non trivial amount of bit manipulation going on.
+//!
+//! See `VmObject` and `HeapData.Header` for more info.
+//!
+
 const std = @import("std");
 const assert = std.debug.assert;
+
+const codegen_module = @import("../frontend/codegen.zig");
+const InstructionId = codegen_module.InstructionId;
+
+const interpreter_module = @import("__interpreter.zig");
+const Stack = interpreter_module.Stack;
 
 const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
@@ -272,5 +289,81 @@ pub const SymbolAccessor = struct {
         _ = self;
         // We need just the header
         return 0;
+    }
+};
+
+/// Represents different classes in the `Block` class hiearchy.
+/// See `Block.som`, `Block1.som`, `Block2.som` and `Block3.som` in the standard library of SOM.
+pub const BlockType = enum(u4) {
+    /// Base of the `Block` class hiearchy
+    block_base = 0,
+
+    block1 = 1,
+    block2 = 2,
+    block3 = 3,
+};
+
+pub const BlockAccessor = struct {
+    const Self = @This();
+
+    /// Information about the block which is accessible from just the header of the runtime object.
+    const HeaderInfo = packed struct(u48) {
+        block_type: BlockType,
+        has_escaped_home_frame: bool,
+    };
+
+    pub fn get_bytes_count_after_header(self: Self) usize {
+        _ = self;
+        const aligned_size_of_instruction_id = 8;
+        comptime assert(aligned_size_of_instruction_id <= @sizeOf(InstructionId));
+        return aligned_size_of_instruction_id + @sizeOf(*Stack.Frame);
+    }
+
+    pub fn get_header_info(self: Self, heap_data: HeapData) HeaderInfo {
+        _ = self;
+        const truncated: u48 = @truncate(heap_data.header.payload);
+        const header_info = @as(HeaderInfo, truncated);
+        return header_info;
+    }
+    pub fn set_header_info(self: Self, heap_data: *HeapData, new_header_info: HeaderInfo) void {
+        _ = self;
+        const raw: u56 = @as(u56, new_header_info);
+        heap_data.header.payload = raw;
+    }
+
+    pub fn get_has_escaped_home_frame(self: Self, heap_data: HeapData) bool {
+        return self.get_header_info(heap_data).has_escaped_home_frame;
+    }
+    pub fn set_has_escaped_home_frame(self: Self, heap_data: *HeapData, has_escaped: bool) void {
+        var header_info = self.get_header_info(heap_data.*);
+        header_info.has_escaped_home_frame = has_escaped;
+        self.set_header_info(heap_data, header_info);
+    }
+
+    pub fn get_block_type(self: Self, heap_data: HeapData) BlockType {
+        return self.get_header_info(heap_data).block_type;
+    }
+    pub fn set_block_type(self: Self, heap_data: HeapData, block_type: BlockType) void {
+        var header_info = self.get_header_info(heap_data).block_type;
+        header_info.block_type = block_type;
+        self.set_header_info(heap_data, header_info);
+    }
+
+    pub fn get_start_instruction(self: Self, heap_data: *const HeapData) InstructionId {
+        _ = self;
+        return heap_data.get_after_header_ptr(*InstructionId).*;
+    }
+    pub fn set_start_instruction(self: Self, heap_data: *HeapData, start_instruction: InstructionId) void {
+        _ = self;
+        heap_data.get_after_header_ptr(*InstructionId).* = start_instruction;
+    }
+
+    pub fn get_home_frame(self: Self, heap_data: *const HeapData) *Stack.Frame {
+        _ = self;
+        return heap_data.get_after_header_ptr([*]*Stack.Frame)[1]; // There is `InstructionId` at index 0
+    }
+    pub fn set_home_frame(self: Self, heap_data: *HeapData, home_frame: *Stack.Frame) void {
+        _ = self;
+        heap_data.get_after_header_ptr([*]*Stack.Frame)[1].* = home_frame; // There is `InstructionId` at index 0
     }
 };
