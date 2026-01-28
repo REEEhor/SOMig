@@ -4,6 +4,6 @@
 [ERROR at line:26 column:42]
 Unexpected token binary_message '='. Expected token 'identifier'.
           |
- line: 26 | &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* =
+ line: 26 | &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* = _ ( self &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* nil. )
           |                                         ^
 Failed with parse error: 'unexpected_token'

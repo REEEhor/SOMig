@@ -165,7 +165,7 @@ pub const ErrorReporter = struct {
         }
         // Print the error
         self.print("{s}", .{main_color});
-        while (position.contains_byte_at(idx) and self.source[idx] != '\n') : (idx += 1) {
+        while (position.contains_byte_at(idx) and self.source[idx] != '\n' and self.source[idx] != '\r') : (idx += 1) {
             self.write(self.source[idx]);
         }
         var start_column_id = position.start_idx - location.first_line_start;
@@ -176,7 +176,7 @@ pub const ErrorReporter = struct {
             self.print("{s} ...", .{faint_color});
         } else {
             self.print("{s}", .{color_reset});
-            while (idx < self.source.len and self.source[idx] != '\n') : (idx += 1) {
+            while (idx < self.source.len and self.source[idx] != '\n' and self.source[idx] != '\r') : (idx += 1) {
                 self.write(self.source[idx]);
             }
         }

@@ -191,10 +191,23 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
             print(ERR ++ "\n" ++ "=" ** 87 ++ RESET ++ "\n", .{}); // Separator line
             //
             print("   - " ++ colors.CYAN ++ "Snapshot contains" ++ RESET ++ " / " ++ YELLOW ++ "Program output contains" ++ RESET ++ ":\n", .{});
-            print(FAINT ++ "     (line number {d}) |" ++ RESET, .{diff.first_different_line_number});
-            print(colors.CYAN ++ "{s}\n" ++ RESET, .{diff.expected_line orelse FAINT ++ "(this line is not in the snapshot)"});
-            print(FAINT ++ "     (line number {d}) |" ++ RESET, .{diff.first_different_line_number});
-            print(YELLOW ++ "{s}\n" ++ RESET, .{diff.actual_line orelse FAINT ++ "(this line is not in the program output)"});
+            //
+            print(FAINT ++ "     (line number {d}) >" ++ RESET ++ colors.CYAN, .{diff.first_different_line_number});
+            if (diff.expected_line) |expected_line| {
+                print("{f}" ++ RESET, .{std.ascii.hexEscape(expected_line, .upper)});
+            } else {
+                print(FAINT ++ "(this line is not in the snapshot)" ++ RESET, .{});
+            }
+            print(FAINT ++ "<\n" ++ RESET, .{});
+            //
+            print(FAINT ++ "     (line number {d}) >" ++ RESET ++ YELLOW, .{diff.first_different_line_number});
+            if (diff.actual_line) |actual_line| {
+                print("{f}" ++ RESET, .{std.ascii.hexEscape(actual_line, .upper)});
+            } else {
+                print(FAINT ++ "(this line is not in the program output)" ++ RESET, .{});
+            }
+
+            print(FAINT ++ "<\n" ++ RESET, .{});
             //
             print(ERR ++ "=" ** 87 ++ RESET ++ "\n", .{}); // Separator line
         }
