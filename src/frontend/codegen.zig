@@ -1698,7 +1698,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{},
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1706,7 +1706,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{0},
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1714,7 +1714,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1722,7 +1722,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .halt);
@@ -1730,7 +1730,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .duplicate);
@@ -1738,7 +1738,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, Instruction{
@@ -1748,7 +1748,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, .no_op);
@@ -1756,7 +1756,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 
     id = try encoder.add_instruction(allocator, Instruction{ .send_message = .{
@@ -1767,7 +1767,7 @@ test InstructionEncoder {
     try std.testing.expectEqualSlices(
         u8,
         &[_]u8{ 0, 0, 0, 4, 3, 1, 42, 0, 0, 2, 97, 68, 0, 0 },
-        (try encoder.get_final_bytecode(allocator)).bytes,
+        encoder.bytes.items,
     );
 }
 
