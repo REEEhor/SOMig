@@ -123,12 +123,14 @@ pub const LexicalScopesStack = struct {
     all_variables: std.ArrayList(Variable),
     scopes: std.ArrayList(LexicalScope),
 
+    const Depth = enum(i32) { at_instance_variable_scope = -1, _ };
+
     const LexicalScope = struct {
         start_idx: usize,
         end_idx: usize,
-        depth: u32,
+        depth: Depth,
 
-        pub fn init_empty(params: struct { start_idx: usize, depth: u32 }) LexicalScope {
+        pub fn init_empty(params: struct { start_idx: usize, depth: Depth }) LexicalScope {
             return LexicalScope{
                 .start_idx = params.start_idx,
                 .end_idx = params.start_idx,
@@ -149,17 +151,17 @@ pub const LexicalScopesStack = struct {
         };
     }
 
-    fn current_depth(self: Self) u32 {
+    fn current_depth(self: Self) Depth {
         if (self.scopes.getLastOrNull()) |last_scope| {
             return last_scope.depth;
         }
-        return 0;
+        return .at_instance_variable_scope;
     }
 
     pub fn add_scope(self: *Self, params: struct { increase_depth: bool }) Allocator.Error!LexicalScopeHandle {
         try self.scopes.append(self.allocator, LexicalScope.init_empty(.{
             .start_idx = self.all_variables.items.len,
-            .depth = self.current_depth() + @intFromBool(params.increase_depth),
+            .depth = @enumFromInt(@intFromEnum(self.current_depth()) + @intFromBool(params.increase_depth)),
         }));
         return LexicalScopeHandle{ .stack = self, .length_check = self.all_variables.items.len };
     }
@@ -172,14 +174,19 @@ pub const LexicalScopesStack = struct {
 
     pub fn lookup_variable(self: Self, identifier: SymbolId) VariableLookup {
         const starting_depth = self.current_depth();
+        assert(starting_depth != .at_instance_variable_scope);
+
         var iter = std.mem.reverseIterator(self.scopes.items);
         while (iter.next()) |current_scope| {
             for (self.all_variables.items[current_scope.start_idx..current_scope.end_idx]) |variable| {
                 if (variable.identifier.idx != identifier.idx) continue;
-                if (current_scope.depth == 0) {
-                    return .{ .instance = .{ .instance_variable_id = .{ .idx = variable.idx } } };
+                if (current_scope.depth == .at_instance_variable_scope) {
+                    return .{ .instance = .{
+                        .instance_variable_id = .{ .idx = variable.idx },
+                        .scope_depth_difference = @intCast(@intFromEnum(starting_depth)),
+                    } };
                 }
-                const scope_depth_difference = starting_depth - current_scope.depth;
+                const scope_depth_difference: u32 = @intCast(@intFromEnum(starting_depth) - @intFromEnum(current_scope.depth));
                 return .{ .local_or_method_argument = .{
                     .local_variable_id = .{ .idx = variable.idx },
                     .scope_depth_difference = scope_depth_difference,
@@ -194,6 +201,7 @@ pub const LexicalScopesStack = struct {
     pub const VariableLookup = union(enum) {
         instance: struct {
             instance_variable_id: Instruction.InstanceVarId,
+            scope_depth_difference: u32,
         },
         local_or_method_argument: struct {
             local_variable_id: Instruction.LocalVarId,
@@ -1086,12 +1094,16 @@ pub const BytecodeGenerator = struct {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
                 const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
                     .instance => |info| {
-                        break :sw .{ .load_instance_var = info.instance_variable_id };
+                        break :sw .{ .load_instance_var = .{
+                            .required_frame_up_steps = info.scope_depth_difference,
+                            .instance_var_id = info.instance_variable_id,
+                        } };
                     },
                     .local_or_method_argument => |info| {
-                        // FIXME: Account for non zero `scope_depth_difference` (when we are in a block)
-                        assert(info.scope_depth_difference == 0);
-                        break :sw .{ .load_local = .{ .local_id = info.local_variable_id, .required_frame_up_steps = info.scope_depth_difference } };
+                        break :sw .{ .load_local = .{
+                            .local_id = info.local_variable_id,
+                            .required_frame_up_steps = info.scope_depth_difference,
+                        } };
                     },
                     .global => break :sw .{ .load_global = identifier_symbol },
                 };
@@ -1103,7 +1115,10 @@ pub const BytecodeGenerator = struct {
                 const idenditifer_text = self.ast.text_at(assignment.variable);
                 const identifier_symbol: SymbolId = try self.symbol_from_token(assignment.variable);
                 const set_instr: Instruction = switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
-                    .instance => |info| .{ .set_instance_var = info.instance_variable_id },
+                    .instance => |info| .{ .set_instance_var = .{
+                        .required_frame_up_steps = info.scope_depth_difference,
+                        .instance_var_id = info.instance_variable_id,
+                    } },
                     .local_or_method_argument => |info| .{ .set_local = .{
                         .local_id = info.local_variable_id,
                         .required_frame_up_steps = info.scope_depth_difference,
@@ -1445,11 +1460,11 @@ pub const InstructionFormatter = struct {
                 .set_local => |info| {
                     try writer.print(" id({d}) up-frame-steps={d}", .{ info.local_id.idx, info.required_frame_up_steps });
                 },
-                .load_instance_var => |instance_var_id| {
-                    try writer.print(" id({d})", .{instance_var_id.idx});
+                .load_instance_var => |info| {
+                    try writer.print(" id({d}) up-frame-steps={d}", .{ info.instance_var_id.idx, info.required_frame_up_steps });
                 },
-                .set_instance_var => |instance_var_id| {
-                    try writer.print(" id({d})", .{instance_var_id.idx});
+                .set_instance_var => |info| {
+                    try writer.print(" id({d}) up-frame-steps={d}", .{ info.instance_var_id.idx, info.required_frame_up_steps });
                 },
                 .pop_into_new_array => |info| {
                     try writer.print(" items-count={d}", .{info.number_of_items});
@@ -1542,7 +1557,7 @@ pub const Instruction = union(enum(u8)) {
     load_local: LoadLocal = 5,
 
     /// Pushes an instance variable of the current `self` object onto the stack.
-    load_instance_var: InstanceVarId = 6,
+    load_instance_var: LoadInstanceVar = 6,
 
     load_global: SymbolId = 7,
 
@@ -1554,7 +1569,7 @@ pub const Instruction = union(enum(u8)) {
 
     /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into an instance variable
-    set_instance_var: InstanceVarId = 10,
+    set_instance_var: SetInstanceVar = 10,
 
     pop = 11,
 
@@ -1565,6 +1580,16 @@ pub const Instruction = union(enum(u8)) {
     resolved_method_call: packed struct { method_ptr: SmallPtr(*const MethodDefinition) } = 14,
 
     print, // TODO: remove this after development
+
+    pub const LoadInstanceVar = packed struct {
+        instance_var_id: InstanceVarId,
+        required_frame_up_steps: u32,
+    };
+
+    pub const SetInstanceVar = packed struct {
+        instance_var_id: InstanceVarId,
+        required_frame_up_steps: u32,
+    };
 
     pub const LoadLocal = packed struct {
         local_id: LocalVarId,

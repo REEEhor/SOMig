@@ -362,15 +362,35 @@ pub const Interpreter = struct {
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
                     self.stack.objects[self.top_frame().base_idx + info.local_id.idx] = to_assign;
                 },
-                .load_instance_var => |instance_var_id| {
+                .load_instance_var => |info| {
+                    // FIXME: go up multiple frames
+                    assert(info.required_frame_up_steps == 0);
+
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
                     const instance_variable = switch (self_object.data.kind()) {
-                        .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, instance_var_id.idx),
-                        // TODO: maybe this will not be a different case?
+                        .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, info.instance_var_id.idx),
+                        // FIXME: implement this
                         .class => return self.report_TODO("Loading of class variables", .{}),
                         else => unreachable,
                     };
                     try self.push_object(instance_variable);
+                },
+                .set_instance_var => |info| {
+                    // FIXME: go up multiple frames
+                    assert(info.required_frame_up_steps == 0);
+
+                    const top_object: VmObject = self.top_stack_object();
+                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
+                    switch (self_object.data.kind()) {
+                        .generic_object => |accessor| accessor.set_instance_var_with_idx(
+                            self_object.data,
+                            info.instance_var_id.idx,
+                            top_object,
+                        ),
+                        // FIXME: implement this
+                        .class => return self.report_TODO("Setting of class variables", .{}),
+                        else => unreachable,
+                    }
                 },
                 .pop_into_new_array => |info| {
                     // Get the items slice from the stack
@@ -386,20 +406,6 @@ pub const Interpreter = struct {
                     self.stack.objects.len = items_start_idx;
 
                     try self.push_object(array_object);
-                },
-                .set_instance_var => |instance_var_id| {
-                    const top_object: VmObject = self.top_stack_object();
-                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
-                    switch (self_object.data.kind()) {
-                        .generic_object => |accessor| accessor.set_instance_var_with_idx(
-                            self_object.data,
-                            instance_var_id.idx,
-                            top_object,
-                        ),
-                        // TODO: maybe this will not be a different case?
-                        .class => return self.report_TODO("Setting of class variables", .{}),
-                        else => unreachable,
-                    }
                 },
                 .load_global => |global_symbol_id| {
                     const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
