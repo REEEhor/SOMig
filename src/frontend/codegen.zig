@@ -1590,7 +1590,7 @@ pub const Instruction = union(enum(u8)) {
 
     load_symbol: SymbolId = 13,
 
-    resolved_method_call: struct { method_ptr: SmallPtr(*const MethodDefinition) },
+    resolved_method_call: struct { method_ptr: SmallPtr(*const MethodDefinition) } = 14,
 
     print, // TODO: remove this after development
 
