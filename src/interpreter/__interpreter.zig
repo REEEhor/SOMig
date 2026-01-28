@@ -348,13 +348,19 @@ pub const Interpreter = struct {
                 .pop => {
                     _ = self.pop_object();
                 },
-                .load_local => |local_id| {
-                    const object: VmObject = self.stack.objects[self.top_frame().base_idx + local_id.idx];
+                .load_local => |info| {
+                    // FIXME: go up multiple frames
+                    assert(info.required_frame_up_steps == 0);
+
+                    const object: VmObject = self.stack.objects[self.top_frame().base_idx + info.local_id.idx];
                     try self.push_object(object);
                 },
-                .set_local => |local_to_set_id| {
+                .set_local => |info| {
+                    // FIXME: go up multiple frames
+                    assert(info.required_frame_up_steps == 0);
+
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
-                    self.stack.objects[self.top_frame().base_idx + local_to_set_id.idx] = to_assign;
+                    self.stack.objects[self.top_frame().base_idx + info.local_id.idx] = to_assign;
                 },
                 .load_instance_var => |instance_var_id| {
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
