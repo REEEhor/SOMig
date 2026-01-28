@@ -118,88 +118,109 @@ pub const ConstantsManager = struct {
     }
 };
 
-pub const ScopeStack = struct {
-    all_entries: std.ArrayList(Variable),
+pub const LexicalScopesStack = struct {
     allocator: Allocator,
+    all_variables: std.ArrayList(Variable),
+    scopes: std.ArrayList(LexicalScope),
 
-    /// Lexical stack of identifiers.
-    /// All `ScopeSymbolMap`s contain slices of the `all_entries` array list.
-    scopes: std.ArrayList(ScopeSymbolMap),
-
-    const Self = @This();
-    pub const Variable = struct { identifier: SymbolId, idx: u32 };
-    pub const VariableId = union(enum) {
-        instance: Instruction.InstanceVarId,
-        local_or_method_argument: Instruction.LocalVarId,
-        global,
-    };
-    pub const ScopeSymbolMap = SymbolArrayMap(Variable, "identifier");
-
-    pub const Scope = struct {
-        original_stack: *ScopeStack,
+    const LexicalScope = struct {
         start_idx: usize,
+        end_idx: usize,
+        depth: u32,
 
-        pub fn register_variable(self: *@This(), variable: Variable) Allocator.Error!void {
-            try self.original_stack.all_entries.append(self.original_stack.allocator, variable);
+        pub fn init_empty(params: struct { start_idx: usize, depth: u32 }) LexicalScope {
+            return LexicalScope{
+                .start_idx = params.start_idx,
+                .end_idx = params.start_idx,
+                .depth = params.depth,
+            };
         }
     };
 
-    pub fn get_idx_of(self: Self, identifier: SymbolId) VariableId {
-        var scope_idx: i32 = @intCast(self.scopes.items.len - 1);
-        while (scope_idx >= 0) : (scope_idx -= 1) {
-            if (self.scopes.items[@intCast(scope_idx)].get(identifier)) |variable| {
-                if (scope_idx == 0) {
-                    return VariableId{ .instance = .{ .idx = variable.idx } };
-                } else {
-                    return VariableId{ .local_or_method_argument = .{ .idx = variable.idx } };
+    pub fn init(
+        allocator: Allocator,
+        initial_capacity_for_scopes: usize,
+        initial_capacity_for_variabels: usize,
+    ) Allocator.Error!Self {
+        return Self{
+            .allocator = allocator,
+            .all_variables = try .initCapacity(allocator, initial_capacity_for_variabels),
+            .scopes = try .initCapacity(allocator, initial_capacity_for_scopes),
+        };
+    }
+
+    fn current_depth(self: Self) u32 {
+        if (self.scopes.getLastOrNull()) |last_scope| {
+            return last_scope.depth;
+        }
+        return 0;
+    }
+
+    pub fn add_scope(self: *Self, params: struct { increase_depth: bool }) Allocator.Error!LexicalScopeHandle {
+        try self.scopes.append(self.allocator, LexicalScope.init_empty(.{
+            .start_idx = self.all_variables.items.len,
+            .depth = self.current_depth() + @intFromBool(params.increase_depth),
+        }));
+        return LexicalScopeHandle{ .stack = self, .length_check = self.all_variables.items.len };
+    }
+    /// WARN: Asserts that the lexical scope stack is not empty
+    pub fn pop_scope(self: *Self) void {
+        assert(self.scopes.items.len != 0);
+        const new_length = (self.scopes.pop() orelse unreachable).start_idx;
+        self.all_variables.shrinkRetainingCapacity(new_length);
+    }
+
+    pub fn lookup_variable(self: Self, identifier: SymbolId) VariableLookup {
+        const starting_depth = self.current_depth();
+        var iter = std.mem.reverseIterator(self.scopes.items);
+        while (iter.next()) |current_scope| {
+            for (self.all_variables.items[current_scope.start_idx..current_scope.end_idx]) |variable| {
+                if (variable.identifier.idx != identifier.idx) continue;
+                if (current_scope.depth == 0) {
+                    return .{ .instance = .{ .instance_variable_id = .{ .idx = variable.idx } } };
                 }
+                const scope_depth_difference = starting_depth - current_scope.depth;
+                return .{ .local_or_method_argument = .{
+                    .local_variable_id = .{ .idx = variable.idx },
+                    .scope_depth_difference = scope_depth_difference,
+                } };
             }
         }
-        return VariableId.global;
+        return VariableLookup.global;
     }
 
-    pub fn init(allocator: Allocator, init_stack_capacity: usize, init_all_entries_capacity: usize) Allocator.Error!Self {
-        const stack = try std.ArrayList(ScopeSymbolMap).initCapacity(allocator, init_stack_capacity);
-        const all_entries = try std.ArrayList(Variable).initCapacity(allocator, init_all_entries_capacity);
-        return Self{ .all_entries = all_entries, .scopes = stack, .allocator = allocator };
-    }
+    const Self = @This();
 
-    pub fn reset_but_retain_capacity(self: *Self) void {
-        self.all_entries.clearRetainingCapacity();
-        self.scopes.clearRetainingCapacity();
-    }
+    pub const VariableLookup = union(enum) {
+        instance: struct {
+            instance_variable_id: Instruction.InstanceVarId,
+        },
+        local_or_method_argument: struct {
+            local_variable_id: Instruction.LocalVarId,
+            scope_depth_difference: u32,
+        },
+        global,
+    };
 
-    pub fn new_scope(self: *Self) Scope {
-        return Scope{ .original_stack = self, .start_idx = self.all_entries.items.len };
-    }
+    pub const Variable = struct { identifier: SymbolId, idx: u32 };
 
-    /// TODO: report a warning when there are duplicate identifiers in the scope (see comment below in this function where to do it)
-    pub fn push_scope(self: *Self, scope: Scope) !void {
-        const variables_slice: []Variable = self.all_entries.items[scope.start_idx..];
-        const new_symbol_map = ScopeSymbolMap.from_slice_remove_duplicates(variables_slice);
-        const new_entries_len = scope.start_idx + new_symbol_map.items.len;
+    pub const LexicalScopeHandle = struct {
+        stack: *LexicalScopesStack,
+        length_check: usize,
 
-        const duplicates_start_idx = new_entries_len;
-        assert(duplicates_start_idx <= self.all_entries.items.len);
-        if (duplicates_start_idx != self.all_entries.items.len) {
-            // TODO: report the duplicates warning here
-            const duplicates_slice = self.all_entries.items[duplicates_start_idx..];
-            _ = duplicates_slice; // (we silently ignore the duplicates for now)
+        pub fn register_variable(
+            self: *@This(),
+            variable: Variable,
+        ) Allocator.Error!void {
+            const stack = self.stack;
+            try stack.all_variables.append(stack.allocator, variable);
+            stack.scopes.items[stack.scopes.items.len - 1].end_idx += 1;
+            self.length_check += 1;
+            // If this failed, we tried to register a variable
+            // via a `LexicalScopeHandle` which doesn't represent the current top of the stack.
+            assert(self.length_check == stack.all_variables.items.len);
         }
-
-        self.all_entries.shrinkRetainingCapacity(new_entries_len);
-        try self.scopes.append(self.allocator, new_symbol_map);
-    }
-
-    /// Asserts that there is at least one scope.
-    pub fn pop_scope(self: *Self) void {
-        const popped_scope_map: ScopeSymbolMap = self.scopes.pop().?;
-        const current_entries_length = self.all_entries.items.len;
-        const popped_entries_cnt = popped_scope_map.items.len;
-
-        const new_entries_length = current_entries_length - popped_entries_cnt;
-        self.all_entries.shrinkRetainingCapacity(new_entries_length);
-    }
+    };
 };
 
 pub const SourceCodeFiles = struct {
@@ -229,6 +250,7 @@ pub fn allocate_heap_data(allocator: Allocator, header: HeapData.Header) Allocat
     return ptr;
 }
 
+/// TODO: do this in a better way where we don't leak the methods by compiling the classes in portions
 pub fn set_parent_and_leak_original_methods(
     class: *ClassDefinition,
     new_parent: *ClassDefinition,
@@ -557,7 +579,8 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
         .reporter = reporter,
     });
 
-    var lexical_scopes = try ScopeStack.init(temporary_allocator, 5, 30);
+    // TODO: after development, increase these numbers
+    var lexical_scopes = try LexicalScopesStack.init(temporary_allocator, 0, 0);
 
     // Create a list of fields and create a lexical scope out of them
     var field_identifiers = try statics.allocator.alloc(
@@ -566,7 +589,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     );
     {
         const parent_fields_count: u32 = if (compiled_parent) |p| @intCast(p.identifiers_of_instance_variables.len) else 0;
-        var lexical_scope = lexical_scopes.new_scope();
+        var lexical_scope = try lexical_scopes.add_scope(.{ .increase_depth = false });
         var iter = token_iterator(ast_portion.fields);
         var idx: u32 = 0;
         while (iter.next()) |field_token| : (idx += 1) {
@@ -579,7 +602,6 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             try lexical_scope.register_variable(.{ .identifier = field_symbol, .idx = field_idx });
         }
         assert(idx == field_identifiers.len);
-        try lexical_scopes.push_scope(lexical_scope);
     }
     defer lexical_scopes.pop_scope();
 
@@ -810,7 +832,7 @@ pub const BytecodeGenerator = struct {
 
     /// WARN: Do not use from outside of this `struct`!
     /// Invalid between calls to `compile_method`.
-    scope_stack: *ScopeStack = undefined,
+    lexical_scope_stack: *LexicalScopesStack = undefined,
 
     /// WARN: Do not use from outside of this `struct`!
     /// Invalid between calls to `compile_method`.
@@ -836,7 +858,7 @@ pub const BytecodeGenerator = struct {
         self: *Self,
         params: struct {
             ast: *const ParsedFile,
-            scope_stack: *ScopeStack,
+            scope_stack: *LexicalScopesStack,
             compiled_parent_methods: ?*const ClassDefinition.MethodMap,
             //
             method_span: Ast.TokenSpan,
@@ -852,8 +874,8 @@ pub const BytecodeGenerator = struct {
         self.ast = params.ast;
         defer self.ast = undefined;
         //
-        self.scope_stack = params.scope_stack;
-        defer self.scope_stack = undefined;
+        self.lexical_scope_stack = params.scope_stack;
+        defer self.lexical_scope_stack = undefined;
         //
         self.compiled_parent_methods = params.compiled_parent_methods;
         defer self.compiled_parent_methods = undefined;
@@ -864,8 +886,8 @@ pub const BytecodeGenerator = struct {
         // TODO: think about reporting a warning that a local is shadowing a variable
 
         // Setup arguments
-        var arguments_scope = self.scope_stack.new_scope();
         {
+            var arguments_scope = try self.lexical_scope_stack.add_scope(.{ .increase_depth = true });
             var arguments_iterator = method_header.iterate_argument_identifiers_excluding_self();
             // We want to register the identifiers with reverse indexes
             var idx: i64 = @as(i64, method_header.number_of_arguments_including_self()) - 2;
@@ -878,34 +900,36 @@ pub const BytecodeGenerator = struct {
                 .idx = method_header.number_of_arguments_including_self() - 1,
             });
         }
-        try self.scope_stack.push_scope(arguments_scope);
-        defer self.scope_stack.pop_scope();
+        defer self.lexical_scope_stack.pop_scope();
+
+        const nil_constant_id = try self.constants_manager.add_constant(Constant.nil);
 
         // Setup locals
-        var locals_scope = self.scope_stack.new_scope();
-        const nil_constant_id = try self.constants_manager.add_constant(Constant.nil);
-        //
-        var iter = token_iterator(body.locals);
-        var local_idx: u32 = method_header.number_of_arguments_including_self();
-        var registered_at_least_one_local: bool = false;
-        while (iter.next()) |identifier_var_token| : (local_idx += 1) {
-            const identifier: SymbolId = try self.symbol_from_token(identifier_var_token);
-            try locals_scope.register_variable(.{ .identifier = identifier, .idx = local_idx });
-            // TODO: we want to do some static analysis here maybe, so that we are not setting variables to nil and then reassigning them later
-            if (!registered_at_least_one_local) {
-                // Load a `nil` on the stack so we can set locals to `nil`
-                try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
-                registered_at_least_one_local = true;
+        {
+            // Locals live on the same stackframe as arguemnts => `.increase_depth = false`
+            var locals_scope = try self.lexical_scope_stack.add_scope(.{ .increase_depth = false });
+            //
+            var local_idx: u32 = method_header.number_of_arguments_including_self();
+            var registered_at_least_one_local: bool = false;
+            var iter = token_iterator(body.locals);
+            while (iter.next()) |identifier_var_token| : (local_idx += 1) {
+                const identifier: SymbolId = try self.symbol_from_token(identifier_var_token);
+                try locals_scope.register_variable(.{ .identifier = identifier, .idx = local_idx });
+                // TODO: we want to do some static analysis here maybe, so that we are not setting variables to nil and then reassigning them later
+                if (!registered_at_least_one_local) {
+                    // Load a `nil` on the stack so we can set locals to `nil`
+                    try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
+                    registered_at_least_one_local = true;
+                }
+                // Set the local to `nil`
+                try self.add_instruction(.{ .set_local = .{ .idx = local_idx } });
             }
-            // Set the local to `nil`
-            try self.add_instruction(.{ .set_local = .{ .idx = local_idx } });
+            if (registered_at_least_one_local) {
+                // Pop the nil that is sitting on the stack
+                try self.add_instruction(.pop);
+            }
         }
-        if (registered_at_least_one_local) {
-            // Pop the nil that is sitting on the stack
-            try self.add_instruction(.pop);
-        }
-        try self.scope_stack.push_scope(locals_scope);
-        defer self.scope_stack.pop_scope();
+        defer self.lexical_scope_stack.pop_scope();
 
         // Compile the expressions
         for (body.expressions) |expr_id| {
@@ -1052,24 +1076,30 @@ pub const BytecodeGenerator = struct {
             },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
-                const load_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
-                    .instance => |instance_var_id| .{ .load_instance_var = instance_var_id },
-                    .local_or_method_argument => |local_var_id| .{ .load_local = local_var_id },
-                    .global => .{ .load_global = identifier_symbol },
+                const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
+                    .instance => |info| {
+                        break :sw .{ .load_instance_var = info.instance_variable_id };
+                    },
+                    .local_or_method_argument => |info| {
+                        // FIXME: Account for non zero `scope_depth_difference` (when we are in a block)
+                        assert(info.scope_depth_difference == 0);
+                        break :sw .{ .load_local = info.local_variable_id };
+                    },
+                    .global => break :sw .{ .load_global = identifier_symbol },
                 };
                 try self.add_instruction(load_instr);
             },
-            .assignment => |info| {
+            .assignment => |assignment| {
                 // TODO: try chained assignment, maybe this does not work???
-                try self.compile_expression(info.target_value);
-                const idenditifer_text = self.ast.text_at(info.variable);
-                const identifier_symbol: SymbolId = try self.symbol_from_token(info.variable);
-                const set_instr: Instruction = switch (self.scope_stack.get_idx_of(identifier_symbol)) {
-                    .instance => |instance_var_id| .{ .set_instance_var = instance_var_id },
-                    .local_or_method_argument => |local_var_id| .{ .set_local = local_var_id },
+                try self.compile_expression(assignment.target_value);
+                const idenditifer_text = self.ast.text_at(assignment.variable);
+                const identifier_symbol: SymbolId = try self.symbol_from_token(assignment.variable);
+                const set_instr: Instruction = switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
+                    .instance => |info| .{ .set_instance_var = info.instance_variable_id },
+                    .local_or_method_argument => |info| .{ .set_local = info.local_variable_id },
                     .global => {
                         self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(info.variable) },
+                            .{ .pos = self.ast.pos_of(assignment.variable) },
                             "TODO: Cannot yet compile setting of a global variable, therefore could not set the global variable named '{s}'.",
                             .{idenditifer_text},
                         );
