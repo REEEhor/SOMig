@@ -32,6 +32,7 @@ const compile_class_ignoring_parents = codegen_module.compile_class_ignoring_par
 const allocate_heap_data = codegen_module.allocate_heap_data;
 const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
+pub const BlockDefinition = codegen_module.BlockDefinition;
 
 pub const vm_object_module = @import("vm_object.zig");
 pub const VmObject = vm_object_module.VmObject;
@@ -105,17 +106,34 @@ pub const Stack = struct {
         /// Index into the array `objects`
         base_idx: u32,
         after_return_instruction_id: InstructionId,
+        kind: Kind,
 
-        /// Has guaranteed that the `body` is of type `user_land`.
-        method: *const MethodDefinition,
+        pub const Kind = union(enum) {
+            /// Has guaranteed that the `body` is of type `user_land`.
+            method: *const MethodDefinition,
+            block: *const BlockDefinition,
+        };
 
         pub fn self_object_idx(self: @This()) u32 {
-            const number_of_args = self.method.number_of_aditional_args;
+            const number_of_args = switch (self.kind) {
+                .method => |method| method.number_of_aditional_args,
+                .block => |block| block.number_of_aditional_args,
+            };
             return self.base_idx - number_of_args;
         }
 
         pub fn constants_base_id(self: @This()) ConstantId {
-            return self.method.body.user_land.constants_base_id;
+            return switch (self.kind) {
+                .method => |method| method.body.user_land.constants_base_id,
+                .block => |block| block.body.constants_base_id,
+            };
+        }
+
+        pub fn get_bytecode(self: @This()) Bytecode {
+            return switch (self.kind) {
+                .method => |method| method.body.user_land.bytecode,
+                .block => |block| block.body.bytecode,
+            };
         }
 
         pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
@@ -167,6 +185,8 @@ pub const Interpreter = struct {
 
     stack: Stack,
 
+    debug_frame_to_initialised_objects_mapping: if (DO_DEBUG_TRACE) std.DynamicBitSetUnmanaged else void = if (DO_DEBUG_TRACE) .{} else {},
+
     const Self = @This();
 
     pub const Error = error{
@@ -192,7 +212,7 @@ pub const Interpreter = struct {
         preallocated_object_stack: []VmObject,
         preallocated_frame_stack: []Stack.Frame,
     ) Interpreter {
-        return Interpreter{
+        var interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
             .stdout = stdout,
             .stderr = stderr,
@@ -205,6 +225,11 @@ pub const Interpreter = struct {
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
             .cached_nil_object = null,
         };
+        if (DO_DEBUG_TRACE) {
+            interpreter.debug_frame_to_initialised_objects_mapping = std.DynamicBitSetUnmanaged.initEmpty(statics.allocator, preallocated_object_stack.len) catch unreachable;
+        }
+
+        return interpreter;
     }
 
     pub const NewObjectAllocationStrategy = enum { heap, static };
@@ -328,7 +353,30 @@ pub const Interpreter = struct {
         return array;
     }
 
-    // TODO: here will be argument for an entire class that is being run.. I think
+    pub fn create_block(
+        self: *Self,
+        comptime alloc: NewObjectAllocationStrategy,
+        block_definition_ptr: *const BlockDefinition,
+        home_frame: *const Stack.Frame,
+    ) Error!VmObject {
+        const block_accessor = accessors.BlockAccessor{};
+
+        const builtin_type = PrimitiveClassType.block_type_from_arguments_count(
+            block_definition_ptr.number_of_aditional_args,
+        ) orelse unreachable;
+        try self.ensure_primitive_class_is_loaded(builtin_type);
+
+        var header = HeapData.Header.new_undefined_with_tag(.block);
+        block_accessor.set_has_escaped_home_frame(header.as_heap_data(), false);
+        var heap_data = try self.allocate_heap_data_from_header(alloc, header);
+
+        block_accessor.set_block_definition(heap_data, block_definition_ptr);
+        block_accessor.set_home_frame(heap_data, home_frame);
+
+        const block_object: VmObject = heap_data.as_vm_object();
+        return block_object;
+    }
+
     pub fn run(self: *Self) !void {
         while (true) {
             const instr_id = self.decoder.id_of_next_instruction();
@@ -337,7 +385,12 @@ pub const Interpreter = struct {
                 return;
             };
             if (DO_DEBUG_TRACE) {
-                const formatter = codegen_module.InstructionFormatter{ .base_constant_id = self.top_frame().constants_base_id(), .constants_manager = &self.statics.constants_manager, .symbols_manager = &self.statics.symbols_manager };
+                const formatter = codegen_module.InstructionFormatter{
+                    .base_constant_id = self.top_frame().constants_base_id(),
+                    .constants_manager = &self.statics.constants_manager,
+                    .symbols_manager = &self.statics.symbols_manager,
+                    .use_color = true,
+                };
                 std.debug.print("\n[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             switch (instruction) {
@@ -361,7 +414,12 @@ pub const Interpreter = struct {
                     assert(info.required_frame_up_steps == 0);
 
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
-                    self.stack.objects[self.top_frame().base_idx + info.local_id.idx] = to_assign;
+                    const object_index = self.top_frame().base_idx + info.local_id.idx;
+                    self.stack.objects[object_index] = to_assign;
+
+                    if (DO_DEBUG_TRACE) {
+                        self.debug_frame_to_initialised_objects_mapping.set(object_index);
+                    }
                 },
                 .load_instance_var => |info| {
                     // FIXME: go up multiple frames
@@ -404,7 +462,15 @@ pub const Interpreter = struct {
                     const array_object: VmObject = try self.create_array(.heap, items);
 
                     // Pop all the objects that were copied into the new array
+                    const old_stack_len = self.stack.objects.len;
                     self.stack.objects.len = items_start_idx;
+                    const new_stack_len = self.stack.objects.len;
+
+                    if (DO_DEBUG_TRACE) {
+                        for (new_stack_len..old_stack_len) |index| {
+                            self.debug_frame_to_initialised_objects_mapping.unset(index);
+                        }
+                    }
 
                     try self.push_object(array_object);
                 },
@@ -460,8 +526,9 @@ pub const Interpreter = struct {
                             const nil_object: VmObject = try self.get_nil_singleton();
                             break :blk nil_object;
                         },
-                        .block => {
-                            return self.report_TODO("Loading of the block constant", .{});
+                        .block => |*block_info| {
+                            const block_object: VmObject = try self.create_block(.heap, block_info, self.top_frame());
+                            break :blk block_object;
                         },
                     };
                     try self.push_object(object);
@@ -483,7 +550,7 @@ pub const Interpreter = struct {
                         return;
                     }
 
-                    const bytecode = self.top_frame().method.body.user_land.bytecode;
+                    const bytecode = self.top_frame().get_bytecode();
                     self.decoder.bytes = bytecode.bytes;
                 },
             }
@@ -524,6 +591,14 @@ pub const Interpreter = struct {
                 }
                 try self.stdout.print(")", .{});
             },
+            .symbol => |accessor| {
+                const symbol_id: SymbolId = accessor.get_symbol_id(object.data.*);
+                const symbol_string = self.statics.symbols_manager.symbol_with_id(symbol_id);
+                try self.stdout.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
+            },
+            .block => {
+                try self.stdout.print("block (yup, this is not really helpful info)", .{});
+            },
             else => {
                 return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{object.data.header.tag});
             },
@@ -546,6 +621,12 @@ pub const Interpreter = struct {
                 std.debug.print(" Objects: \n", .{});
                 for (self.stack.objects, 0..) |obj, idx| {
                     std.debug.print(" - stack[{d:02}] = ", .{idx});
+                    if (DO_DEBUG_TRACE) {
+                        if (!self.debug_frame_to_initialised_objects_mapping.isSet(idx)) {
+                            std.debug.print(colors.FAINT ++ colors.YELLOW ++ "(garbage)\n" ++ colors.RESET, .{});
+                            return;
+                        }
+                    }
                     try self.print_object(obj);
                 }
             }
@@ -574,6 +655,12 @@ pub const Interpreter = struct {
             while (object_idx < sentinel_object_idx) : (object_idx += 1) {
                 std.debug.print("    - stack[{d:02}] = ", .{object_idx});
                 const obj = self.stack.objects[object_idx];
+                if (DO_DEBUG_TRACE) {
+                    if (!self.debug_frame_to_initialised_objects_mapping.isSet(object_idx)) {
+                        std.debug.print(colors.FAINT ++ colors.YELLOW ++ "(garbage)\n" ++ colors.RESET, .{});
+                        continue;
+                    }
+                }
                 try self.print_object(obj);
             }
         }
@@ -658,19 +745,18 @@ pub const Interpreter = struct {
 
     pub fn push_frame(
         self: *Self,
-        method: *const MethodDefinition,
+        frame_kind: Stack.Frame.Kind,
         bytecode: Bytecode,
         arguments_count_without_self: u16,
         locals_count: u16,
-        after_return_instruction_id: InstructionId,
     ) Error!void {
         if (self.stack.frames.len >= self.stack.max_frames_len) {
             @branchHint(.cold);
             self.report_runtime_error("Stack overflow (too many function frames)! :D", .{});
             return Error.frame_stack_overflow;
         }
-        const arguments_count = arguments_count_without_self +| 1;
-        if (self.stack.objects.len +| arguments_count +| locals_count > self.stack.max_objects_len) {
+        const arguments_count: usize = @as(usize, arguments_count_without_self) + 1;
+        if (self.stack.objects.len + arguments_count + locals_count > self.stack.max_objects_len) {
             @branchHint(.cold);
             self.report_runtime_error("Stack overflow (too many objects)! :D", .{});
             return Error.object_stack_overflow;
@@ -680,8 +766,8 @@ pub const Interpreter = struct {
         self.stack.frames.len += 1;
         self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
             .base_idx = new_base_index,
-            .method = method,
-            .after_return_instruction_id = after_return_instruction_id,
+            .kind = frame_kind,
+            .after_return_instruction_id = self.decoder.id_of_next_instruction(),
         };
         self.stack.objects.len += locals_count;
         self.decoder = .new(bytecode);
@@ -692,8 +778,16 @@ pub const Interpreter = struct {
         assert(self.stack.frames_count() > 0);
         // We need to not pop the top-most object on the popped frame,
         // since it is the return value of the function (therefore the `+1`):
-        self.stack.objects.len = self.top_frame().base_idx + 1;
+        const new_objects_len = self.top_frame().base_idx + 1;
+        const old_objects_len = self.stack.objects.len;
+        self.stack.objects.len = new_objects_len;
         self.stack.frames.len -= 1;
+
+        if (DO_DEBUG_TRACE) {
+            for (new_objects_len..old_objects_len) |object_idx| {
+                self.debug_frame_to_initialised_objects_mapping.unset(object_idx);
+            }
+        }
     }
 
     /// Asserts that the stack is not empty
@@ -731,15 +825,24 @@ pub const Interpreter = struct {
             @branchHint(.cold);
             return Error.object_stack_overflow;
         }
-        self.stack.objects.ptr[self.stack.objects.len] = object;
+        const object_index = self.stack.objects.len;
+        self.stack.objects.ptr[object_index] = object;
         self.stack.objects.len += 1;
+
+        if (DO_DEBUG_TRACE) {
+            self.debug_frame_to_initialised_objects_mapping.set(object_index);
+        }
     }
 
     /// Asserts that the stack is not empty
     pub fn pop_object(self: *Self) VmObject {
         assert(self.stack.objects.len > 0);
         self.stack.objects.len -= 1;
-        return self.stack.objects.ptr[self.stack.objects.len];
+        const object_index = self.stack.objects.len;
+        if (DO_DEBUG_TRACE) {
+            self.debug_frame_to_initialised_objects_mapping.unset(object_index);
+        }
+        return self.stack.objects.ptr[object_index];
     }
 
     /// Asserts that the stack is not empty
@@ -751,17 +854,15 @@ pub const Interpreter = struct {
         switch (method.body) {
             .user_land => |method_body_info| {
                 try self.push_frame(
-                    method,
+                    .{ .method = method },
                     method_body_info.bytecode,
                     method.number_of_aditional_args,
                     method_body_info.number_of_locals,
-                    self.decoder.id_of_next_instruction(),
                 );
-                // TODO(continue-here): not exactly here, ale padá to v pop_frame asi, protože accessujeme `top_frame` i když tam už žádný není
             },
             .primitive => |primitive_method| {
                 const target_object = self.pop_object();
-                const result_object: VmObject = primitive_method(target_object, self) catch |err| {
+                const result_object: ?VmObject = primitive_method(target_object, self) catch |err| {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
                         "Error happened in the primitive method `{s}`",
@@ -769,7 +870,7 @@ pub const Interpreter = struct {
                     ) catch {};
                     return err;
                 };
-                try self.push_object(result_object);
+                if (result_object) |object| try self.push_object(object);
             },
         }
     }
@@ -808,7 +909,11 @@ pub const Interpreter = struct {
             .nil => self.primitive_class_definitions.getAssertContains(.nil),
             .array => self.primitive_class_definitions.getAssertContains(.array),
             .symbol => self.primitive_class_definitions.getAssertContains(.symbol),
-
+            .block => |accessor| blk: {
+                const number_of_arguments = accessor.get_block_definition(object.data).number_of_aditional_args;
+                const builtin_type = PrimitiveClassType.block_type_from_arguments_count(number_of_arguments) orelse unreachable;
+                break :blk self.primitive_class_definitions.getAssertContains(builtin_type);
+            },
             .generic_object => |accessor| accessor.get_class_definition(object.data),
             .empty_heap_segment => unreachable,
         };
@@ -862,6 +967,25 @@ pub const PrimitiveClassType = enum {
     // TODO: remaining primitive classes
 
     const Self = @This();
+
+    pub fn block_type_from_arguments_count(number_of_arguments_excluding_self: u16) ?Self {
+        return switch (number_of_arguments_excluding_self) {
+            0 => .block1,
+            1 => .block2,
+            2 => .block3,
+            else => null,
+        };
+    }
+
+    pub fn from_block_type(block_type: accessors.BlockType) Self {
+        return switch (block_type) {
+            .block_base => .block_base,
+            .block1 => .block1,
+            .block2 => .block2,
+            .block3 => .block3,
+        };
+    }
+
     pub fn as_string(self: Self) []const u8 {
         return switch (self) {
             .object => "Object",

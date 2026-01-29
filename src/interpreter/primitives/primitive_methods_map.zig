@@ -163,4 +163,4 @@ pub const PrimitiveMethodsMap = struct {
     }
 };
 
-pub const PrimitiveMethodImplementation = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
+pub const PrimitiveMethodImplementation = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject;

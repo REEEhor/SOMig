@@ -842,6 +842,7 @@ pub const CompileError = error{
     too_many_items_in_array_literal,
     super_call_in_class_without_parent,
     could_not_find_method_in_parent,
+    too_many_arguments_in_a_block,
     /// FIXME: This shouldn't be here at the end of implementation
     TODO,
 } || Allocator.Error;
@@ -1015,11 +1016,11 @@ pub const BytecodeGenerator = struct {
             // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
             //                     NOTE: We probably want to store the actual singleton values in the end.
             try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
-            try self.add_instruction(.{ .set_local = .{
-                .local_id = Instruction.LocalVarId.return_object,
-                .required_frame_up_steps = 0,
-            } });
         }
+        try self.add_instruction(.{ .set_local = .{
+            .local_id = Instruction.LocalVarId.return_object,
+            .required_frame_up_steps = 0,
+        } });
         try self.add_instruction(.normal_return);
 
         return try self.builder.get_final_bytecode(self.allocator);
@@ -1254,6 +1255,15 @@ pub const BytecodeGenerator = struct {
         // Setup arguments (put them into the lexical scope stack)
         const parameters_span: ?Ast.TokenSpan = block_literal.get_parameters(self.ast.tokens);
         const parameters_count_excluding_self = if (parameters_span) |s| s.number_of_tokens() else 0;
+        const max_block_parameters_count = 2;
+        if (parameters_count_excluding_self > max_block_parameters_count) {
+            // SAFETY: We can unwrap `.?` the `parameters_span` because the number of parameters is more than 2.
+            //         This means, that the `parameters_span` is not empty.
+            const parameters_position = self.ast.pos_of(parameters_span.?);
+            self.reporter.report_error(.{ .pos = parameters_position }, "This block has {d} arguments, which is too many. Maximum is {d}.", .{ parameters_count_excluding_self, max_block_parameters_count });
+            self.reporter.add_note(.no_location, "Consider taking in an array of arguments.", .{});
+            return CompileError.too_many_arguments_in_a_block;
+        }
         {
             var arguments_scope = try self.lexical_scope_stack.add_scope(.{ .increase_depth = true });
             var parameter_iterator = token_iterator(parameters_span);

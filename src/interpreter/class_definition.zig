@@ -74,7 +74,7 @@ pub const MethodBody = union(enum) {
 /// Same as `PrimitiveMethodImplementation` (without `_` at the end) which is defined elsewhere,
 /// but made into a different type, because of circular dependency reasons.
 /// (Having two aliases for these function pointers removes the circular depenedency errors, maybe in future versions of Zig, they will not be a problem.)
-pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject;
+pub const PrimitiveMethodImplementation_ = *const fn (target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject;
 
 pub const FunctionBody = struct {
     bytecode: Bytecode,

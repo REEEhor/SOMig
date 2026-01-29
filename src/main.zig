@@ -210,10 +210,6 @@ fn playground(allocator: std.mem.Allocator) !void {
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
     const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
-
-    try interpreter.push_object(main_object);
-    try interpreter.push_frame(run_method, run_method.body.user_land.bytecode, 0, 0, codegen.InstructionId{ .idx = 9999 }); // TODO(consultation): remove hack with return instruction id!!!
-
     // Dump the bytecode
     try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
     try codegen.print_bytecode(
@@ -227,9 +223,10 @@ fn playground(allocator: std.mem.Allocator) !void {
     try stdout.print("\n", .{});
 
     // Run the program
-    try stdout.print(terminal.YELLOW ++ terminal.BOLD ++ "(NOTE: skipped running the program)\n" ++ terminal.RESET, .{});
-    // try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
-    // try interpreter.run();
+    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
+    try interpreter.push_object(main_object);
+    try interpreter.call_method(run_method);
+    try interpreter.run();
 }
 
 // Forcing for `zig build test` to run tests in all files that
@@ -277,13 +274,23 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          (4 asString + 2) println.
         \\
-        \\          [ :block_arg1 :block_arg2 |
+        \\          "TODO: uncomment this"
+        \\          "[ :block_arg1 :block_arg2 |
         \\            | block_local1 block_local2 block_local3 |
         \\            block_arg1 println.
         \\            local_of_run1 println.
+        \\            block_local3 println.
         \\            'Hello from block!' println.
-        \\          ] value.
+        \\          ]."
         \\
+        \\          [ 'Hello SOMig from block!' ] value println.
+        \\
+        \\          [
+        \\              | block_local | 
+        \\              block_local := '"I am a local variable from a block"'.
+        \\              'In block: ' print.
+        \\              block_local println.
+        \\          ] value.
         \\      )
         \\
         \\
@@ -467,5 +474,15 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Metaclass")).id,
         \\ Metaclass = Class ( )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block")).id,
+        \\ Block = (
+        \\      value = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block1")).id,
+        \\ Block1 = (
+        \\      value = primitive
+        \\ )
     );
 }
