@@ -2,6 +2,10 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const terminal = @import("../terminal.zig");
+
+const unions = @import("../unions.zig");
+
 const debug_module = @import("../debug/debug.zig");
 const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
@@ -23,6 +27,7 @@ const parser_module = @import("../frontend/parser.zig");
 const interpreter_module = @import("../interpreter/__interpreter.zig");
 const VmObject = interpreter_module.VmObject;
 const ClassDefinition = interpreter_module.ClassDefinition;
+const FunctionBody = interpreter_module.FunctionBody;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
 const MethodDefinition = interpreter_module.MethodDefinition;
 const MethodBody = interpreter_module.MethodBody;
@@ -68,11 +73,21 @@ pub const RelativeConstantId = packed struct {
     }
 };
 
+pub const BlockDefinition = struct {
+    body: FunctionBody,
+
+    /// Number of arguments to the `body` of the block **excluding** the receiver object
+    /// which is the block itself.
+    number_of_aditional_args: u16,
+};
+
 pub const Constant = union(enum) {
     integer: IntegerRepresentation,
     float: FloatRepresentation,
     string: []const u8,
     nil,
+    /// TODO: this bloats the `Constant` a lot in size. It might be better to store all the `block`s in a separate array and only store an index into that array here.
+    block: BlockDefinition,
 };
 
 pub const ConstantsManager = struct {
@@ -222,7 +237,8 @@ pub const LexicalScopesStack = struct {
             if (self.depth_at_creation == .at_instance_variable_scope) {
                 return 0;
             }
-            return @as(u32, @intCast(@intFromEnum(self.depth_at_creation)));
+            const starting_depth = self.stack.current_depth();
+            return @as(u32, @intCast(@intFromEnum(starting_depth) - @intFromEnum(self.depth_at_creation)));
         }
 
         pub fn register_variable(
@@ -1008,6 +1024,17 @@ pub const BytecodeGenerator = struct {
 
         return try self.builder.get_final_bytecode(self.allocator);
     }
+
+    fn symbol_from_block_parameter_token(self: *Self, token_id: Ast.TokenId) Allocator.Error!SymbolId {
+        assert(self.ast.kind_of(token_id) == .block_param);
+        const token_text = self.ast.text_at(token_id);
+        assert(token_text.len >= 2);
+        assert(token_text[0] == ':');
+        const identifier_text = token_text[1..];
+        const symbol_id: SymbolId = (try self.symbols_manager.id_or_intern(identifier_text)).id;
+        return symbol_id;
+    }
+
     fn symbol_from_token(self: *Self, token_id: Ast.TokenId) Allocator.Error!SymbolId {
         const token_text = self.ast.text_at(token_id);
         const symbol_id: SymbolId = (try self.symbols_manager.id_or_intern(token_text)).id;
@@ -1029,8 +1056,7 @@ pub const BytecodeGenerator = struct {
         if (!is_receiver_super) {
             try self.compile_expression(receiver);
             try self.add_instruction(Instruction{
-                // FIXME: remove field `aditional_args_count`, it is not needed
-                .send_message = .{ .message_name = message_selector, .aditional_args_count = undefined },
+                .send_message = .{ .message_name = message_selector },
             });
             return;
         }
@@ -1208,15 +1234,53 @@ pub const BytecodeGenerator = struct {
                 const symbol_id = (try self.symbols_manager.id_or_intern(symbol_as_string)).id;
                 try self.add_instruction(.{ .load_symbol = symbol_id });
             },
-            else => |todo_expr| {
-                self.reporter.report_error(
-                    .{ .pos = self.ast.pos_of(expr_id) },
-                    "TODO: Compiling of expression type of '{t}' not implemented yet :D",
-                    .{todo_expr.tag()},
-                );
-                return error.TODO;
+            .block_literal => |block_info| {
+                const constant_id: RelativeConstantId = try self.compile_block_literal(block_info);
+                try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
             },
         }
+    }
+
+    fn compile_block_literal(self: *Self, block_literal: Ast.BlockLiteral) CompileError!RelativeConstantId {
+        const old_are_we_compiling_block_right_now = self.currently_compiling_block;
+        defer self.currently_compiling_block = old_are_we_compiling_block_right_now;
+        self.currently_compiling_block = true;
+
+        // We have to use a brand new `InstructionEncoder` for the compilation of the block literal.
+        const old_builder = self.builder;
+        defer self.builder = old_builder;
+        self.builder = InstructionEncoder{ .bytes = .empty }; // TODO: pre-allocate some bytes up front
+
+        // Setup arguments (put them into the lexical scope stack)
+        const parameters_span: ?Ast.TokenSpan = block_literal.get_parameters(self.ast.tokens);
+        const parameters_count_excluding_self = if (parameters_span) |s| s.number_of_tokens() else 0;
+        {
+            var arguments_scope = try self.lexical_scope_stack.add_scope(.{ .increase_depth = true });
+            var parameter_iterator = token_iterator(parameters_span);
+            // We want to register the identifiers with reverse indexes
+            var idx: i64 = @as(i64, parameters_count_excluding_self) - 1;
+            while (parameter_iterator.next()) |parameter_token| : (idx -= 1) {
+                const parameter_symbol: SymbolId = try self.symbol_from_block_parameter_token(parameter_token);
+                try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = @intCast(idx) });
+            }
+        }
+        defer self.lexical_scope_stack.pop_scope();
+
+        const body_ast: Ast.FunctionBody = self.ast.extras.function_body_of(block_literal.body_id);
+        const bytecode = try self.compile_function_body(.{
+            .body = body_ast,
+            .number_of_arguments_including_self = parameters_count_excluding_self + 1,
+        });
+
+        const constant_id = try self.constants_manager.add_constant(.{ .block = BlockDefinition{
+            .body = FunctionBody{
+                .bytecode = bytecode,
+                .constants_base_id = self.constants_manager.current_base_id,
+                .number_of_locals = @intCast(body_ast.number_of_locals()),
+            },
+            .number_of_aditional_args = @intCast(parameters_count_excluding_self),
+        } });
+        return constant_id;
     }
 };
 
@@ -1457,6 +1521,7 @@ pub const InstructionFormatter = struct {
     symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
     base_constant_id: ConstantId,
+    use_color: bool,
 
     pub fn fmt(self: @This(), instruction: Instruction) Fmt {
         return Fmt{
@@ -1465,6 +1530,7 @@ pub const InstructionFormatter = struct {
             .constants_manager = self.constants_manager,
             .symbols_manager = self.symbols_manager,
             .base_constant_id = self.base_constant_id,
+            .use_color = self.use_color,
         };
     }
 
@@ -1474,10 +1540,13 @@ pub const InstructionFormatter = struct {
         constants_manager: *ConstantsManager,
         instruction: Instruction,
         base_constant_id: ConstantId,
+        use_color: bool,
 
         pub fn format(self: @This(), writer: *Writer) Writer.Error!void {
             const tag_name: []const u8 = @tagName(self.instruction.tag());
+            if (self.use_color) try writer.print(terminal.BOLD, .{});
             try writer.print("{s:<13}", .{tag_name});
+            if (self.use_color) try writer.print(terminal.RESET, .{});
 
             switch (self.instruction) {
                 .load_constant => |load_constant| {
@@ -1488,7 +1557,7 @@ pub const InstructionFormatter = struct {
                 },
                 .send_message => |send_message| {
                     const message_name = self.symbols_manager.symbol_with_id(send_message.message_name);
-                    try writer.print(" name=\"{s}\" args-count={d}", .{ message_name, send_message.aditional_args_count });
+                    try writer.print(" name=\"{s}\"", .{message_name});
                 },
                 .load_local => |info| {
                     try writer.print(" id({d}) up-frame-steps={d}", .{ info.local_id.idx, info.required_frame_up_steps });
@@ -1551,6 +1620,16 @@ pub const InstructionFormatter = struct {
                 .nil => {
                     try writer.print("nil", .{});
                 },
+                .block => |block_info| {
+                    try writer.print(
+                        "block body-arguments-cnt={d} locals-cnt={d} constant-base-id={d}",
+                        .{
+                            block_info.number_of_aditional_args,
+                            block_info.body.number_of_locals,
+                            block_info.body.constants_base_id.idx,
+                        },
+                    );
+                },
             }
         }
     };
@@ -1562,18 +1641,46 @@ pub fn print_bytecode(
     base_constant_id: ConstantId,
     bytecode: Bytecode,
     writer: *std.io.Writer,
+    options: struct {
+        print_recursive: bool = true,
+        indent: usize = 0,
+        use_color: bool = true,
+    },
 ) std.io.Writer.Error!void {
     const f = InstructionFormatter{
         .constants_manager = constants_manager,
         .symbols_manager = symbols_manager,
         .base_constant_id = base_constant_id,
+        .use_color = options.use_color,
     };
     var decoder = InstructionDecoder.new(bytecode);
     var instruction_idx: InstructionId = decoder.id_of_next_instruction();
 
     while (decoder.next_instruction()) |instruction| {
+        for (0..10 * options.indent) |_| try writer.writeByte(' ');
+
         try writer.print("[{d:04}] {f}", .{ instruction_idx.idx, f.fmt(instruction) });
         instruction_idx = decoder.id_of_next_instruction();
+        if (!options.print_recursive) continue;
+
+        sw: switch (instruction) {
+            .load_constant => |info| {
+                const absolute_id = info.id.to_absolute(base_constant_id);
+                const constant = constants_manager.get_constant(absolute_id);
+                const block_info: BlockDefinition = unions.get_payload(constant, .block) orelse break :sw;
+                var options_copy = options;
+                options_copy.indent += 1;
+                try print_bytecode(
+                    symbols_manager,
+                    constants_manager,
+                    base_constant_id,
+                    block_info.body.bytecode,
+                    writer,
+                    options_copy,
+                );
+            },
+            else => {},
+        }
     }
 }
 
@@ -1672,13 +1779,6 @@ pub const Instruction = union(enum(u8)) {
 
     pub const SendMessage = packed struct {
         message_name: SymbolId,
-
-        // TODO: remove this, I don't think this field is needed
-        /// Number of arguments to pop from stack
-        /// (excluding the first argument which is the message target object).
-        ///
-        /// For example, unary message has this field set to 0 and binary to 1.
-        aditional_args_count: u8,
     };
     pub const LoadConstant = packed struct { id: RelativeConstantId };
 

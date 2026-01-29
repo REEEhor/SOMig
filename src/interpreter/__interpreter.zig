@@ -48,6 +48,7 @@ pub const class_definition_module = @import("class_definition.zig");
 pub const ClassDefinition = class_definition_module.ClassDefinition;
 pub const MethodBody = class_definition_module.MethodBody;
 pub const MethodDefinition = class_definition_module.MethodDefinition;
+pub const FunctionBody = class_definition_module.FunctionBody;
 
 pub const DO_DEBUG_TRACE: bool = false;
 pub const PRINT_PTR_MODULO: bool = true;
@@ -458,6 +459,9 @@ pub const Interpreter = struct {
                         .nil => {
                             const nil_object: VmObject = try self.get_nil_singleton();
                             break :blk nil_object;
+                        },
+                        .block => {
+                            return self.report_TODO("Loading of the block constant", .{});
                         },
                     };
                     try self.push_object(object);

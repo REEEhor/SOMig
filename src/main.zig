@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const terminal = @import("terminal.zig");
+
 const debug_module = @import("debug/debug.zig");
 const dbg = debug_module.dbg;
 
@@ -220,12 +222,14 @@ fn playground(allocator: std.mem.Allocator) !void {
         run_method.body.user_land.constants_base_id,
         run_method.body.user_land.bytecode,
         stdout,
+        .{},
     );
     try stdout.print("\n", .{});
 
     // Run the program
-    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
-    try interpreter.run();
+    try stdout.print(terminal.YELLOW ++ terminal.BOLD ++ "(NOTE: skipped running the program)\n" ++ terminal.RESET, .{});
+    // try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
+    // try interpreter.run();
 }
 
 // Forcing for `zig build test` to run tests in all files that
@@ -241,6 +245,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Main")).id,
         \\  Main = (
         \\      run = (
+        \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
         \\          42.
         \\          5 + 3.
@@ -271,6 +276,14 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          (4 asString + 2) println.
+        \\
+        \\          [ :block_arg1 :block_arg2 |
+        \\            | block_local1 block_local2 block_local3 |
+        \\            block_arg1 println.
+        \\            local_of_run1 println.
+        \\            'Hello from block!' println.
+        \\          ] value.
+        \\
         \\      )
         \\
         \\
