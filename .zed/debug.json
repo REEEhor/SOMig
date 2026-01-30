@@ -3,29 +3,29 @@
 // For more documentation on how to configure debug tasks,
 // see: https://zed.dev/docs/debugger
 [
-  {
-    "label": "Debug Program",
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "program": "$ZED_WORKTREE_ROOT/zig-out/bin/somig.exe",
-    "sourceLanguages": ["zig"],
-    "build": {
-      "command": "zig",
-      "args": ["build", "-freference-trace=30"]
+    {
+        "label": "Debug Program",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "program": "$ZED_WORKTREE_ROOT/zig-out/bin/somig",
+        "sourceLanguages": ["zig"],
+        "build": {
+            "command": "zig",
+            "args": ["build", "-freference-trace=30"]
+        },
+        "request": "launch",
+        "adapter": "CodeLLDB"
     },
-    "request": "launch",
-    "adapter": "CodeLLDB"
-  },
 
-  {
-    "label": "Debug Tests",
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "program": "$ZED_WORKTREE_ROOT/zig-out/bin/test.exe",
-    "sourceLanguages": ["zig"],
-    "build": {
-      "command": "zig",
-      "args": ["build", "-freference-trace=30"]
-    },
-    "request": "launch",
-    "adapter": "CodeLLDB"
-  }
+    {
+        "label": "Debug Tests",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "program": "$ZED_WORKTREE_ROOT/zig-out/bin/test",
+        "sourceLanguages": ["zig"],
+        "build": {
+            "command": "zig",
+            "args": ["build", "-freference-trace=30"]
+        },
+        "request": "launch",
+        "adapter": "CodeLLDB"
+    }
 ]

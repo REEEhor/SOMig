@@ -86,8 +86,7 @@ pub const Constant = union(enum) {
     float: FloatRepresentation,
     string: []const u8,
     nil,
-    /// TODO: this bloats the `Constant` a lot in size. It might be better to store all the `block`s in a separate array and only store an index into that array here.
-    block: BlockDefinition,
+    block: *const BlockDefinition,
 };
 
 pub const ConstantsManager = struct {
@@ -113,6 +112,12 @@ pub const ConstantsManager = struct {
     pub fn new_base_id_for_method(self: *Self) ConstantId {
         self.current_base_id = self.next_constant_id();
         return self.current_base_id;
+    }
+
+    pub fn add_block_constant(self: *Self, block_definition: BlockDefinition) Allocator.Error!RelativeConstantId {
+        const block_definition_ptr: *BlockDefinition = try self.allocator.create(BlockDefinition);
+        block_definition_ptr.* = block_definition;
+        return try self.add_constant(.{ .block = block_definition_ptr });
     }
 
     pub fn add_constant(self: *Self, new_constant: Constant) Allocator.Error!RelativeConstantId {
@@ -1282,14 +1287,14 @@ pub const BytecodeGenerator = struct {
             .number_of_arguments_including_self = parameters_count_excluding_self + 1,
         });
 
-        const constant_id = try self.constants_manager.add_constant(.{ .block = BlockDefinition{
+        const constant_id = try self.constants_manager.add_block_constant(BlockDefinition{
             .body = FunctionBody{
                 .bytecode = bytecode,
                 .constants_base_id = self.constants_manager.current_base_id,
                 .number_of_locals = @intCast(body_ast.number_of_locals()),
             },
             .number_of_aditional_args = @intCast(parameters_count_excluding_self),
-        } });
+        });
         return constant_id;
     }
 };
@@ -1677,7 +1682,7 @@ pub fn print_bytecode(
             .load_constant => |info| {
                 const absolute_id = info.id.to_absolute(base_constant_id);
                 const constant = constants_manager.get_constant(absolute_id);
-                const block_info: BlockDefinition = unions.get_payload(constant, .block) orelse break :sw;
+                const block_info: *const BlockDefinition = unions.get_payload(constant, .block) orelse break :sw;
                 var options_copy = options;
                 options_copy.indent += 1;
                 try print_bytecode(

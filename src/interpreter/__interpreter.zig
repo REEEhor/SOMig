@@ -526,7 +526,7 @@ pub const Interpreter = struct {
                             const nil_object: VmObject = try self.get_nil_singleton();
                             break :blk nil_object;
                         },
-                        .block => |*block_info| {
+                        .block => |block_info| {
                             const block_object: VmObject = try self.create_block(.heap, block_info, self.top_frame());
                             break :blk block_object;
                         },
@@ -556,6 +556,7 @@ pub const Interpreter = struct {
             }
             if (DO_DEBUG_TRACE) {
                 try self.debug_print_stack();
+                std.debug.print("\n", .{});
             }
         }
         unreachable;
@@ -623,7 +624,7 @@ pub const Interpreter = struct {
                     std.debug.print(" - stack[{d:02}] = ", .{idx});
                     if (DO_DEBUG_TRACE) {
                         if (!self.debug_frame_to_initialised_objects_mapping.isSet(idx)) {
-                            std.debug.print(colors.FAINT ++ colors.YELLOW ++ "(garbage)\n" ++ colors.RESET, .{});
+                            std.debug.print(colors.FAINT ++ colors.YELLOW ++ " garbage \n" ++ colors.RESET, .{});
                             return;
                         }
                     }
@@ -637,13 +638,14 @@ pub const Interpreter = struct {
         var next_frame_idx: usize = 1;
         while (next_frame_idx <= self.stack.frames_count()) : (next_frame_idx += 1) {
             const current_frame: Stack.Frame = self.stack.frames[next_frame_idx - 1];
-            std.debug.print("Frame number {d:02}: \n - base_idx: {d}\n - constant_base_id: {d}\n - return_instr_id:{d}\n", .{
+            const frame_format_string = "[Frame {d:02} cons_base={d:03} ret_inst={d:03}] ";
+            const frame_args = .{
                 next_frame_idx - 1,
-                current_frame.base_idx,
                 current_frame.constants_base_id().idx,
                 current_frame.after_return_instruction_id.idx,
-            });
-            std.debug.print(" - Objects: \n", .{});
+            };
+            const frame_length = std.fmt.count(frame_format_string, frame_args);
+            std.debug.print(frame_format_string, frame_args);
 
             const sentinel_object_idx: usize = blk: {
                 if (next_frame_idx >= self.stack.frames_count()) {
@@ -652,12 +654,17 @@ pub const Interpreter = struct {
                     break :blk self.stack.frames[next_frame_idx].base_idx;
                 }
             };
+            var first_iteration = true;
             while (object_idx < sentinel_object_idx) : (object_idx += 1) {
-                std.debug.print("    - stack[{d:02}] = ", .{object_idx});
+                if (!first_iteration) {
+                    for (0..frame_length) |_| std.debug.print(" ", .{});
+                }
+                first_iteration = false;
+                std.debug.print("[{d:02}]", .{object_idx});
                 const obj = self.stack.objects[object_idx];
                 if (DO_DEBUG_TRACE) {
                     if (!self.debug_frame_to_initialised_objects_mapping.isSet(object_idx)) {
-                        std.debug.print(colors.FAINT ++ colors.YELLOW ++ "(garbage)\n" ++ colors.RESET, .{});
+                        std.debug.print(colors.FAINT ++ colors.YELLOW ++ " garbage \n" ++ colors.RESET, .{});
                         continue;
                     }
                 }

@@ -285,12 +285,15 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          [ 'Hello SOMig from block!' ] value println.
         \\
-        \\          [
-        \\              | block_local | 
+        \\          local_of_run1 := [
+        \\              | block_local |
         \\              block_local := '"I am a local variable from a block"'.
-        \\              'In block: ' print.
+        \\              'In a block: ' print.
         \\              block_local println.
+        \\              block_local.
         \\          ] value.
+        \\          'Outside of a block: ' print.
+        \\          local_of_run1 println.
         \\      )
         \\
         \\
