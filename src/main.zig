@@ -484,7 +484,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block1")).id,
-        \\ Block1 = (
+        \\ Block1 = Block (
         \\      value = primitive
         \\ )
     );

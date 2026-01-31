@@ -389,7 +389,12 @@ pub const Array = struct {
     }
 };
 
-pub const Block = struct {};
+pub const Block = struct {
+    pub fn value__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
+        assert_arity_is(@src(), 1);
+        return try block_value_method_implementation_because_it_is_defined_on_block_as_well_i_dont_know_why(target_object, interpreter);
+    }
+};
 
 pub const Block1 = struct {
     pub fn value__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
