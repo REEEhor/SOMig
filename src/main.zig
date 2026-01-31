@@ -514,16 +514,14 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block2")).id,
         \\ Block2 = Block (
-        \\      "TODO: change this to `self value: nil` once we can compile a `nil` literal"
-        \\      value           = ( self value: '<no argument>' )
+        \\      value           = ( self value: nil )
         \\      value: argument = primitive
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block3")).id,
         \\ Block3 = Block (
-        \\      "TODO: change this to `self value: nil` once we can compile a `nil` literal"
-        \\      value                  = ( self value: '<no argument>' with: '<no argument>' )
-        \\      value: arg             = ( self value: arg with: '<no argument>' )
+        \\      value                  = ( self value: nil with: nil )
+        \\      value: arg             = ( self value: arg with: nil )
         \\      value: arg1 with: arg2 = primitive
         \\ )
     );

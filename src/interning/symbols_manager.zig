@@ -51,6 +51,7 @@ pub fn GenericSymbolsManager(
 
         pub const InternResult = struct { id: SymbolId, was_new: bool };
 
+        // NOTE(epic-zig): `comptime_id_of`
         pub fn comptime_id_of(comptime symbol: []const u8) SymbolId {
             inline for (comptime_known_symbols, 0..) |known_symbol, idx| {
                 if (comptime std.mem.eql(u8, symbol, known_symbol)) {
@@ -130,6 +131,9 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
 
     // Keywords of the language
     "self",
+    "nil",
+    "true",
+    "false",
 });
 
 const testing = struct {

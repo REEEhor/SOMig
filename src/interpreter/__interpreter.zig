@@ -517,16 +517,16 @@ pub const Interpreter = struct {
                             const string_object: VmObject = try self.create_string(.heap, value);
                             break :blk string_object;
                         },
-                        .nil => {
-                            const nil_object: VmObject = try self.get_nil_singleton();
-                            break :blk nil_object;
-                        },
                         .block => |block_info| {
                             const block_object: VmObject = try self.create_block(.heap, block_info, self.top_frame());
                             break :blk block_object;
                         },
                     };
                     try self.push_object(object);
+                },
+                .load_nil => {
+                    const nil_object: VmObject = try self.get_nil_singleton();
+                    try self.push_object(nil_object);
                 },
                 .resolved_method_call => |call_info| {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
@@ -727,7 +727,7 @@ pub const Interpreter = struct {
         for (0..number_of_compiled_classes) |_| {
             const class = class_iter orelse break;
             defer class_iter = class.parent;
-            // NOTE(epic-zig): This is nice
+            // NOTE(epic-zig): `comptime_id_of`
             // TODO: don't forget to update the names of the variables here once `PrimitiveClassType` gets renamed
             const primitive_class_type: PrimitiveClassType = inline for (std.meta.fields(PrimitiveClassType)) |primimitive_class_type_field| {
                 const primitive_class_type: PrimitiveClassType = @field(PrimitiveClassType, primimitive_class_type_field.name);

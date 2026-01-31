@@ -85,7 +85,6 @@ pub const Constant = union(enum) {
     integer: IntegerRepresentation,
     float: FloatRepresentation,
     string: []const u8,
-    nil,
     block: *const BlockDefinition,
 };
 
@@ -961,8 +960,6 @@ pub const BytecodeGenerator = struct {
         const body = params.body;
         const number_of_arguments_including_self = params.number_of_arguments_including_self;
 
-        const nil_constant_id = try self.constants_manager.add_constant(.nil);
-
         // Setup locals
         {
             // Locals live on the same stackframe as arguemnts => `.increase_depth = false`
@@ -977,7 +974,7 @@ pub const BytecodeGenerator = struct {
                 // TODO: we want to do some static analysis here maybe, so that we are not setting variables to nil and then reassigning them later
                 if (!registered_at_least_one_local) {
                     // Load a `nil` on the stack so we can set locals to `nil`
-                    try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
+                    try self.add_instruction(.load_nil);
                     registered_at_least_one_local = true;
                 }
                 // Set the local to `nil`
@@ -1017,11 +1014,9 @@ pub const BytecodeGenerator = struct {
         // WARN: Also, if we do the check in a way that is mentioned, we have throw a compile error on dead code after exit expressions (returns) (Which we are not doing currently.)
 
         if (!self.currently_compiling_block) {
-            // TODO: maybe don't do default `nil` return if we have already emitted a return?
-            // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
-            //                     NOTE: We probably want to store the actual singleton values in the end.
-            //                     NOTE: I think the easiest way to deal with this would be to introduce `load_(nil|true|false)` instructions
-            try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
+            try self.add_instruction(.load_nil);
+        } else {
+            // In case we are compiling a block, we left the value on the top of the stack already.
         }
         try self.add_instruction(.normal_return);
 
@@ -1157,22 +1152,32 @@ pub const BytecodeGenerator = struct {
             },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
-                const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
-                    .instance => |info| {
-                        break :sw .{ .load_instance_var = .{
-                            .required_frame_up_steps = info.scope_depth_difference,
-                            .instance_var_id = info.instance_variable_id,
-                        } };
+                // NOTE(epic-zig): `comptime_id_of`
+                switch (identifier_symbol.idx) {
+                    SymbolsManager.comptime_id_of("nil").idx => try self.add_instruction(.load_nil),
+                    // TODO:
+                    // SymbolsManager.comptime_id_of("true").idx => try self.add_instruction(.load_true),
+                    // TODO:
+                    // SymbolsManager.comptime_id_of("false").idx => try self.add_instruction(.load_false),
+                    else => {
+                        const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
+                            .instance => |info| {
+                                break :sw .{ .load_instance_var = .{
+                                    .required_frame_up_steps = info.scope_depth_difference,
+                                    .instance_var_id = info.instance_variable_id,
+                                } };
+                            },
+                            .local_or_method_argument => |info| {
+                                break :sw .{ .load_local = .{
+                                    .local_id = info.local_variable_id,
+                                    .required_frame_up_steps = info.scope_depth_difference,
+                                } };
+                            },
+                            .global => break :sw .{ .load_global = identifier_symbol },
+                        };
+                        try self.add_instruction(load_instr);
                     },
-                    .local_or_method_argument => |info| {
-                        break :sw .{ .load_local = .{
-                            .local_id = info.local_variable_id,
-                            .required_frame_up_steps = info.scope_depth_difference,
-                        } };
-                    },
-                    .global => break :sw .{ .load_global = identifier_symbol },
-                };
-                try self.add_instruction(load_instr);
+                }
             },
             .assignment => |assignment| {
                 // TODO: try chained assignment, maybe this does not work???
@@ -1629,9 +1634,6 @@ pub const InstructionFormatter = struct {
                 .string => |value| {
                     try writer.print("string({s})", .{value});
                 },
-                .nil => {
-                    try writer.print("nil", .{});
-                },
                 .block => |block_info| {
                     try writer.print(
                         "block body-arguments-cnt={d} locals-cnt={d} constant-base-id={d}",
@@ -1699,6 +1701,13 @@ pub fn print_bytecode(
 pub const Instruction = union(enum(u8)) {
     no_op,
     load_constant: LoadConstant,
+    load_nil,
+
+    // TODO:
+    // load_true,
+    // TODO:
+    // load_false,
+
     send_message: SendMessage,
 
     /// Duplicates a value that is on the the top of the stack.
