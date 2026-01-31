@@ -305,6 +305,19 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              arg println.
         \\          ] value: '"Argument to a block"'.
         \\
+        \\          [ :arg1 :arg2 |
+        \\              'This print is from a block. Arg1: ' print.
+        \\              arg1 print.
+        \\              ' Arg2: ' print.
+        \\              arg2 println.
+        \\          ] value: '"Argument 1 to a block"' with: '"Argument 2 to a block"'.
+        \\
+        \\          [ :arg1 :arg2 |
+        \\              'This print is from a block. Arg1: ' print.
+        \\              arg1 print.
+        \\              ' Arg2: ' print.
+        \\              arg2 println.
+        \\          ] value: '"Argument 1 to a block"'.
         \\      )
         \\
         \\
@@ -504,6 +517,14 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\      "TODO: change this to `self value: nil` once we can compile a `nil` literal"
         \\      value           = ( self value: '<no argument>' )
         \\      value: argument = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block3")).id,
+        \\ Block3 = Block (
+        \\      "TODO: change this to `self value: nil` once we can compile a `nil` literal"
+        \\      value                  = ( self value: '<no argument>' with: '<no argument>' )
+        \\      value: arg             = ( self value: arg with: '<no argument>' )
+        \\      value: arg1 with: arg2 = primitive
         \\ )
     );
 }

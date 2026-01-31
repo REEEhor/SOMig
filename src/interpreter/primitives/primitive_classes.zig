@@ -426,6 +426,29 @@ pub const Block2 = struct {
     }
 };
 
+pub const Block3 = struct {
+    pub fn @"value:with:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
+        assert_arity_is(@src(), 3);
+        const block_definition: *const BlockDefinition = switch (target_object.data.kind()) {
+            .block => |accessor| accessor.get_block_definition(target_object.data),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+
+        // TODO: consider doing this to store the `self` of the method the block is currently in.
+        //          try interpreter.push(interpreter.stack.objects[interpreter.top_frame().base_idx + interpreter.top_frame().self_object_idx()])
+        try interpreter.push_object(target_object);
+
+        try interpreter.push_frame(
+            .{ .block = block_definition },
+            block_definition.body.bytecode,
+            block_definition.number_of_aditional_args,
+            block_definition.body.number_of_locals,
+        );
+
+        return null;
+    }
+};
+
 fn block_value_method(
     target_object: VmObject,
     interpreter: *Interpreter,
