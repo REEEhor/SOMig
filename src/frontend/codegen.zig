@@ -1697,44 +1697,42 @@ pub fn print_bytecode(
 }
 
 pub const Instruction = union(enum(u8)) {
-    no_op = 0,
-    load_constant: LoadConstant = 1,
-    send_message: SendMessage = 2,
+    no_op,
+    load_constant: LoadConstant,
+    send_message: SendMessage,
 
     /// Duplicates a value that is on the the top of the stack.
     /// The duplicate is pushed on the top of the stack.
-    duplicate = 3,
+    duplicate,
 
     /// Stops the program.
-    halt = 4,
+    halt,
 
     /// Pushes either a local variable or a method argument onto the stack.
-    load_local: LoadLocal = 5,
+    load_local: LoadLocal,
 
     /// Pushes an instance variable of the current `self` object onto the stack.
-    load_instance_var: LoadInstanceVar = 6,
+    load_instance_var: LoadInstanceVar,
 
-    load_global: SymbolId = 7,
+    load_global: SymbolId,
 
-    normal_return = 8,
+    normal_return,
 
     /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable
-    set_local: SetLocal = 9,
+    set_local: SetLocal,
 
     /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into an instance variable
-    set_instance_var: SetInstanceVar = 10,
+    set_instance_var: SetInstanceVar,
 
-    pop = 11,
+    pop,
 
-    pop_into_new_array: PopIntoNewArray = 12,
+    pop_into_new_array: PopIntoNewArray,
 
-    load_symbol: SymbolId = 13,
+    load_symbol: SymbolId,
 
-    resolved_method_call: packed struct { method_ptr: SmallPtr(*const MethodDefinition) } = 14,
-
-    print, // TODO: remove this after development
+    resolved_method_call: packed struct { method_ptr: SmallPtr(*const MethodDefinition) },
 
     pub const LoadInstanceVar = packed struct {
         instance_var_id: InstanceVarId,

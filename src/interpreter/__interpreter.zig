@@ -488,11 +488,6 @@ pub const Interpreter = struct {
                     const object: VmObject = try self.create_symbol_object(.heap, symbol_id);
                     try self.push_object(object);
                 },
-                .print => {
-                    const to_print: VmObject = self.pop_object();
-                    // TODO: do this using the `println` message or `toString` or something
-                    try self.print_object(to_print);
-                },
                 .duplicate => {
                     const object = self.stack_top_object();
                     try self.push_object(object);
