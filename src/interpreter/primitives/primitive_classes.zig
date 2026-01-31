@@ -392,18 +392,41 @@ pub const Array = struct {
 pub const Block = struct {
     pub fn value__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 1);
-        return try block_value_method_implementation_because_it_is_defined_on_block_as_well_i_dont_know_why(target_object, interpreter);
+        return try block_value_method(target_object, interpreter);
     }
 };
 
 pub const Block1 = struct {
     pub fn value__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 1);
-        return try block_value_method_implementation_because_it_is_defined_on_block_as_well_i_dont_know_why(target_object, interpreter);
+        return try block_value_method(target_object, interpreter);
     }
 };
 
-fn block_value_method_implementation_because_it_is_defined_on_block_as_well_i_dont_know_why(
+pub const Block2 = struct {
+    pub fn @"value:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
+        assert_arity_is(@src(), 2);
+        const block_definition: *const BlockDefinition = switch (target_object.data.kind()) {
+            .block => |accessor| accessor.get_block_definition(target_object.data),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+
+        // TODO: consider doing this to store the `self` of the method the block is currently in.
+        //          try interpreter.push(interpreter.stack.objects[interpreter.top_frame().base_idx + interpreter.top_frame().self_object_idx()])
+        try interpreter.push_object(target_object);
+
+        try interpreter.push_frame(
+            .{ .block = block_definition },
+            block_definition.body.bytecode,
+            block_definition.number_of_aditional_args,
+            block_definition.body.number_of_locals,
+        );
+
+        return null;
+    }
+};
+
+fn block_value_method(
     target_object: VmObject,
     interpreter: *Interpreter,
 ) Interpreter.Error!?VmObject {

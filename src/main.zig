@@ -294,6 +294,17 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          ] value.
         \\          'Outside of a block: ' print.
         \\          local_of_run1 println.
+        \\
+        \\          [ :arg |
+        \\              'This print is from a block: ' print.
+        \\              arg println.
+        \\          ] value.
+        \\
+        \\          [ :arg |
+        \\              'This print is from a block: ' print.
+        \\              arg println.
+        \\          ] value: '"Argument to a block"'.
+        \\
         \\      )
         \\
         \\
@@ -486,6 +497,13 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block1")).id,
         \\ Block1 = Block (
         \\      value = primitive
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block2")).id,
+        \\ Block2 = Block (
+        \\      "TODO: change this to `self value: nil` once we can compile a `nil` literal"
+        \\      value           = ( self value: '<no argument>' )
+        \\      value: argument = primitive
         \\ )
     );
 }
