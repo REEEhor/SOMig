@@ -1007,7 +1007,7 @@ pub const BytecodeGenerator = struct {
             const compiled_last_expression: bool = ((idx + 1) == body.expressions.len);
             const keep_value_on_the_stack: bool = (self.currently_compiling_block and compiled_last_expression);
             if (!keep_value_on_the_stack) {
-                // TODO: use `self.last_instruction.(somehow unwrap ?).is_load_instruction()` to not emit pop here
+                // TODO: use `self.last_instruction.(somehow unwrap ?).is_load_instruction()` instead of emitting pop here
                 try self.add_instruction(.pop);
             }
         }
@@ -1020,12 +1020,9 @@ pub const BytecodeGenerator = struct {
             // TODO: maybe don't do default `nil` return if we have already emitted a return?
             // TODO(consultation): this is a hack, don't store multiple `nil`s. What to do?
             //                     NOTE: We probably want to store the actual singleton values in the end.
+            //                     NOTE: I think the easiest way to deal with this would be to introduce `load_(nil|true|false)` instructions
             try self.add_instruction(.{ .load_constant = .{ .id = nil_constant_id } });
         }
-        try self.add_instruction(.{ .set_local = .{
-            .local_id = Instruction.LocalVarId.return_object,
-            .required_frame_up_steps = 0,
-        } });
         try self.add_instruction(.normal_return);
 
         return try self.builder.get_final_bytecode(self.allocator);

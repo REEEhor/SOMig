@@ -541,14 +541,20 @@ pub const Interpreter = struct {
                     try self.send_message(call_info);
                 },
                 .normal_return => {
+                    const return_value: VmObject = self.top_stack_object();
+
                     const next_instruction = self.top_frame().after_return_instruction_id;
                     self.decoder.set_id_of_the_next_instruction(next_instruction);
 
+                    // Leaves a spot at the top of the stack for the `return_value`
                     self.pop_frame();
                     if (self.stack.frames.len == 0) {
                         try self.report_info("The program's entry point function has returned", .{});
                         return;
                     }
+
+                    // Put the return value on the top of the stack
+                    self.stack.objects[self.stack.objects.len - 1] = return_value;
 
                     const bytecode = self.top_frame().get_bytecode();
                     self.decoder.bytes = bytecode.bytes;
@@ -784,7 +790,8 @@ pub const Interpreter = struct {
     pub fn pop_frame(self: *Self) void {
         assert(self.stack.frames_count() > 0);
         // We need to not pop the top-most object on the popped frame,
-        // since it is the return value of the function (therefore the `+1`):
+        // since there will be the return value of function that is getting returned out of
+        // (therefore the `+1`):
         const new_objects_len = self.top_frame().base_idx + 1;
         const old_objects_len = self.stack.objects.len;
         self.stack.objects.len = new_objects_len;

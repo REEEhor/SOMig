@@ -407,6 +407,8 @@ fn block_value_method_implementation_because_it_is_defined_on_block_as_well_i_do
         else => return Interpreter.Error.primitive_type_error,
     };
 
+    // TODO: consider doing this to store the `self` of the method the block is currently in.
+    //          try interpreter.push(interpreter.stack.objects[interpreter.top_frame().base_idx + interpreter.top_frame().self_object_idx()])
     try interpreter.push_object(target_object);
 
     try interpreter.push_frame(
