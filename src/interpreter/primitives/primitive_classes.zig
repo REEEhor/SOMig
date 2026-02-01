@@ -55,6 +55,21 @@ pub const Class = struct {
 };
 
 pub const Integer = struct {
+    pub fn @"=__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
+        assert_arity_is(@src(), 2);
+        const functions = struct {
+            fn eql(lhs: i48, rhs: i48) Interpreter.Error!bool {
+                return lhs == rhs;
+            }
+            fn eql_with_f64_as_rhs(lhs: i48, rhs: f64) Interpreter.Error!bool {
+                const rhs_as_int = std.math.lossyCast(i48, rhs);
+                return lhs == rhs_as_int;
+            }
+        };
+
+        return try binary_predicate(target_object, interpreter, functions.eql, functions.eql_with_f64_as_rhs);
+    }
+
     pub fn @"+__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 2);
         return try binary_method(target_object, interpreter, struct {
@@ -108,6 +123,28 @@ pub const Integer = struct {
         const receiver_as_int: i48 = (accessors.IntegerAccessor{}).get_value(target_object.data);
         const string: VmObject = try interpreter.create_string_fmt(.heap, "{d}", .{receiver_as_int});
         return string;
+    }
+
+    fn binary_predicate(
+        target_object: VmObject,
+        interpreter: *Interpreter,
+        comptime op: fn (i48, i48) Interpreter.Error!bool,
+        comptime op_when_rhs_is_double: fn (i48, f64) Interpreter.Error!bool,
+    ) Interpreter.Error!?VmObject {
+        const lhs_int = (accessors.IntegerAccessor{}).get_value(target_object.data);
+
+        const rhs_object = interpreter.pop_object();
+        const result_bool: bool = switch (rhs_object.data.kind()) {
+            .integer => |accessor| try op(lhs_int, accessor.get_value(rhs_object.data)),
+            .double => |accessor| try op_when_rhs_is_double(lhs_int, accessor.get_value(rhs_object.data)),
+            else => return Interpreter.Error.primitive_type_error,
+        };
+
+        if (result_bool) {
+            return try interpreter.get_singleton_object(.true);
+        } else {
+            return try interpreter.get_singleton_object(.false);
+        }
     }
 
     fn binary_method(
@@ -215,14 +252,14 @@ pub const String = struct {
         _ = try interpreter.stdout.write(str);
         _ = try interpreter.stdout.writeByte('\n');
         try interpreter.stdout.flush();
-        return try interpreter.get_nil_singleton();
+        return try interpreter.get_singleton_object(.nil);
     }
 
     pub fn print__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 1);
         const str = try get_u8_slice_from_string_or_symbol(target_object, interpreter);
         _ = try interpreter.stdout.write(str);
-        return try interpreter.get_nil_singleton();
+        return try interpreter.get_singleton_object(.nil);
     }
 
     pub fn asSymbol__somig_primitive_fn(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {

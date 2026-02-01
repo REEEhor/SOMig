@@ -118,12 +118,15 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Metaclass class",
 
     // Rest of the primitives
-    "Double",
+    "Nil",
+    "Boolean",
+    "True",
+    "False",
     "Integer",
+    "Double",
     "String",
     "Symbol",
     "Array",
-    "Nil",
     "Block",
     "Block1",
     "Block2",

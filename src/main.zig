@@ -318,8 +318,33 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              ' Arg2: ' print.
         \\              arg2 println.
         \\          ] value: '"Argument 1 to a block"'.
+        \\
+        \\          self boolean_example.
+        \\
         \\      )
         \\
+        \\      boolean_example = (
+        \\          | var1 var2 var3 |
+        \\
+        \\          '' println.
+        \\          '== Boolean example ==' println.
+        \\          
+        \\          '3=4: ' print. (3 = 4) println.
+        \\          '3=3: ' print. (3 = 3) println.
+        \\          '3=2: ' print. (3 = 2) println.
+        \\
+        \\          (3=2) ifFalse: [ '3 really does not equal 2' println. ].
+        \\          (3=2) ifTrue:  [ 'Uh oh, 3 = 2' println. ].
+        \\
+        \\          (3=3) ifTrue:  [ '3 really equals 2' println. ].
+        \\          (3=3) ifFalse: [ 'Uh oh, 3 != 3' println. ].
+        \\          
+        \\          var1 := (3 = 3) not.
+        \\          var2 := (10 = 4.2).
+        \\          var3 := (var1 not and: [ true ]) or: var2. "<- `var2` here should be a block, but its fine"
+        \\          var3 ifTrue: [ '`var3` is really true, nice. The class is: ' print ].
+        \\          var3 class println.
+        \\      )
         \\
         \\      array_example = (
         \\          | arr |
@@ -372,6 +397,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Integer")).id,
         \\ Integer = (
+        \\      = _ = primitive
         \\      + _ = primitive
         \\      - _ = primitive
         \\      * _ = primitive
@@ -501,6 +527,55 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Metaclass")).id,
         \\ Metaclass = Class ( )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Boolean")).id,
+        \\ Boolean = (
+        \\ 
+        \\     "Conditional evaluation"
+        \\     ifTrue: trueBlock ifFalse: falseBlock = (
+        \\         self ifTrue:  [ ^trueBlock value  ].
+        \\         self ifFalse: [ ^falseBlock value ].
+        \\     )
+        \\     
+        \\     "Logical operations"
+        \\     || boolean = ( ^self or: boolean  )
+        \\     && boolean = ( ^self and: boolean )
+        \\     
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("True")).id,
+        \\ True = Boolean (
+        \\ 
+        \\     "Converting"
+        \\     asString       = ( ^'true' )
+        \\     
+        \\     "Conditional evaluation"
+        \\     ifTrue:  block = ( ^block value )
+        \\     ifFalse: block = ( ^nil )
+        \\     
+        \\     "Logical operations"
+        \\     not        = ( ^false )
+        \\     or: block  = ( ^true )
+        \\     and: block = ( ^block value )
+        \\     
+        \\ )
+    );
+    try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("False")).id,
+        \\ False = Boolean (
+        \\ 
+        \\     "Converting"
+        \\     asString       = ( ^'false' )
+        \\     
+        \\     "Conditional evaluation"
+        \\     ifTrue:  block = ( ^nil )
+        \\     ifFalse: block = ( ^block value )
+        \\     
+        \\     "Logical operations"
+        \\     not        = ( ^true )
+        \\     or: block  = ( ^block value )
+        \\     and: block = ( ^false )
+        \\     
+        \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block")).id,
         \\ Block = (

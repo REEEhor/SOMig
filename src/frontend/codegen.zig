@@ -1155,10 +1155,8 @@ pub const BytecodeGenerator = struct {
                 // NOTE(epic-zig): `comptime_id_of`
                 switch (identifier_symbol.idx) {
                     SymbolsManager.comptime_id_of("nil").idx => try self.add_instruction(.load_nil),
-                    // TODO:
-                    // SymbolsManager.comptime_id_of("true").idx => try self.add_instruction(.load_true),
-                    // TODO:
-                    // SymbolsManager.comptime_id_of("false").idx => try self.add_instruction(.load_false),
+                    SymbolsManager.comptime_id_of("true").idx => try self.add_instruction(.load_true),
+                    SymbolsManager.comptime_id_of("false").idx => try self.add_instruction(.load_false),
                     else => {
                         const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
                             .instance => |info| {
@@ -1700,13 +1698,11 @@ pub fn print_bytecode(
 
 pub const Instruction = union(enum(u8)) {
     no_op,
+
     load_constant: LoadConstant,
     load_nil,
-
-    // TODO:
-    // load_true,
-    // TODO:
-    // load_false,
+    load_true,
+    load_false,
 
     send_message: SendMessage,
 

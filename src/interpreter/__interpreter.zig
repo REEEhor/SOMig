@@ -181,7 +181,10 @@ pub const Interpreter = struct {
 
     source_code_files: *SourceCodeFiles,
 
-    cached_nil_object: ?VmObject,
+    cached_nil_object: ?VmObject = null,
+    cached_true_object: ?VmObject = null,
+    cached_false_object: ?VmObject = null,
+    // NOTE: here will also maybe be the `System` object
 
     stack: Stack,
 
@@ -223,7 +226,6 @@ pub const Interpreter = struct {
             .source_code_files = source_code_files,
             .primitive_class_definitions = .{},
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
-            .cached_nil_object = null,
         };
         if (DO_DEBUG_TRACE) {
             interpreter.debug_frame_to_initialised_objects_mapping = std.DynamicBitSetUnmanaged.initEmpty(statics.allocator, preallocated_object_stack.len) catch unreachable;
@@ -253,7 +255,7 @@ pub const Interpreter = struct {
         (accessors.GenericObjectAccessor{}).set_class_definition(new_object_data, class_of_object);
 
         // Set all instance fields to the default object:
-        const nil_singleton = try self.get_nil_singleton();
+        const nil_singleton = try self.get_singleton_object(.nil);
         for (0..instance_fields_count) |idx| {
             (accessors.GenericObjectAccessor{}).set_instance_var_with_idx(new_object_data, @intCast(idx), nil_singleton);
         }
@@ -525,8 +527,16 @@ pub const Interpreter = struct {
                     try self.push_object(object);
                 },
                 .load_nil => {
-                    const nil_object: VmObject = try self.get_nil_singleton();
+                    const nil_object: VmObject = try self.get_singleton_object(.nil);
                     try self.push_object(nil_object);
+                },
+                .load_true => {
+                    const true_object: VmObject = try self.get_singleton_object(.true);
+                    try self.push_object(true_object);
+                },
+                .load_false => {
+                    const false_object: VmObject = try self.get_singleton_object(.false);
+                    try self.push_object(false_object);
                 },
                 .resolved_method_call => |call_info| {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
@@ -601,8 +611,17 @@ pub const Interpreter = struct {
             .block => {
                 try self.stdout.print("block (yup, this is not really helpful info)", .{});
             },
-            else => {
-                return self.report_TODO("Printing of VmObject of type `{t}` is not supported yet :)", .{object.data.header.tag});
+            .true => {
+                try self.stdout.print("true", .{});
+            },
+            .false => {
+                try self.stdout.print("false", .{});
+            },
+            .empty_heap_segment => |accessor| {
+                try self.stdout.print(
+                    colors.ERR ++ "free block to {?}" ++ colors.RESET,
+                    .{accessor.get_next_empty_slot(object.data)},
+                );
             },
         }
     }
@@ -816,17 +835,23 @@ pub const Interpreter = struct {
     }
 
     /// TODO: this will be simpler when we have NaN tagging
-    pub fn get_nil_singleton(self: *Self) Error!VmObject {
-        if (self.cached_nil_object) |nil| {
+    pub fn get_singleton_object(self: *Self, comptime singleton_type: anytype) Error!VmObject {
+        const cached_object: *?VmObject = switch (singleton_type) {
+            .true => &self.cached_true_object,
+            .false => &self.cached_false_object,
+            .nil => &self.cached_nil_object,
+            else => @compileError(std.fmt.compilePrint("Invalid singleton: `{}`", .{singleton_type})),
+        };
+        if (cached_object.*) |object| {
             @branchHint(.likely);
-            return nil;
+            return object;
         }
-        try self.ensure_primitive_class_is_loaded(.nil);
-        const header = HeapData.Header.new_undefined_with_tag(.nil);
-        var nil_object_data = try self.statics.allocate_for_static_object(header);
-        const nil_object = nil_object_data.as_vm_object();
-        self.cached_nil_object = nil_object;
-        return nil_object;
+        try self.ensure_primitive_class_is_loaded(singleton_type);
+        const header = HeapData.Header.new_undefined_with_tag(singleton_type);
+        var object_data = try self.statics.allocate_for_static_object(header);
+        const object = object_data.as_vm_object();
+        cached_object.* = object;
+        return object;
     }
 
     pub fn push_object(self: *Self, object: VmObject) Error!void {
@@ -916,6 +941,8 @@ pub const Interpreter = struct {
             .string => self.primitive_class_definitions.getAssertContains(.string),
             .class => |accessor| accessor.get_class_of_represented_class(object.data),
             .nil => self.primitive_class_definitions.getAssertContains(.nil),
+            .false => self.primitive_class_definitions.getAssertContains(.false),
+            .true => self.primitive_class_definitions.getAssertContains(.true),
             .array => self.primitive_class_definitions.getAssertContains(.array),
             .symbol => self.primitive_class_definitions.getAssertContains(.symbol),
             .block => |accessor| blk: {
@@ -973,6 +1000,8 @@ pub const PrimitiveClassType = enum {
     block1,
     block2,
     block3,
+    true,
+    false,
     // TODO: remaining primitive classes
 
     const Self = @This();
@@ -1010,6 +1039,8 @@ pub const PrimitiveClassType = enum {
             .block1 => "Block1",
             .block2 => "Block2",
             .block3 => "Block3",
+            .true => "True",
+            .false => "False",
         };
     }
 };
