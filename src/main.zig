@@ -244,6 +244,9 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\      run = (
         \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
+        \\
+        \\          '\tThis is\n\tmultiline\n\ttext!' println.
+        \\
         \\          42.
         \\          5 + 3.
         \\          1000.0 - 0.01.
@@ -328,7 +331,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          '' println.
         \\          '== Boolean example ==' println.
-        \\          
+        \\
         \\          '3=4: ' print. (3 = 4) println.
         \\          '3=3: ' print. (3 = 3) println.
         \\          '3=2: ' print. (3 = 2) println.
@@ -338,7 +341,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          (3=3) ifTrue:  [ '3 really equals 2' println. ].
         \\          (3=3) ifFalse: [ 'Uh oh, 3 != 3' println. ].
-        \\          
+        \\
         \\          var1 := (3 = 3) not.
         \\          var2 := (10 = 4.2).
         \\          var3 := (var1 not and: [ true ]) or: var2. "<- `var2` here should be a block, but its fine"
@@ -530,51 +533,51 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Boolean")).id,
         \\ Boolean = (
-        \\ 
+        \\
         \\     "Conditional evaluation"
         \\     ifTrue: trueBlock ifFalse: falseBlock = (
         \\         self ifTrue:  [ ^trueBlock value  ].
         \\         self ifFalse: [ ^falseBlock value ].
         \\     )
-        \\     
+        \\
         \\     "Logical operations"
         \\     || boolean = ( ^self or: boolean  )
         \\     && boolean = ( ^self and: boolean )
-        \\     
+        \\
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("True")).id,
         \\ True = Boolean (
-        \\ 
+        \\
         \\     "Converting"
         \\     asString       = ( ^'true' )
-        \\     
+        \\
         \\     "Conditional evaluation"
         \\     ifTrue:  block = ( ^block value )
         \\     ifFalse: block = ( ^nil )
-        \\     
+        \\
         \\     "Logical operations"
         \\     not        = ( ^false )
         \\     or: block  = ( ^true )
         \\     and: block = ( ^block value )
-        \\     
+        \\
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("False")).id,
         \\ False = Boolean (
-        \\ 
+        \\
         \\     "Converting"
         \\     asString       = ( ^'false' )
-        \\     
+        \\
         \\     "Conditional evaluation"
         \\     ifTrue:  block = ( ^nil )
         \\     ifFalse: block = ( ^block value )
-        \\     
+        \\
         \\     "Logical operations"
         \\     not        = ( ^true )
         \\     or: block  = ( ^block value )
         \\     and: block = ( ^false )
-        \\     
+        \\
         \\ )
     );
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Block")).id,

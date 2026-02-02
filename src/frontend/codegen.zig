@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 
 const terminal = @import("../terminal.zig");
 
+const literals = @import("literals.zig");
+
 const unions = @import("../unions.zig");
 
 const debug_module = @import("../debug/debug.zig");
@@ -847,6 +849,7 @@ pub const CompileError = error{
     super_call_in_class_without_parent,
     could_not_find_method_in_parent,
     too_many_arguments_in_a_block,
+    invalid_string_literal,
     /// FIXME: This shouldn't be here at the end of implementation
     TODO,
 } || Allocator.Error;
@@ -1097,11 +1100,28 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .string_literal => |token_id| {
-                // FIXME: parse escaped special characters from the text here (or make a function for that and use it)
                 const text = self.ast.text_at(token_id);
-                assert(text.len >= 2); // This assert should not fail, since the string literal must be at least `''`.
-                const trimmed_string = text[1 .. text.len - 1];
-                const constant_id = try self.constants_manager.add_constant(Constant{ .string = trimmed_string });
+                const string: []const u8 = sw: switch (try literals.parse_string_literal(self.constants_manager.allocator, text)) {
+                    .ok => |result| break :sw result.parsed_owned_string,
+                    .invalid_escape_sequence => |info| {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(token_id) },
+                            "This string literal contains invalid escape code \"{s}\".",
+                            .{info.invalid_sequence},
+                        );
+                        return CompileError.invalid_string_literal;
+                    },
+                    .invalid_hex_code => |info| {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(token_id) },
+                            "This string literal contains invalid escaped hex code \"{s}\".",
+                            .{info.invalid_hex_code},
+                        );
+                        return CompileError.invalid_string_literal;
+                    },
+                };
+
+                const constant_id = try self.constants_manager.add_constant(Constant{ .string = string });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .unary_message_call => |unary_call| {
@@ -1330,6 +1350,7 @@ pub inline fn integer_from_text(comptime Number: type, text: []const u8) ?Number
     var start_index: usize = 0;
 
     if (text[0] == '-') {
+        assert(text.len > 1);
         sign = -1;
         start_index += 1;
     }

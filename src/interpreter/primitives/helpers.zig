@@ -1,6 +1,3 @@
-// TODO: function that gets arity from fn name
-// TODO: comptime assert arity from fn name
-
 const std = @import("std");
 const assert = std.debug.assert;
 
