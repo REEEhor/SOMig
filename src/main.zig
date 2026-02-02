@@ -245,6 +245,8 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
         \\
+        \\          #'this is some kind of symbol' println.
+        \\
         \\          '\tThis is\n\tmultiline\n\ttext!' println.
         \\
         \\          'Before assignment: ' print.

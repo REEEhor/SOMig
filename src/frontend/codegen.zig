@@ -613,6 +613,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
 
     var bytecode_generator = BytecodeGenerator.init(.{
         .allocator = statics.allocator,
+        .temporary_allocator = temporary_allocator,
         .symbols_manager = &statics.symbols_manager,
         .constants_manager = &statics.constants_manager,
         .reporter = reporter,
@@ -859,6 +860,7 @@ pub const BytecodeGenerator = struct {
     const Self = @This();
 
     allocator: Allocator,
+    temporary_allocator: Allocator,
 
     symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
@@ -886,12 +888,14 @@ pub const BytecodeGenerator = struct {
 
     pub fn init(params: struct {
         allocator: Allocator,
+        temporary_allocator: Allocator,
         symbols_manager: *SymbolsManager,
         constants_manager: *ConstantsManager,
         reporter: *ErrorReporter,
     }) Self {
         return Self{
             .allocator = params.allocator,
+            .temporary_allocator = params.temporary_allocator,
             .symbols_manager = params.symbols_manager,
             .constants_manager = params.constants_manager,
             .reporter = params.reporter,
@@ -1106,27 +1110,7 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .string_literal => |token_id| {
-                const text = self.ast.text_at(token_id);
-                const string: []const u8 = sw: switch (try literals.parse_string_literal(self.constants_manager.allocator, text)) {
-                    .ok => |result| break :sw result.parsed_owned_string,
-                    .invalid_escape_sequence => |info| {
-                        self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(token_id) },
-                            "This string literal contains invalid escape code \"{s}\".",
-                            .{info.invalid_sequence},
-                        );
-                        return CompileError.invalid_string_literal;
-                    },
-                    .invalid_hex_code => |info| {
-                        self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(token_id) },
-                            "This string literal contains invalid escaped hex code \"{s}\".",
-                            .{info.invalid_hex_code},
-                        );
-                        return CompileError.invalid_string_literal;
-                    },
-                };
-
+                const string = try self.parse_string_literal(self.constants_manager.allocator, token_id);
                 const constant_id = try self.constants_manager.add_constant(Constant{ .string = string });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
@@ -1255,13 +1239,11 @@ pub const BytecodeGenerator = struct {
                 // The symbol should consist of at least a `#` symbol and one more token
                 assert(original_tokens_span.number_of_tokens() > 1);
                 const token_span = Ast.TokenSpan.create(original_tokens_span.start_id.idx + 1, original_tokens_span.end_id.idx);
+                var symbol_as_string = self.ast.text_at(token_span);
                 if (self.ast.kind_of(token_span.start_id) == .string_literal) {
-                    // FIXME: compile all kinds of symbols. Especially string literals
-                    // NOTE: probably compile string literals properly first
-                    self.reporter.report_error(.{ .pos = self.ast.pos_of(expr_id) }, "TODO: Compiling of symbols which are string literals", .{});
-                    return error.TODO;
+                    assert(token_span.number_of_tokens() == 1);
+                    symbol_as_string = try self.parse_string_literal(self.temporary_allocator, token_span.start_id);
                 }
-                const symbol_as_string = self.ast.text_at(token_span);
                 const symbol_id = (try self.symbols_manager.id_or_intern(symbol_as_string)).id;
                 try self.add_instruction(.{ .load_symbol = symbol_id });
             },
@@ -1270,6 +1252,31 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
             },
         }
+    }
+
+    fn parse_string_literal(self: *Self, allocator: Allocator, token_id: Ast.TokenId) CompileError![]const u8 {
+        assert(self.ast.kind_of(token_id) == .string_literal);
+        const text = self.ast.text_at(token_id);
+        const string: []const u8 = sw: switch (try literals.parse_string_literal(allocator, text)) {
+            .ok => |result| break :sw result.parsed_owned_string,
+            .invalid_escape_sequence => |info| {
+                self.reporter.report_error(
+                    .{ .pos = self.ast.pos_of(token_id) },
+                    "This string literal contains invalid escape code \"{s}\".",
+                    .{info.invalid_sequence},
+                );
+                return CompileError.invalid_string_literal;
+            },
+            .invalid_hex_code => |info| {
+                self.reporter.report_error(
+                    .{ .pos = self.ast.pos_of(token_id) },
+                    "This string literal contains invalid escaped hex code \"{s}\".",
+                    .{info.invalid_hex_code},
+                );
+                return CompileError.invalid_string_literal;
+            },
+        };
+        return string;
     }
 
     fn compile_block_literal(self: *Self, block_literal: Ast.BlockLiteral) CompileError!RelativeConstantId {
