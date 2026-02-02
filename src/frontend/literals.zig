@@ -6,22 +6,18 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-fn translate_escaped_char(char: u8) union(enum) {
-    single_byte: u8,
-    invalid,
-    expects_hex_code_after,
-} {
-    return switch (char) {
-        't' => .{ .single_byte = '\t' },
-        'b' => .{ .single_byte = std.ascii.control_code.bel },
-        'n' => .{ .single_byte = '\n' },
-        'r' => .{ .single_byte = '\r' },
-        'f' => .{ .single_byte = std.ascii.control_code.ff },
-        0 => .{ .single_byte = 0 },
-        '\'' => .{ .single_byte = '\'' },
-        '\\' => .{ .single_byte = '\\' },
-        'x', 'X' => .expects_hex_code_after,
-        else => .invalid,
+/// WARNING: Asserts that all characters are valid
+pub fn parse_integer_literal(supposed_integer_literal: []const u8) ?i48 {
+    return std.fmt.parseInt(i48, supposed_integer_literal, 10) catch |err| switch (err) {
+        std.fmt.ParseIntError.Overflow => null,
+        std.fmt.ParseIntError.InvalidCharacter => unreachable,
+    };
+}
+
+/// WARNING: Asserts that all characters are valid
+pub fn parse_float_literal(supposed_float_literal: []const u8) f64 {
+    return std.fmt.parseFloat(f64, supposed_float_literal) catch |err| switch (err) {
+        std.fmt.ParseFloatError.InvalidCharacter => unreachable,
     };
 }
 
@@ -108,5 +104,24 @@ fn int_from_hex_digit(hex_digit_char: u8) u8 {
         'a'...'z' => |c| c - 'a',
         '0'...'9' => |c| c - '0',
         else => unreachable,
+    };
+}
+
+fn translate_escaped_char(char: u8) union(enum) {
+    single_byte: u8,
+    invalid,
+    expects_hex_code_after,
+} {
+    return switch (char) {
+        't' => .{ .single_byte = '\t' },
+        'b' => .{ .single_byte = std.ascii.control_code.bel },
+        'n' => .{ .single_byte = '\n' },
+        'r' => .{ .single_byte = '\r' },
+        'f' => .{ .single_byte = std.ascii.control_code.ff },
+        0 => .{ .single_byte = 0 },
+        '\'' => .{ .single_byte = '\'' },
+        '\\' => .{ .single_byte = '\\' },
+        'x', 'X' => .expects_hex_code_after,
+        else => .invalid,
     };
 }

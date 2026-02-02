@@ -850,6 +850,7 @@ pub const CompileError = error{
     could_not_find_method_in_parent,
     too_many_arguments_in_a_block,
     invalid_string_literal,
+    invalid_integer_literal,
     /// FIXME: This shouldn't be here at the end of implementation
     TODO,
 } || Allocator.Error;
@@ -1086,16 +1087,21 @@ pub const BytecodeGenerator = struct {
         switch (expr) {
             .integer_literal => |token_id| {
                 const text = self.ast.text_at(token_id);
-                const number = integer_from_text(i48, text) orelse {
-                    // TODO:
-                    @panic("TODO: implement overflow error reporting in integer literals");
+                // TODO: Change this if we implement arbitrary-sized integers.
+                const number = literals.parse_integer_literal(text) orelse {
+                    self.reporter.report_error(
+                        .{ .pos = self.ast.pos_of(token_id) },
+                        "This integer literal is too big to fit into the VM representation of integers, which is 48 bits. The valid range is from {d} to {d}.",
+                        .{ std.math.minInt(i48), std.math.maxInt(i48) },
+                    );
+                    return CompileError.invalid_integer_literal;
                 };
                 const constant_id = try self.constants_manager.add_constant(Constant{ .integer = number });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
             .float_literal => |token_id| {
                 const text = self.ast.text_at(token_id);
-                const number = float_from_text(f64, text);
+                const number = literals.parse_float_literal(text);
                 const constant_id = try self.constants_manager.add_constant(Constant{ .float = number });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
@@ -1339,47 +1345,6 @@ pub inline fn muliply_by_10_add(comptime Number: type, value: Number, signed_dig
         },
         else => @compileError(std.fmt.comptimePrint("Unexpected type: {}", .{Number})),
     }
-}
-
-/// Returns a parsed number or `null` if the number does not fit into the integer's type range.
-/// WARNING: Asserts all characters in `text` are digits (first one can be `-` for negative numbers).
-pub inline fn integer_from_text(comptime Number: type, text: []const u8) ?Number {
-    assert(text.len > 0);
-    var result: Number = 0;
-    var sign: Number = 1;
-    var start_index: usize = 0;
-
-    if (text[0] == '-') {
-        assert(text.len > 1);
-        sign = -1;
-        start_index += 1;
-    }
-
-    for (text[start_index..]) |char| {
-        assert(std.ascii.isDigit(char));
-        const digit: Number = cast_integer_to(Number, char - '0');
-        const signed_digit: Number = sign * digit;
-        result = muliply_by_10_add(Number, result, signed_digit) orelse return null;
-    }
-
-    return result;
-}
-
-pub inline fn float_from_text(comptime Float: type, text: []const u8) Float {
-    const whole_part_end = std.mem.indexOfScalar(u8, text, '.') orelse text.len;
-    const whole_part_text = text[0..whole_part_end];
-    const whole_part: Float = integer_from_text(Float, whole_part_text).?; // TODO: check if this actually never fails
-
-    const decimal_part_start = if (whole_part_end == text.len) return whole_part else whole_part_end + 1;
-    const decimal_part_text = text[decimal_part_start..];
-
-    var decimal_part: Float = integer_from_text(Float, decimal_part_text).?; // TODO: check if this actually never fails
-    if (std.math.signbit(whole_part)) decimal_part *= -1;
-    const divisor = std.math.pow(Float, 10, @floatFromInt(decimal_part_text.len));
-    decimal_part /= divisor;
-
-    const result: Float = whole_part + decimal_part;
-    return result;
 }
 
 pub const Bytecode = struct {
