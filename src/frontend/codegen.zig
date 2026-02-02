@@ -1204,7 +1204,6 @@ pub const BytecodeGenerator = struct {
                 }
             },
             .assignment => |assignment| {
-                // TODO: try chained assignment, maybe this does not work???
                 try self.compile_expression(assignment.target_value);
                 const idenditifer_text = self.ast.text_at(assignment.variable);
                 const identifier_symbol: SymbolId = try self.symbol_from_token(assignment.variable);

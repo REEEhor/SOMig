@@ -247,6 +247,16 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          '\tThis is\n\tmultiline\n\ttext!' println.
         \\
+        \\          'Before assignment: ' print.
+        \\          local_of_run1 print. ' ' print.
+        \\          local_of_run2 println.
+        \\
+        \\          local_of_run2 := local_of_run1 := 42.
+        \\
+        \\          'After assignment: ' print.
+        \\          local_of_run1 print. ' ' print.
+        \\          local_of_run2 println.
+        \\
         \\          (42) println.
         \\          (5 + 3) println.
         \\          (1000.0 - 0.01) println.
