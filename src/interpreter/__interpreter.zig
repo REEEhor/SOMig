@@ -293,18 +293,34 @@ pub const Interpreter = struct {
                     _ = self.pop_object();
                 },
                 .load_local => |info| {
-                    // FIXME: go up multiple frames
-                    assert(info.required_frame_up_steps == 0);
+                    // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
+                    // NOTE: or maybe don't do that? The loop is pretty simple...
 
-                    const object: VmObject = self.top_frame().base_ptr[info.local_id.idx];
+                    var result_frame: *Stack.Frame = self.top_frame();
+                    for (0..info.required_frame_up_steps) |_| {
+                        result_frame = switch (result_frame.kind) {
+                            .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
+                            .block => |block_object| block_object.home_frame,
+                        };
+                    }
+
+                    const object: VmObject = result_frame.base_ptr[info.local_id.idx];
                     try self.push_object(object);
                 },
                 .set_local => |info| {
-                    // FIXME: go up multiple frames
-                    assert(info.required_frame_up_steps == 0);
+                    // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
+                    // NOTE: or maybe don't do that? The loop is pretty simple...
+
+                    var result_frame: *Stack.Frame = self.top_frame();
+                    for (0..info.required_frame_up_steps) |_| {
+                        result_frame = switch (result_frame.kind) {
+                            .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
+                            .block => |block_object| block_object.home_frame,
+                        };
+                    }
 
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
-                    self.top_frame().base_ptr[info.local_id.idx] = to_assign;
+                    result_frame.base_ptr[info.local_id.idx] = to_assign;
 
                     if (DO_DEBUG_TRACE) {
                         const object_index = undefined;

@@ -430,7 +430,7 @@ pub const types = struct {
     pub const Block = extern struct {
         header: Header,
         block_definition: *const BlockDefinition,
-        parent_frame: *Stack.Frame,
+        home_frame: *Stack.Frame,
 
         pub const Header = packed struct(u64) {
             tag: HeapData.Header.Tag = tag,
@@ -453,7 +453,7 @@ pub const types = struct {
         ) Allocator.Error!VmObject {
             const self: *Block = @ptrCast(try allocate_heap_data(allocator, Header{}));
             self.block_definition = block_definition;
-            self.parent_frame = parent_frame;
+            self.home_frame = parent_frame;
             return VmObject.from(self);
         }
     };

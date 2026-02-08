@@ -317,18 +317,19 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
         \\          (4 asString + 2) println.
         \\
-        \\          "TODO: uncomment this"
-        \\          "[ :block_arg1 :block_arg2 |
-        \\            | block_local1 block_local2 block_local3 |
-        \\            block_arg1 println.
-        \\            local_of_run1 println.
-        \\            block_local3 println.
-        \\            'Hello from block!' println.
-        \\          ]."
+        \\          self block_example.
         \\
+        \\          self boolean_example.
+        \\
+        \\      )
+        \\
+        \\      block_example = (
+        \\          | method1 method2 blk |
+        \\          '\n== Block example ==' println.
+        \\          
         \\          [ 'Hello SOMig from block!' ] value println.
         \\
-        \\          local_of_run1 := [
+        \\          method1 := [
         \\              | block_local |
         \\              block_local := '"I am a local variable from a block"'.
         \\              'In a block: ' print.
@@ -336,7 +337,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              block_local.
         \\          ] value.
         \\          'Outside of a block: ' print.
-        \\          local_of_run1 println.
+        \\          method1 println.
         \\
         \\          [ :arg |
         \\              'This print is from a block: ' print.
@@ -362,8 +363,66 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              arg2 println.
         \\          ] value: '"Argument 1 to a block"'.
         \\
-        \\          self boolean_example.
+        \\          '---' println.
         \\
+        \\          method1 := '"local method1"'.
+        \\          method2 := '"local method2"'.
+        \\          [ 
+        \\              'Captured variable in block: ' print.
+        \\              method1 println.
+        \\          ] value.
+        \\
+        \\          '---' println.
+        \\
+        \\          [
+        \\              | a_block1 a_block2 |
+        \\              a_block1 := '"local a_block1"'.
+        \\              a_block2 := '"local a_block2"'.
+        \\              [ 
+        \\                  'Captured method variable in block:  ' print. method1 println.
+        \\                  'Captured method variable in block:  ' print. method2 println.
+        \\                  'Captured block A variable in block: ' print. a_block1 println.
+        \\                  'Captured block A variable in block: ' print. a_block2 println.
+        \\              ] value.
+        \\          ] value.
+        \\
+        \\          '---' println.
+        \\
+        \\          'block_runner:' println.
+        \\          self block_runner: [ :a_block_argument |
+        \\              | a_block1 a_block2 |
+        \\              a_block1 := '"local a_block1"'.
+        \\              a_block2 := '"local a_block2"'.
+        \\              [ 
+        \\                  'Captured method variable in block:    ' print. method1 println.
+        \\                  'Captured method variable in block:    ' print. method2 println.
+        \\                  'Captured block A variable in block:   ' print. a_block1 println.
+        \\                  'Captured block A variable in block:   ' print. a_block2 println.
+        \\                  'Captured block A argument in a block: ' print. a_block_argument println.
+        \\              ] value.
+        \\          ] with_argument: '"This is an argument to the `block_runner:` method"'.
+        \\
+        \\          '---' println.
+        \\
+        \\          method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.
+        \\          blk := [ 'In block: ' print. method1 println. ].
+        \\          method1 := '"Changed method1 value"'.
+        \\          blk value.
+        \\
+        \\          '---' println.
+        \\
+        \\          method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.
+        \\          blk := [ method1 := '"Value set by a block"'. ].
+        \\          blk value.
+        \\          'Changed value by a block: ' print. method1 println.
+        \\
+        \\          '---' println.
+        \\      )
+        \\
+        \\      block_runner: blk with_argument: arg = (
+        \\          [
+        \\              blk value: arg.
+        \\          ] value.
         \\      )
         \\
         \\      boolean_example = (
@@ -387,6 +446,12 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          var3 := (var1 not and: [ true ]) or: var2. "<- `var2` here should be a block, but its fine"
         \\          var3 ifTrue: [ '`var3` is really true, nice. The class is: ' print ].
         \\          var3 class println.
+        \\
+        \\          '---' println.
+        \\
+        \\          ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['OH NO! "3=3" is false']) println.
+        \\          ((3=2) ifTrue: ['"3=2" is false'] ifFalse: ['OH NO! "3=2" is true']) println.
+        \\
         \\      )
         \\
         \\      array_example = (
