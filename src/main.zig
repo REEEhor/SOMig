@@ -172,6 +172,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         objects,
         frames,
     );
+    interpreter.heap_allocator = interpreter.heap.arena.allocator();
 
     // Setup the base class hiearchy
     // TODO: assert correct hiearchy (meaning the classes actually point to each other)
@@ -192,24 +193,50 @@ fn playground(allocator: std.mem.Allocator) !void {
 
         const metaclass_definition = try interpreter.load_class(SymbolsManager.comptime_id_of("Metaclass"));
 
-        const class_accessor = interpreter_module.accessors.ClassAccessor{};
         // Update all VM objects which represent some metaclass in the runtime,
         // so the "class of the class they are representing" is actually metaclass and not undefined.
-        class_accessor.set_class_of_represented_class(object_class_definition.as_vm_object.data, metaclass_definition);
-        class_accessor.set_class_of_represented_class(class_class_definition.as_vm_object.data, metaclass_definition);
+        object_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
+        class_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
         {
-            // This should already be done by the interpreter via the `.load_class` method.
             const metaclass_class_definition = metaclass_definition.get_metaclass_through_vm_object() catch unreachable;
+            metaclass_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
             assert(metaclass_class_definition.get_metaclass_through_vm_object() catch unreachable == metaclass_definition);
         }
     }
 
-    // NOTE: This will probably have to be also in the final implementation together with loading of the `Metaclass`
-    try interpreter.ensure_primitive_class_is_loaded(.class);
+    // Force load required builtin classes
+    {
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Nil"));
+        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Object")); // NOTE: this was loaded above
+        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Class")); // NOTE: this was loaded above
+        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Metaclass")); // NOTE: this was loaded above
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("True"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("False"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Integer"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Double"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Array"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("String"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Symbol"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block1"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block2"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block3"));
+        inline for (std.meta.fields(interpreter_module.BuiltinClassDefinitions)) |field| {
+            assert(@field(interpreter.builtin_class_definitions, field.name) != null);
+        }
+    }
+    // Load singletons
+    {
+        const true_object = try interpreter_module.object_types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
+        const false_object = try interpreter_module.object_types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
+        interpreter.singletons = .{
+            .true_object = true_object,
+            .false_object = false_object,
+        };
+    }
 
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-    const main_object: interpreter_module.VmObject = try interpreter.create_object(.static, main_class);
+    const main_object: interpreter_module.VmObject = try interpreter_module.object_types.GenericObject.create_new(interpreter.heap_allocator, main_class);
     // Dump the bytecode
     try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
     try codegen.print_bytecode(

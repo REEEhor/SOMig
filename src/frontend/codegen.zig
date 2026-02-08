@@ -35,8 +35,9 @@ const MethodDefinition = interpreter_module.MethodDefinition;
 const MethodBody = interpreter_module.MethodBody;
 const HeapData = interpreter_module.HeapData;
 const primitives = interpreter_module.primitives;
-const accessors = interpreter_module.accessors;
 const Statics = interpreter_module.Statics;
+const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
+const object_types = interpreter_module.object_types;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;
@@ -84,8 +85,8 @@ pub const BlockDefinition = struct {
 };
 
 pub const Constant = union(enum) {
-    integer: IntegerRepresentation,
-    float: FloatRepresentation,
+    integer: i48,
+    float: f64,
     string: []const u8,
     block: *const BlockDefinition,
 };
@@ -369,6 +370,7 @@ pub const CompileClassIgnoringParents = struct {
     primitive_methods_map: PrimitiveMethodsMap,
     /// Used for lookup of class definitions.
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+    builtin_class_definitions: *BuiltinClassDefinitions,
 };
 
 /// Sets the parent to null.
@@ -383,6 +385,7 @@ pub fn compile_class_ignoring_parents(
     const error_writer = params.error_writer;
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
+    const builtin_class_definitions = params.builtin_class_definitions;
 
     const ast = try find_file_and_parse_it(class_name, source_code_files, statics, error_writer, temporary_allocator);
     var reporter = ErrorReporter{
@@ -392,7 +395,17 @@ pub fn compile_class_ignoring_parents(
         .use_color = true,
         .writer = error_writer,
     };
-    const class_pair = try compile_class(ast, class_name, null, temporary_allocator, statics, &reporter, primitive_methods_map, globals);
+    const class_pair = try compile_class(
+        ast,
+        class_name,
+        null,
+        temporary_allocator,
+        statics,
+        &reporter,
+        primitive_methods_map,
+        globals,
+        builtin_class_definitions,
+    );
     return class_pair;
 }
 
@@ -405,6 +418,7 @@ pub const CompileClassWithItsParentsParams = struct {
     primitive_methods_map: PrimitiveMethodsMap,
     /// Used for lookup of class definitions.
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+    builtin_class_definitions: *BuiltinClassDefinitions,
 };
 
 /// The metaclass has the VM object set to undefined.
@@ -418,6 +432,7 @@ pub fn compile_class_with_its_parents(
     const error_writer = params.error_writer;
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
+    const builtin_class_definitions = params.builtin_class_definitions;
 
     // This method is expected to be called only when we cannot resolve a global symbol (presumably a class name)
     assert(!globals.contains(bottom_class_name));
@@ -448,10 +463,10 @@ pub fn compile_class_with_its_parents(
             return error.circular_dependency; // TODO: nice error report that lists out the loop in the hiearchy
         }
 
-        // TODO(consultation): Can we look-up the globals like this here? I think it makes sense.
         if (globals.get(parent_being_resolved)) |parent_definition| {
-            break switch (parent_definition.data.kind()) {
-                .class => |accessor| accessor.get_represented_class(parent_definition.data),
+            break switch (parent_definition.kind()) {
+                .class => |class| class.represented_class,
+                // TODO: make this error better
                 else => return error.parent_is_not_a_class,
             };
         }
@@ -466,7 +481,7 @@ pub fn compile_class_with_its_parents(
     // Compile the classes
     var current_parent: ?ClassDefinitionPair = blk: {
         const parent_definition = parent_of_last_class orelse break :blk null;
-        const parent_metaclass = (accessors.ClassAccessor{}).get_class_of_represented_class(parent_definition.as_vm_object.data);
+        const parent_metaclass = parent_definition.get_metaclass_through_vm_object() catch unreachable;
         break :blk ClassDefinitionPair{ .class = parent_definition, .metaclass = parent_metaclass };
     };
     var iter = std.mem.reverseIterator(classes_to_compile.items);
@@ -487,6 +502,7 @@ pub fn compile_class_with_its_parents(
             &reporter,
             primitive_methods_map,
             globals,
+            builtin_class_definitions,
         );
         current_parent = compiled_class;
     }
@@ -515,6 +531,7 @@ pub fn compile_class(
     reporter: *ErrorReporter,
     primitive_methods_map: PrimitiveMethodsMap,
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+    builtin_class_definitions: *BuiltinClassDefinitions,
 ) !ClassDefinitionPair {
     // Concatenated name of the class with the string " class" (yes, with the space in front of it).
     const class_class_name_symbol: SymbolId = blk: {
@@ -522,11 +539,10 @@ pub fn compile_class(
         const class_class_name: []const u8 = try std.fmt.allocPrint(temporary_allocator, "{s} class", .{class_name_string});
         break :blk ((try statics.symbols_manager.id_or_intern(class_class_name)).id);
     };
-    const class_accessor = accessors.ClassAccessor{};
 
     // Compile the class portion
     const class_portion_definition: *ClassDefinition = blk: {
-        var compiled_class = try compile_portion(.{
+        const compiled_class = try compile_portion(.{
             .ast = ast,
             .ast_portion = ast.class_ast.class_portion,
             .class_name_symbol = class_class_name_symbol,
@@ -537,16 +553,14 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        var header = HeapData.Header.new_undefined_with_tag(.class);
-        class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
-        const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-        class_accessor.set_represented_class(heap_data, compiled_class);
-        class_accessor.set_class_of_represented_class(heap_data, undefined); // TODO: set to `Metaclass` here probably ?
-        const class_as_som_object: VmObject = heap_data.as_vm_object();
-        compiled_class.as_vm_object = class_as_som_object;
+        const class_as_som_object: VmObject = try object_types.Class.create_new(statics.allocator, .{
+            .represented_class = compiled_class,
+            .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
+        });
+        assert(compiled_class.as_vm_object.data == class_as_som_object.data);
         // Someone might have tried to create a global variable with the name of the class of the represented class.
         // (for example it is concievable that someone could have created a global with the name "Integer class")
-        // Therefore we do not assert, that the global does not exist already.
+        // Therefore we do not assert, that the global does not exist already (we are using `.put(..)` not `.putNoClobber(..)`).
         try globals.put(compiled_class.class_name, class_as_som_object);
 
         break :blk compiled_class;
@@ -554,7 +568,7 @@ pub fn compile_class(
 
     // Compile the instance portion
     const instance_portion_definition: *ClassDefinition = blk: {
-        var compiled_class = try compile_portion(.{
+        const compiled_class = try compile_portion(.{
             .ast = ast,
             .ast_portion = ast.class_ast.instance_portion,
             .class_name_symbol = class_name_symbol,
@@ -565,23 +579,40 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        var header = HeapData.Header.new_undefined_with_tag(.class);
-        class_accessor.set_class_variables_count(header.as_heap_data(), @intCast(compiled_class.fields_count_including_parents()));
-        const heap_data: *HeapData = try statics.allocate_for_static_object(header);
-        class_accessor.set_represented_class(heap_data, compiled_class);
-        class_accessor.set_class_of_represented_class(heap_data, class_portion_definition);
-        const class_as_som_object: VmObject = heap_data.as_vm_object();
-        compiled_class.as_vm_object = class_as_som_object;
+        const class_as_som_object: VmObject = try object_types.Class.create_new(statics.allocator, .{
+            .represented_class = compiled_class,
+            .class_of_represented_class = class_portion_definition,
+        });
+        assert(compiled_class.as_vm_object.data == class_as_som_object.data);
 
         // We assert that there was no such global before.
         // This should hold, otherwise we would have looked up the
         // class previously when we were figuring out the class hiearchy above.
         try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
 
-        compiled_class.as_vm_object = class_as_som_object;
-
         break :blk compiled_class;
     };
+
+    register_builtin_class: {
+        const builtin_class: *?*ClassDefinition = switch (class_name_symbol.idx) {
+            SymbolsManager.comptime_id_of("Nil").idx => &builtin_class_definitions.nil,
+            SymbolsManager.comptime_id_of("Object").idx => &builtin_class_definitions.object,
+            SymbolsManager.comptime_id_of("Class").idx => &builtin_class_definitions.class,
+            SymbolsManager.comptime_id_of("Metaclass").idx => &builtin_class_definitions.metaclass,
+            SymbolsManager.comptime_id_of("True").idx => &builtin_class_definitions.true,
+            SymbolsManager.comptime_id_of("False").idx => &builtin_class_definitions.false,
+            SymbolsManager.comptime_id_of("Integer").idx => &builtin_class_definitions.integer,
+            SymbolsManager.comptime_id_of("Double").idx => &builtin_class_definitions.double,
+            SymbolsManager.comptime_id_of("Array").idx => &builtin_class_definitions.array,
+            SymbolsManager.comptime_id_of("String").idx => &builtin_class_definitions.string,
+            SymbolsManager.comptime_id_of("Symbol").idx => &builtin_class_definitions.symbol,
+            SymbolsManager.comptime_id_of("Block1").idx => &builtin_class_definitions.block1,
+            SymbolsManager.comptime_id_of("Block2").idx => &builtin_class_definitions.block2,
+            SymbolsManager.comptime_id_of("Block3").idx => &builtin_class_definitions.block3,
+            else => break :register_builtin_class,
+        };
+        builtin_class.* = instance_portion_definition;
+    }
 
     return .{
         .class = instance_portion_definition,
@@ -1413,7 +1444,7 @@ pub const InstructionDecoder = struct {
             .void => return,
             .int => self.read_integer(ToDecode),
             .@"struct" => |struct_info| blk: {
-                const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.compilePrint(
+                const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
                     "Cannot decode the struct `{s}`, because it is not a packed struct.\nThe thought behind that we can just dump the struct into the memory, which is faster.",
                     .{@typeName(ToDecode)},
                 ));
@@ -1499,7 +1530,7 @@ pub const InstructionEncoder = struct {
             .void => return,
             .int => try self.write_integer(allocator, to_encode),
             .@"struct" => |struct_info| {
-                const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.compilePrint(
+                const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
                     "Cannot encode the struct `{s}`, because it is not a packed struct.\nThe thought behind that we can just dump the struct into the memory, which is faster.",
                     .{@typeName(Value)},
                 ));

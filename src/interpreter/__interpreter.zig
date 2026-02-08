@@ -1,3 +1,6 @@
+pub const DO_DEBUG_TRACE: bool = false;
+pub const PRINT_PTR_MODULO: bool = true;
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -37,8 +40,7 @@ pub const BlockDefinition = codegen_module.BlockDefinition;
 pub const vm_object_module = @import("vm_object.zig");
 pub const VmObject = vm_object_module.VmObject;
 pub const HeapData = vm_object_module.HeapData;
-
-pub const accessors = @import("accessors.zig");
+pub const object_types = vm_object_module.objects;
 
 const primitives_module = @import("primitives/__primitives.zig");
 pub const primitives = primitives_module.primitive_classes;
@@ -50,9 +52,6 @@ pub const ClassDefinition = class_definition_module.ClassDefinition;
 pub const MethodBody = class_definition_module.MethodBody;
 pub const MethodDefinition = class_definition_module.MethodDefinition;
 pub const FunctionBody = class_definition_module.FunctionBody;
-
-pub const DO_DEBUG_TRACE: bool = false;
-pub const PRINT_PTR_MODULO: bool = true;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
@@ -165,6 +164,34 @@ pub const Stack = struct {
     }
 };
 
+pub const BuiltinClassDefinitions = struct {
+    nil: ?*ClassDefinition = null,
+    object: ?*ClassDefinition = null,
+    class: ?*ClassDefinition = null,
+    metaclass: ?*ClassDefinition = null,
+    true: ?*ClassDefinition = null,
+    false: ?*ClassDefinition = null,
+    integer: ?*ClassDefinition = null,
+    double: ?*ClassDefinition = null,
+    array: ?*ClassDefinition = null,
+    string: ?*ClassDefinition = null,
+    symbol: ?*ClassDefinition = null,
+    block1: ?*ClassDefinition = null,
+    block2: ?*ClassDefinition = null,
+    block3: ?*ClassDefinition = null,
+    // TODO: method
+    // TODO: primitive
+
+    pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) ?*const ClassDefinition {
+        return switch (number_of_non_self_arguments) {
+            0 => self.block1,
+            1 => self.block2,
+            2 => self.block3,
+            else => unreachable,
+        };
+    }
+};
+
 // TODO: track the current function (which will be probably in the final `stack` implementation, which will also store stack frames)
 // and use it for error reporting.
 pub const Interpreter = struct {
@@ -173,18 +200,21 @@ pub const Interpreter = struct {
     statics: *Statics,
     heap: Heap,
 
+    heap_allocator: Allocator,
+
     stdout: *Writer,
     stderr: *Writer,
 
     primitive_methods: PrimitiveMethodsMap,
-    primitive_class_definitions: std.EnumMap(PrimitiveClassType, *ClassDefinition),
+    builtin_class_definitions: BuiltinClassDefinitions = undefined,
 
     source_code_files: *SourceCodeFiles,
 
-    cached_nil_object: ?VmObject = null,
-    cached_true_object: ?VmObject = null,
-    cached_false_object: ?VmObject = null,
-    // NOTE: here will also maybe be the `System` object
+    singletons: struct {
+        true_object: VmObject,
+        false_object: VmObject,
+        // NOTE: here will also maybe be the `System` object
+    } = undefined, // TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
 
     stack: Stack,
 
@@ -221,10 +251,11 @@ pub const Interpreter = struct {
             .stderr = stderr,
             .statics = statics,
             .heap = Heap{ .arena = std.heap.ArenaAllocator.init(allocator_for_heap) },
+            .heap_allocator = undefined,
             .primitive_methods = primitive_methods,
             .globals = .init(allocator_for_globals),
             .source_code_files = source_code_files,
-            .primitive_class_definitions = .{},
+            .builtin_class_definitions = .{},
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
         };
         if (DO_DEBUG_TRACE) {
@@ -235,149 +266,6 @@ pub const Interpreter = struct {
     }
 
     pub const NewObjectAllocationStrategy = enum { heap, static };
-
-    fn allocate_heap_data_from_header(self: *Self, comptime alloc: NewObjectAllocationStrategy, header: HeapData.Header) Error!*HeapData {
-        switch (alloc) {
-            .heap => {
-                return self.heap.allocate(header);
-            },
-            .static => {
-                return self.statics.allocate_for_static_object(header);
-            },
-        }
-    }
-
-    pub fn create_object(self: *Self, comptime alloc: NewObjectAllocationStrategy, class_of_object: *ClassDefinition) Error!VmObject {
-        const instance_fields_count: u32 = @intCast(class_of_object.fields_count_including_parents());
-        var header = HeapData.Header.new_undefined_with_tag(.generic_object);
-        (accessors.GenericObjectAccessor{}).set_instance_variables_count(header.as_heap_data(), instance_fields_count);
-        const new_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
-        (accessors.GenericObjectAccessor{}).set_class_definition(new_object_data, class_of_object);
-
-        // Set all instance fields to the default object:
-        const nil_singleton = try self.get_singleton_object(.nil);
-        for (0..instance_fields_count) |idx| {
-            (accessors.GenericObjectAccessor{}).set_instance_var_with_idx(new_object_data, @intCast(idx), nil_singleton);
-        }
-
-        const object: VmObject = new_object_data.as_vm_object();
-        return object;
-    }
-
-    pub fn create_string(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        new_string_contents: []const u8,
-    ) Error!VmObject {
-        try self.ensure_primitive_class_is_loaded(.string);
-
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), @intCast(new_string_contents.len));
-        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
-        @memcpy((accessors.StringAccessor{}).contents(result_object_data), new_string_contents);
-
-        const object: VmObject = result_object_data.as_vm_object();
-        return object;
-    }
-
-    pub fn create_string_fmt(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        comptime fmt: []const u8,
-        fmt_args: anytype,
-    ) Error!VmObject {
-        try self.ensure_primitive_class_is_loaded(.string);
-
-        const length_usize: usize = std.fmt.count(fmt, fmt_args);
-        if (length_usize > std.math.maxInt(i48)) {
-            @branchHint(.cold);
-            self.report_runtime_error("Tried to create a string with {d} characters, which is more than possible maximum (which is {d}).", .{ length_usize, std.math.maxInt(i48) });
-            return Error.generic_runtime_error;
-        }
-        const length_i48: i48 = @intCast(length_usize);
-
-        var header = HeapData.Header.new_undefined_with_tag(.string);
-        (accessors.StringAccessor{}).set_length(header.as_heap_data(), length_i48);
-        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
-
-        // SAFETY: We got the length from `std.fmt.count` above.
-        _ = std.fmt.bufPrint((accessors.StringAccessor{}).contents(result_object_data), fmt, fmt_args) catch unreachable;
-
-        const object: VmObject = result_object_data.as_vm_object();
-        return object;
-    }
-
-    pub fn create_symbol_object(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        symbol: SymbolId,
-    ) Error!VmObject {
-        try self.ensure_primitive_class_is_loaded(.symbol);
-
-        var header = HeapData.Header.new_undefined_with_tag(.symbol);
-        (accessors.SymbolAccessor{}).set_symbol_id(header.as_heap_data(), symbol);
-        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
-        const object: VmObject = result_object_data.as_vm_object();
-        return object;
-    }
-
-    pub fn create_symbol_object_from_string(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        string_to_intern: []const u8,
-    ) Error!VmObject {
-        const symbol_id: SymbolId = (try self.statics.symbols_manager.id_or_intern(string_to_intern)).id;
-        return self.create_symbol_object(alloc, symbol_id);
-    }
-
-    pub fn create_array_with_undefined_items(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        number_of_items: i48,
-    ) Error!VmObject {
-        try self.ensure_primitive_class_is_loaded(.array);
-
-        var header = HeapData.Header.new_undefined_with_tag(.array);
-        (accessors.ArrayAccessor{}).set_length(header.as_heap_data(), number_of_items);
-        const result_object_data: *HeapData = try self.allocate_heap_data_from_header(alloc, header);
-
-        const object: VmObject = result_object_data.as_vm_object();
-        return object;
-    }
-
-    pub fn create_array(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        items_to_copy_into_array: []VmObject,
-    ) Error!VmObject {
-        const array: VmObject = try self.create_array_with_undefined_items(alloc, @intCast(items_to_copy_into_array.len));
-        @memcpy((accessors.ArrayAccessor{}).items(array.data), items_to_copy_into_array);
-        return array;
-    }
-
-    pub fn create_block(
-        self: *Self,
-        comptime alloc: NewObjectAllocationStrategy,
-        block_definition_ptr: *const BlockDefinition,
-        home_frame: *const Stack.Frame,
-    ) Error!VmObject {
-        const block_accessor = accessors.BlockAccessor{};
-
-        const builtin_type = PrimitiveClassType.block_type_from_arguments_count(
-            block_definition_ptr.number_of_aditional_args,
-        ) orelse unreachable;
-        try self.ensure_primitive_class_is_loaded(builtin_type);
-
-        var header = HeapData.Header.new_undefined_with_tag(.block);
-        block_accessor.set_has_escaped_home_frame(header.as_heap_data(), false);
-        var heap_data = try self.allocate_heap_data_from_header(alloc, header);
-
-        block_accessor.set_block_definition(heap_data, block_definition_ptr);
-        block_accessor.set_home_frame(heap_data, home_frame);
-
-        const block_object: VmObject = heap_data.as_vm_object();
-        return block_object;
-    }
 
     pub fn run(self: *Self) !void {
         while (true) {
@@ -428,8 +316,8 @@ pub const Interpreter = struct {
                     assert(info.required_frame_up_steps == 0);
 
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
-                    const instance_variable = switch (self_object.data.kind()) {
-                        .generic_object => |accessor| accessor.get_instance_var_with_idx(self_object.data, info.instance_var_id.idx),
+                    const instance_variable = switch (self_object.kind()) {
+                        .generic_object => |object| object.get_fields()[info.instance_var_id.idx],
                         // FIXME: implement this
                         .class => return self.report_TODO("Loading of class variables", .{}),
                         else => unreachable,
@@ -442,12 +330,8 @@ pub const Interpreter = struct {
 
                     const top_object: VmObject = self.top_stack_object();
                     const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
-                    switch (self_object.data.kind()) {
-                        .generic_object => |accessor| accessor.set_instance_var_with_idx(
-                            self_object.data,
-                            info.instance_var_id.idx,
-                            top_object,
-                        ),
+                    switch (self_object.kind()) {
+                        .generic_object => |object| object.get_fields()[info.instance_var_id.idx] = top_object,
                         // FIXME: implement this
                         .class => return self.report_TODO("Setting of class variables", .{}),
                         else => unreachable,
@@ -461,7 +345,7 @@ pub const Interpreter = struct {
                     const items: []VmObject = self.stack.objects[items_start_idx..len];
 
                     // Create the array object
-                    const array_object: VmObject = try self.create_array(.heap, items);
+                    const array_object: VmObject = try object_types.Array.create_new(self.heap_allocator, items);
 
                     // Pop all the objects that were copied into the new array
                     const old_stack_len = self.stack.objects.len;
@@ -487,7 +371,7 @@ pub const Interpreter = struct {
                     }
                 },
                 .load_symbol => |symbol_id| {
-                    const object: VmObject = try self.create_symbol_object(.heap, symbol_id);
+                    const object: VmObject = try object_types.Symbol.create_new(self.heap_allocator, symbol_id);
                     try self.push_object(object);
                 },
                 .duplicate => {
@@ -497,47 +381,18 @@ pub const Interpreter = struct {
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
                     const constant = self.statics.constants_manager.get_constant(constant_id);
-                    const object: VmObject = blk: switch (constant) {
-                        .integer => |value| {
-                            try self.ensure_primitive_class_is_loaded(.integer);
-                            // TODO(hack): consider whether making the integers smaller or arbitrary in size or something
-                            const value_i48: i48 = @intCast(value);
-
-                            const header = HeapData.Header.new_undefined_with_tag(.integer);
-                            const result_object_data: *HeapData = try self.heap.allocate(header);
-                            (accessors.IntegerAccessor{}).set_value(result_object_data, value_i48);
-                            break :blk result_object_data.as_vm_object();
-                        },
-                        .float => |value| {
-                            try self.ensure_primitive_class_is_loaded(.double);
-                            const header = HeapData.Header.new_undefined_with_tag(.double);
-                            const result_object_data: *HeapData = try self.heap.allocate(header);
-                            (accessors.DoubleAccessor{}).set_value(result_object_data, value);
-                            break :blk result_object_data.as_vm_object();
-                        },
-                        .string => |value| {
-                            const string_object: VmObject = try self.create_string(.heap, value);
-                            break :blk string_object;
-                        },
-                        .block => |block_info| {
-                            const block_object: VmObject = try self.create_block(.heap, block_info, self.top_frame());
-                            break :blk block_object;
-                        },
+                    const allocator = self.heap.arena.allocator();
+                    const object: VmObject = switch (constant) {
+                        .integer => |value| try object_types.Integer.create_new(self.heap.arena.allocator(), value),
+                        .float => |value| try object_types.Double.create_new(allocator, value),
+                        .string => |value| try object_types.String.create_new(allocator, value),
+                        .block => |block_info| try object_types.Block.create_new(allocator, block_info, self.top_frame()),
                     };
                     try self.push_object(object);
                 },
-                .load_nil => {
-                    const nil_object: VmObject = try self.get_singleton_object(.nil);
-                    try self.push_object(nil_object);
-                },
-                .load_true => {
-                    const true_object: VmObject = try self.get_singleton_object(.true);
-                    try self.push_object(true_object);
-                },
-                .load_false => {
-                    const false_object: VmObject = try self.get_singleton_object(.false);
-                    try self.push_object(false_object);
-                },
+                .load_nil => try self.push_object(VmObject.nil),
+                .load_true => try self.push_object(self.singletons.true_object),
+                .load_false => try self.push_object(self.singletons.false_object),
                 .resolved_method_call => |call_info| {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
                     try self.call_method(method_ptr);
@@ -577,25 +432,43 @@ pub const Interpreter = struct {
         if (PRINT_PTR_MODULO) {
             try self.stdout.print(" [{d:03}] ", .{@intFromPtr(object.data) % 999});
         }
-        switch (object.data.kind()) {
-            .integer => |accessor| try self.stdout.print("{d}", .{accessor.get_value(object.data)}),
-            .double => |accessor| try self.stdout.print("{d}", .{accessor.get_value(object.data)}),
-            .string => |accessor| try self.stdout.print("'{s}'", .{accessor.contents(object.data)}),
-            .generic_object => |accessor| {
-                const class_name: SymbolId = accessor.get_class_definition(object.data).class_name;
-                const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                try self.stdout.print("Instance of class: '{s}'", .{class_name_string});
+        switch (object.kind()) {
+            .integer => |int| try self.stdout.print("{d}", .{int.header.value}),
+            .double => |double| try self.stdout.print("{d}", .{double.value}),
+            .string => |string| {
+                for (string.contents()) |char| {
+                    switch (char) {
+                        '\n' => try self.stdout.write("\\n"),
+                        '\r' => try self.stdout.write("\\r"),
+                        else => if (std.ascii.isPrint(char)) {
+                            try self.stdout.writeByte(char);
+                        } else {
+                            try self.stdout.print("\\x{x}", .{char});
+                        },
+                    }
+                }
+            },
+            .generic_object => |generic_object| {
+                const class_name: SymbolId = generic_object.class.class_name;
+                switch (class_name.idx) {
+                    SymbolsManager.comptime_id_of("True").idx => try self.stdout.print("true", .{}),
+                    SymbolsManager.comptime_id_of("False").idx => try self.stdout.print("false", .{}),
+                    else => {
+                        const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
+                        try self.stdout.print("Instance of class: '{s}'", .{class_name_string});
+                    },
+                }
             },
             .nil => {
                 try self.stdout.print("nil", .{});
             },
-            .class => |accessor| {
-                const class_name: SymbolId = accessor.get_represented_class(object.data).class_name;
+            .class => |class| {
+                const class_name: SymbolId = class.represented_class.class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
                 try self.stdout.print("Instance of class: '{s} class'", .{class_name_string});
             },
-            .array => |accessor| {
-                const items: []VmObject = accessor.items(object.data);
+            .array => |array| {
+                const items: []VmObject = array.get_items();
                 try self.stdout.print("Array: #(", .{});
                 for (items, 0..) |item, idx| {
                     if (idx != 0) try self.stdout.print(", ", .{});
@@ -603,25 +476,13 @@ pub const Interpreter = struct {
                 }
                 try self.stdout.print(")", .{});
             },
-            .symbol => |accessor| {
-                const symbol_id: SymbolId = accessor.get_symbol_id(object.data.*);
+            .symbol => |symbol| {
+                const symbol_id: SymbolId = symbol.header.symbol_id;
                 const symbol_string = self.statics.symbols_manager.symbol_with_id(symbol_id);
                 try self.stdout.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
             },
             .block => {
                 try self.stdout.print("block (yup, this is not really helpful info)", .{});
-            },
-            .true => {
-                try self.stdout.print("true", .{});
-            },
-            .false => {
-                try self.stdout.print("false", .{});
-            },
-            .empty_heap_segment => |accessor| {
-                try self.stdout.print(
-                    colors.ERR ++ "free block to {?}" ++ colors.RESET,
-                    .{accessor.get_next_empty_slot(object.data)},
-                );
             },
         }
     }
@@ -693,19 +554,6 @@ pub const Interpreter = struct {
         }
     }
 
-    pub fn ensure_primitive_class_is_loaded(self: *Self, primitive_class_type: PrimitiveClassType) Error!void {
-        if (self.primitive_class_definitions.contains(primitive_class_type)) {
-            @branchHint(.likely);
-            return;
-        }
-        const class_name: SymbolId = (try self.statics.symbols_manager.id_or_intern(primitive_class_type.as_string())).id;
-        const class_definition = self.load_class(class_name) catch |err| {
-            self.report_runtime_error("Got error '{t}' while compiling a primitive class \"{s}\".", .{ err, primitive_class_type.as_string() });
-            return Error.compilation_error;
-        };
-        assert(self.primitive_class_definitions.getAssertContains(primitive_class_type) == class_definition);
-    }
-
     pub fn load_class_ignore_parent(self: *Self, class_name: SymbolId) !*ClassDefinition {
         const class_pair = try compile_class_ignoring_parents(.{
             .class_name = class_name,
@@ -715,13 +563,12 @@ pub const Interpreter = struct {
             .source_code_files = self.source_code_files,
             .statics = self.statics,
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+            .builtin_class_definitions = &self.builtin_class_definitions,
         });
-        self.register_newly_compiled_class(class_pair, 1);
         return class_pair.class;
     }
 
     pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
-        const number_of_classes_before_load: usize = self.statics.all_classes.len;
         const class_definition_pair: ClassDefinitionPair = try compile_class_with_its_parents(.{
             .bottom_class_name = class_name,
             .error_writer = self.stderr,
@@ -730,44 +577,11 @@ pub const Interpreter = struct {
             .source_code_files = self.source_code_files,
             .statics = self.statics,
             .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+            .builtin_class_definitions = &self.builtin_class_definitions,
         });
-        const number_of_classes_after_load: usize = self.statics.all_classes.len;
-        const number_of_compiled_classes = number_of_classes_after_load - number_of_classes_before_load;
-        self.register_newly_compiled_class(class_definition_pair, number_of_compiled_classes);
 
         // The bytecode array might have gotten reallocated during the compilation
         return class_definition_pair.class;
-    }
-
-    fn register_newly_compiled_class(self: *Self, class_pair: ClassDefinitionPair, number_of_compiled_classes: usize) void {
-        // We have to register primitive classes that might have gotten loaded
-        // during the compilation.
-        var class_iter: ?*ClassDefinition = class_pair.class;
-        for (0..number_of_compiled_classes) |_| {
-            const class = class_iter orelse break;
-            defer class_iter = class.parent;
-            // NOTE(epic-zig): `comptime_id_of`
-            // TODO: don't forget to update the names of the variables here once `PrimitiveClassType` gets renamed
-            const primitive_class_type: PrimitiveClassType = inline for (std.meta.fields(PrimitiveClassType)) |primimitive_class_type_field| {
-                const primitive_class_type: PrimitiveClassType = @field(PrimitiveClassType, primimitive_class_type_field.name);
-                const primitive_class_name: []const u8 = comptime primitive_class_type.as_string();
-                if (SymbolsManager.comptime_id_of(primitive_class_name).idx == class.class_name.idx) {
-                    break primitive_class_type;
-                }
-            } else continue;
-            self.primitive_class_definitions.put(primitive_class_type, class);
-        }
-        // Register new metaclasses if we have a metaclass loaded
-        if (self.primitive_class_definitions.get(.metaclass)) |metaclass_definition| {
-            class_iter = class_pair.class;
-            const class_accessor = accessors.ClassAccessor{};
-            for (0..number_of_compiled_classes) |_| {
-                const class = class_iter orelse break;
-                defer class_iter = class.parent;
-                const metaclass = class_accessor.get_class_of_represented_class(class.as_vm_object.data);
-                class_accessor.set_class_of_represented_class(metaclass.as_vm_object.data, metaclass_definition);
-            }
-        }
     }
 
     pub fn push_frame(
@@ -832,26 +646,6 @@ pub const Interpreter = struct {
     /// Asserts that the stack is not empty
     pub fn current_self_object(self: *Self) VmObject {
         return self.objects[self.top_frame().base_idx];
-    }
-
-    /// TODO: this will be simpler when we have NaN tagging
-    pub fn get_singleton_object(self: *Self, comptime singleton_type: anytype) Error!VmObject {
-        const cached_object: *?VmObject = switch (singleton_type) {
-            .true => &self.cached_true_object,
-            .false => &self.cached_false_object,
-            .nil => &self.cached_nil_object,
-            else => @compileError(std.fmt.compilePrint("Invalid singleton: `{}`", .{singleton_type})),
-        };
-        if (cached_object.*) |object| {
-            @branchHint(.likely);
-            return object;
-        }
-        try self.ensure_primitive_class_is_loaded(singleton_type);
-        const header = HeapData.Header.new_undefined_with_tag(singleton_type);
-        var object_data = try self.statics.allocate_for_static_object(header);
-        const object = object_data.as_vm_object();
-        cached_object.* = object;
-        return object;
     }
 
     pub fn push_object(self: *Self, object: VmObject) Error!void {
@@ -934,24 +728,19 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
-        // TODO: if the class is not found, the interpreter should go and find the class definition
-        return switch (object.data.kind()) {
-            .integer => self.primitive_class_definitions.getAssertContains(.integer),
-            .double => self.primitive_class_definitions.getAssertContains(.double),
-            .string => self.primitive_class_definitions.getAssertContains(.string),
-            .class => |accessor| accessor.get_class_of_represented_class(object.data),
-            .nil => self.primitive_class_definitions.getAssertContains(.nil),
-            .false => self.primitive_class_definitions.getAssertContains(.false),
-            .true => self.primitive_class_definitions.getAssertContains(.true),
-            .array => self.primitive_class_definitions.getAssertContains(.array),
-            .symbol => self.primitive_class_definitions.getAssertContains(.symbol),
-            .block => |accessor| blk: {
-                const number_of_arguments = accessor.get_block_definition(object.data).number_of_aditional_args;
-                const builtin_type = PrimitiveClassType.block_type_from_arguments_count(number_of_arguments) orelse unreachable;
-                break :blk self.primitive_class_definitions.getAssertContains(builtin_type);
-            },
-            .generic_object => |accessor| accessor.get_class_definition(object.data),
-            .empty_heap_segment => unreachable,
+        return switch (object.kind()) {
+            .class => |class| class.class_of_represented_class,
+            .generic_object => |generic_object| generic_object.class,
+
+            .integer => self.builtin_class_definitions.integer.?,
+            .double => self.builtin_class_definitions.double.?,
+            .string => self.builtin_class_definitions.string.?,
+            .nil => self.builtin_class_definitions.nil.?,
+            .array => self.builtin_class_definitions.array.?,
+            .symbol => self.builtin_class_definitions.symbol.?,
+            .block => |block| self.builtin_class_definitions.block_from_number_of_non_self_arguments(
+                block.block_definition.number_of_aditional_args,
+            ).?,
         };
     }
 
@@ -983,65 +772,6 @@ pub const Interpreter = struct {
             .{ method_name, actual_type_name, expected_type_name },
         );
         return Error.primitive_type_error;
-    }
-};
-
-pub const PrimitiveClassType = enum {
-    object,
-    integer,
-    double,
-    string,
-    nil,
-    symbol,
-    array,
-    class,
-    metaclass,
-    block_base,
-    block1,
-    block2,
-    block3,
-    true,
-    false,
-    // TODO: remaining primitive classes
-
-    const Self = @This();
-
-    pub fn block_type_from_arguments_count(number_of_arguments_excluding_self: u16) ?Self {
-        return switch (number_of_arguments_excluding_self) {
-            0 => .block1,
-            1 => .block2,
-            2 => .block3,
-            else => null,
-        };
-    }
-
-    pub fn from_block_type(block_type: accessors.BlockType) Self {
-        return switch (block_type) {
-            .block_base => .block_base,
-            .block1 => .block1,
-            .block2 => .block2,
-            .block3 => .block3,
-        };
-    }
-
-    pub fn as_string(self: Self) []const u8 {
-        return switch (self) {
-            .object => "Object",
-            .integer => "Integer",
-            .double => "Double",
-            .string => "String",
-            .symbol => "Symbol",
-            .nil => "Nil",
-            .array => "Array",
-            .class => "Class",
-            .metaclass => "Metaclass",
-            .block_base => "Block",
-            .block1 => "Block1",
-            .block2 => "Block2",
-            .block3 => "Block3",
-            .true => "True",
-            .false => "False",
-        };
     }
 };
 

@@ -25,8 +25,8 @@ pub const ClassDefinition = struct {
     pub const MethodMap = SymbolArrayMap(MethodDefinition, "method_name");
 
     pub fn get_metaclass_through_vm_object(self: Self) Interpreter.Error!*ClassDefinition {
-        return switch (self.as_vm_object.data.kind()) {
-            .class => |accessor| accessor.get_class_of_represented_class(self.as_vm_object.data),
+        return switch (self.as_vm_object.kind()) {
+            .class => |class| class.class_of_represented_class,
             else => Interpreter.Error.primitive_type_error,
         };
     }
