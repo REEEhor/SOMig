@@ -40,7 +40,7 @@ pub const BlockDefinition = codegen_module.BlockDefinition;
 pub const vm_object_module = @import("vm_object.zig");
 pub const VmObject = vm_object_module.VmObject;
 pub const HeapData = vm_object_module.HeapData;
-pub const object_types = vm_object_module.objects;
+pub const types = vm_object_module.types;
 
 const primitives_module = @import("primitives/__primitives.zig");
 pub const primitives = primitives_module.primitive_classes;
@@ -103,40 +103,40 @@ pub const Stack = struct {
 
     pub const Frame = struct {
         /// Index into the array `objects`
-        base_idx: u32,
+        base_ptr: [*]VmObject,
         after_return_instruction_id: InstructionId,
         kind: Kind,
 
         pub const Kind = union(enum) {
             /// Has guaranteed that the `body` is of type `user_land`.
             method: *const MethodDefinition,
-            block: *const BlockDefinition,
+            block: *types.Block,
         };
 
-        pub fn self_object_idx(self: @This()) u32 {
+        pub fn self_object_ptr(self: @This()) *VmObject {
             const number_of_args = switch (self.kind) {
                 .method => |method| method.number_of_aditional_args,
-                .block => |block| block.number_of_aditional_args,
+                .block => |block| block.block_definition.number_of_aditional_args,
             };
-            return self.base_idx - number_of_args;
+            return &self.base_ptr[number_of_args];
         }
 
         pub fn constants_base_id(self: @This()) ConstantId {
             return switch (self.kind) {
                 .method => |method| method.body.user_land.constants_base_id,
-                .block => |block| block.body.constants_base_id,
+                .block => |block| block.block_definition.body.constants_base_id,
             };
         }
 
         pub fn get_bytecode(self: @This()) Bytecode {
             return switch (self.kind) {
                 .method => |method| method.body.user_land.bytecode,
-                .block => |block| block.body.bytecode,
+                .block => |block| block.block_definition.body.bytecode,
             };
         }
 
         pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
-            return &objects[self.base_idx + offset];
+            return &objects[self.base_ptr + offset];
         }
     };
 
@@ -296,7 +296,7 @@ pub const Interpreter = struct {
                     // FIXME: go up multiple frames
                     assert(info.required_frame_up_steps == 0);
 
-                    const object: VmObject = self.stack.objects[self.top_frame().base_idx + info.local_id.idx];
+                    const object: VmObject = self.top_frame().base_ptr[info.local_id.idx];
                     try self.push_object(object);
                 },
                 .set_local => |info| {
@@ -304,10 +304,10 @@ pub const Interpreter = struct {
                     assert(info.required_frame_up_steps == 0);
 
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
-                    const object_index = self.top_frame().base_idx + info.local_id.idx;
-                    self.stack.objects[object_index] = to_assign;
+                    self.top_frame().base_ptr[info.local_id.idx] = to_assign;
 
                     if (DO_DEBUG_TRACE) {
+                        const object_index = undefined;
                         self.debug_frame_to_initialised_objects_mapping.set(object_index);
                     }
                 },
@@ -315,7 +315,7 @@ pub const Interpreter = struct {
                     // FIXME: go up multiple frames
                     assert(info.required_frame_up_steps == 0);
 
-                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
+                    const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     const instance_variable = switch (self_object.kind()) {
                         .generic_object => |object| object.get_fields()[info.instance_var_id.idx],
                         // FIXME: implement this
@@ -329,7 +329,7 @@ pub const Interpreter = struct {
                     assert(info.required_frame_up_steps == 0);
 
                     const top_object: VmObject = self.top_stack_object();
-                    const self_object: VmObject = self.stack.objects[self.top_frame().self_object_idx()];
+                    const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     switch (self_object.kind()) {
                         .generic_object => |object| object.get_fields()[info.instance_var_id.idx] = top_object,
                         // FIXME: implement this
@@ -345,7 +345,7 @@ pub const Interpreter = struct {
                     const items: []VmObject = self.stack.objects[items_start_idx..len];
 
                     // Create the array object
-                    const array_object: VmObject = try object_types.Array.create_new(self.heap_allocator, items);
+                    const array_object: VmObject = try types.Array.create_new(self.heap_allocator, items);
 
                     // Pop all the objects that were copied into the new array
                     const old_stack_len = self.stack.objects.len;
@@ -371,7 +371,7 @@ pub const Interpreter = struct {
                     }
                 },
                 .load_symbol => |symbol_id| {
-                    const object: VmObject = try object_types.Symbol.create_new(self.heap_allocator, symbol_id);
+                    const object: VmObject = try types.Symbol.create_new(self.heap_allocator, symbol_id);
                     try self.push_object(object);
                 },
                 .duplicate => {
@@ -383,10 +383,10 @@ pub const Interpreter = struct {
                     const constant = self.statics.constants_manager.get_constant(constant_id);
                     const allocator = self.heap.arena.allocator();
                     const object: VmObject = switch (constant) {
-                        .integer => |value| try object_types.Integer.create_new(self.heap.arena.allocator(), value),
-                        .float => |value| try object_types.Double.create_new(allocator, value),
-                        .string => |value| try object_types.String.create_new(allocator, value),
-                        .block => |block_info| try object_types.Block.create_new(allocator, block_info, self.top_frame()),
+                        .integer => |value| try types.Integer.create_new(self.heap.arena.allocator(), value),
+                        .float => |value| try types.Double.create_new(allocator, value),
+                        .string => |value| try types.String.create_new(allocator, value),
+                        .block => |block_info| try types.Block.create_new(allocator, block_info, self.top_frame()),
                     };
                     try self.push_object(object);
                 },
@@ -532,7 +532,7 @@ pub const Interpreter = struct {
                 if (next_frame_idx >= self.stack.frames_count()) {
                     break :blk self.stack.objects.len;
                 } else {
-                    break :blk self.stack.frames[next_frame_idx].base_idx;
+                    break :blk self.stack.frames[next_frame_idx].base_ptr;
                 }
             };
             var first_iteration = true;
@@ -603,10 +603,10 @@ pub const Interpreter = struct {
             return Error.object_stack_overflow;
         }
         // Grow the stack
-        const new_base_index: u32 = @intCast(self.stack.objects.len - arguments_count);
+        const new_base_ptr: [*]VmObject = self.stack.objects.ptr + self.stack.objects.len - arguments_count;
         self.stack.frames.len += 1;
         self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
-            .base_idx = new_base_index,
+            .base_ptr = new_base_ptr,
             .kind = frame_kind,
             .after_return_instruction_id = self.decoder.id_of_next_instruction(),
         };
@@ -620,7 +620,7 @@ pub const Interpreter = struct {
         // We need to not pop the top-most object on the popped frame,
         // since there will be the return value of function that is getting returned out of
         // (therefore the `+1`):
-        const new_objects_len = self.top_frame().base_idx + 1;
+        const new_objects_len = (self.top_frame().base_ptr + 1) - self.stack.objects.ptr;
         const old_objects_len = self.stack.objects.len;
         self.stack.objects.len = new_objects_len;
         self.stack.frames.len -= 1;
@@ -645,7 +645,7 @@ pub const Interpreter = struct {
 
     /// Asserts that the stack is not empty
     pub fn current_self_object(self: *Self) VmObject {
-        return self.objects[self.top_frame().base_idx];
+        return self.objects[self.top_frame().base_ptr];
     }
 
     pub fn push_object(self: *Self, object: VmObject) Error!void {

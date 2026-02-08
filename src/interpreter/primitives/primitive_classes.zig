@@ -11,7 +11,7 @@ const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Heap = interpreter_module.Heap;
 const BlockDefinition = interpreter_module.BlockDefinition;
-const types = interpreter_module.object_types;
+const types = interpreter_module.types;
 
 const class_definition_module = @import("../class_definition.zig");
 const ClassDefinition = class_definition_module.ClassDefinition;
@@ -269,7 +269,7 @@ pub const String = struct {
 
         const symbol_id = (try interpreter.statics.symbols_manager.id_or_intern(str)).id;
 
-        return try vm_object_module.objects.Symbol.create_new(interpreter.heap_allocator, symbol_id);
+        return try vm_object_module.types.Symbol.create_new(interpreter.heap_allocator, symbol_id);
     }
 
     pub fn @"concatWith:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
@@ -414,7 +414,7 @@ pub const Array = struct {
             .array => |ptr| ptr.header.length,
             else => return Interpreter.Error.primitive_type_error,
         };
-        const object: VmObject = try vm_object_module.objects.Integer.create_new(interpreter.heap_allocator, length_i48);
+        const object: VmObject = try vm_object_module.types.Integer.create_new(interpreter.heap_allocator, length_i48);
         return object;
     }
 };
@@ -467,24 +467,17 @@ pub const Block2 = struct {
     pub fn @"value:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 2);
 
-        const block_definition: *const BlockDefinition = switch (target_object.kind()) {
-            .block => |ptr| ptr.block_definition,
-
+        const block: *types.Block = switch (target_object.kind()) {
+            .block => |block| block,
             else => return Interpreter.Error.primitive_type_error,
         };
-
         try interpreter.push_object(target_object);
-
         try interpreter.push_frame(
-            .{ .block = block_definition },
-
-            block_definition.body.bytecode,
-
-            block_definition.number_of_aditional_args,
-
-            block_definition.body.number_of_locals,
+            .{ .block = block },
+            block.block_definition.body.bytecode,
+            block.block_definition.number_of_aditional_args,
+            block.block_definition.body.number_of_locals,
         );
-
         return null;
     }
 };
@@ -493,24 +486,17 @@ pub const Block3 = struct {
     pub fn @"value:with:__somig_primitive_fn"(target_object: VmObject, interpreter: *Interpreter) Interpreter.Error!?VmObject {
         assert_arity_is(@src(), 3);
 
-        const block_definition: *const BlockDefinition = switch (target_object.kind()) {
-            .block => |ptr| ptr.block_definition,
-
+        const block: *types.Block = switch (target_object.kind()) {
+            .block => |block| block,
             else => return Interpreter.Error.primitive_type_error,
         };
-
         try interpreter.push_object(target_object);
-
         try interpreter.push_frame(
-            .{ .block = block_definition },
-
-            block_definition.body.bytecode,
-
-            block_definition.number_of_aditional_args,
-
-            block_definition.body.number_of_locals,
+            .{ .block = block },
+            block.block_definition.body.bytecode,
+            block.block_definition.number_of_aditional_args,
+            block.block_definition.body.number_of_locals,
         );
-
         return null;
     }
 };
@@ -519,23 +505,16 @@ fn block_value_method(
     target_object: VmObject,
     interpreter: *Interpreter,
 ) Interpreter.Error!?VmObject {
-    const block_definition: *const BlockDefinition = switch (target_object.kind()) {
-        .block => |ptr| ptr.block_definition,
-
+    const block: *types.Block = switch (target_object.kind()) {
+        .block => |block| block,
         else => return Interpreter.Error.primitive_type_error,
     };
-
     try interpreter.push_object(target_object);
-
     try interpreter.push_frame(
-        .{ .block = block_definition },
-
-        block_definition.body.bytecode,
-
-        block_definition.number_of_aditional_args,
-
-        block_definition.body.number_of_locals,
+        .{ .block = block },
+        block.block_definition.body.bytecode,
+        block.block_definition.number_of_aditional_args,
+        block.block_definition.body.number_of_locals,
     );
-
     return null;
 }

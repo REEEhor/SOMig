@@ -226,8 +226,8 @@ fn playground(allocator: std.mem.Allocator) !void {
     }
     // Load singletons
     {
-        const true_object = try interpreter_module.object_types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
-        const false_object = try interpreter_module.object_types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
+        const true_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
+        const false_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
         interpreter.singletons = .{
             .true_object = true_object,
             .false_object = false_object,
@@ -236,7 +236,7 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
     const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-    const main_object: interpreter_module.VmObject = try interpreter_module.object_types.GenericObject.create_new(interpreter.heap_allocator, main_class);
+    const main_object: interpreter_module.VmObject = try interpreter_module.types.GenericObject.create_new(interpreter.heap_allocator, main_class);
     // Dump the bytecode
     try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
     try codegen.print_bytecode(

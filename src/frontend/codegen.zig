@@ -37,7 +37,7 @@ const HeapData = interpreter_module.HeapData;
 const primitives = interpreter_module.primitives;
 const Statics = interpreter_module.Statics;
 const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
-const object_types = interpreter_module.object_types;
+const object_types = interpreter_module.types;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;

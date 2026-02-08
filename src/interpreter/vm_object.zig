@@ -46,8 +46,8 @@ pub const VmObject = struct {
         switch (heap_data.header.tag) {
             .empty_heap_segment => unreachable,
             inline else => |heap_data_tag| {
-                const ObjectType: type = comptime for (std.meta.declarations(objects)) |object_type_declaration| {
-                    const ObjectType: type = @field(objects, object_type_declaration.name);
+                const ObjectType: type = comptime for (std.meta.declarations(types)) |object_type_declaration| {
+                    const ObjectType: type = @field(types, object_type_declaration.name);
                     if (ObjectType.tag == heap_data_tag) break ObjectType;
                 } else @compileError(std.fmt.comptimePrint("Could not find an object type which has the tag `{t}`", .{heap_data_tag}));
 
@@ -59,15 +59,15 @@ pub const VmObject = struct {
     }
 
     pub const Kind = union(enum) {
-        integer: *objects.Integer,
-        double: *objects.Double,
-        string: *objects.String,
-        array: *objects.Array,
+        integer: *types.Integer,
+        double: *types.Double,
+        string: *types.String,
+        array: *types.Array,
         nil,
-        class: *objects.Class,
-        symbol: *objects.Symbol,
-        block: *objects.Block,
-        generic_object: *objects.GenericObject,
+        class: *types.Class,
+        symbol: *types.Symbol,
+        block: *types.Block,
+        generic_object: *types.GenericObject,
 
         pub const Tag = std.meta.Tag(@This());
 
@@ -156,7 +156,7 @@ fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []Item {
     return ptr[0..length];
 }
 
-pub const objects = struct {
+pub const types = struct {
     pub const Integer = extern struct {
         header: Header,
 
