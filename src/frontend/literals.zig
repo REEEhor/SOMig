@@ -51,7 +51,7 @@ pub fn parse_string_literal(allocator: Allocator, supposed_string_literal: []con
                 .expects_hex_code_after => {
                     idx += 1; // Skip the `x` or `X`
                     const remaining_chars = input[idx..];
-                    if (remaining_chars.len > 2) {
+                    if (remaining_chars.len < 2) {
                         return .{ .invalid_hex_code = .{ .invalid_hex_code = input[idx - 2 ..] } };
                     }
                     const is_hex = std.ascii.isHex;
@@ -100,8 +100,8 @@ pub fn parse_string_literal(allocator: Allocator, supposed_string_literal: []con
 
 fn int_from_hex_digit(hex_digit_char: u8) u8 {
     return switch (hex_digit_char) {
-        'A'...'Z' => |c| c - 'A',
-        'a'...'z' => |c| c - 'a',
+        'A'...'F' => |c| c - 'A' + 10,
+        'a'...'f' => |c| c - 'a' + 10,
         '0'...'9' => |c| c - '0',
         else => unreachable,
     };
