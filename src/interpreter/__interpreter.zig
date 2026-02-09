@@ -1,5 +1,5 @@
-// pub const DO_DEBUG_TRACE: bool = true;
-pub const DO_DEBUG_TRACE: bool = false;
+pub const DO_DEBUG_TRACE: bool = true;
+// pub const DO_DEBUG_TRACE: bool = false;
 pub const PRINT_PTR_MODULO: bool = true;
 
 const std = @import("std");
@@ -214,6 +214,13 @@ pub const Interpreter = struct {
     singletons: struct {
         true_object: VmObject,
         false_object: VmObject,
+
+        pub fn get_boolean_object(self: @This(), boolean: bool) VmObject {
+            if (boolean) {
+                return self.true_object;
+            }
+            return self.false_object;
+        }
         // NOTE: here will also maybe be the `System` object
     } = undefined, // TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
 
@@ -726,8 +733,7 @@ pub const Interpreter = struct {
                 );
             },
             .primitive => |primitive_method| {
-                const target_object = self.pop_object();
-                const result_object: ?VmObject = primitive_method(target_object, self) catch |err| {
+                const result_object: ?VmObject = primitive_method(self) catch |err| {
                     // TODO: remove this once we have a propper stack trace
                     self.report_info(
                         "Error happened in the primitive method `{s}`",
@@ -817,10 +823,10 @@ fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);
 
     const min: usize = @intFromPtr(slice.ptr);
-    const max: usize = min + slice.len;
+    const max: usize = @intFromPtr(slice.ptr + slice.len);
     const value: usize = @intFromPtr(ptr_to_item);
 
-    const check = min <= value and value <= max;
+    const check = (min <= value) and (value < max);
     if (!check) return null;
 
     return ptr_to_item - slice.ptr;

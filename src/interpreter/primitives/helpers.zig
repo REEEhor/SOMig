@@ -44,3 +44,5 @@ pub fn assert_arity_is(comptime source_location: std.builtin.SourceLocation, com
         }
     }
 }
+
+pub const NilPlaceholder = struct {};
