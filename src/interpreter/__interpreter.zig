@@ -1,3 +1,4 @@
+// pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
 pub const PRINT_PTR_MODULO: bool = true;
 
@@ -231,6 +232,7 @@ pub const Interpreter = struct {
         class_declared_multiple_times,
         division_by_zero,
         compilation_error,
+        block_escaped_its_home_scope,
         TODO,
     } || Allocator.Error || Writer.Error;
 
@@ -283,7 +285,7 @@ pub const Interpreter = struct {
                 };
                 std.debug.print("\n[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
-            switch (instruction) {
+            sw_instruction: switch (instruction) {
                 .no_op => {},
                 .halt => {
                     try self.report_info("The halt instruction has been encountered.", .{});
@@ -323,14 +325,13 @@ pub const Interpreter = struct {
                     result_frame.base_ptr[info.local_id.idx] = to_assign;
 
                     if (DO_DEBUG_TRACE) {
-                        const object_index = undefined;
-                        self.debug_frame_to_initialised_objects_mapping.set(object_index);
+                        const ptr = &result_frame.base_ptr[info.local_id.idx];
+                        if (index_from_pointer(ptr, self.stack.objects)) |index| {
+                            self.debug_frame_to_initialised_objects_mapping.set(index);
+                        }
                     }
                 },
                 .load_instance_var => |info| {
-                    // FIXME: go up multiple frames
-                    // assert(info.required_frame_up_steps == 0);
-
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     const instance_variable = switch (self_object.kind()) {
                         .generic_object => |object| object.get_fields()[info.instance_var_id.idx],
@@ -341,10 +342,7 @@ pub const Interpreter = struct {
                     try self.push_object(instance_variable);
                 },
                 .set_instance_var => |info| {
-                    // FIXME: go up multiple frames
-                    // assert(info.required_frame_up_steps == 0);
-
-                    const top_object: VmObject = self.top_stack_object();
+                    const top_object: VmObject = self.top_stack_object().*;
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     switch (self_object.kind()) {
                         .generic_object => |object| object.get_fields()[info.instance_var_id.idx] = top_object,
@@ -417,13 +415,10 @@ pub const Interpreter = struct {
                     try self.send_message(call_info);
                 },
                 .normal_return => {
-                    const return_value: VmObject = self.top_stack_object();
-
-                    const next_instruction = self.top_frame().after_return_instruction_id;
-                    self.decoder.set_id_of_the_next_instruction(next_instruction);
+                    const return_value: VmObject = self.top_stack_object().*;
 
                     // Leaves a spot at the top of the stack for the `return_value`
-                    self.pop_frame();
+                    const next_instruction = self.pop_frame().next_instruction;
                     if (self.stack.frames.len == 0) {
                         try self.report_info("The program's entry point function has returned", .{});
                         return;
@@ -434,6 +429,35 @@ pub const Interpreter = struct {
 
                     const bytecode = self.top_frame().get_bytecode();
                     self.decoder.bytes = bytecode.bytes;
+                    self.decoder.set_id_of_the_next_instruction(next_instruction);
+                },
+                .non_local_return => {
+                    const return_value: VmObject = self.top_stack_object().*;
+
+                    const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
+                        .block => |block| blk: {
+                            if (block.header.has_escaped_home_context) {
+                                @branchHint(.cold);
+                                self.report_runtime_error("A non local return was encountered in a block that has escaped its home scope.", .{});
+                                return Error.block_escaped_its_home_scope;
+                            }
+                            break :blk block.home_frame;
+                        },
+                        .method => unreachable, // We should never encounter a non local in a method
+                    };
+
+                    // We know that we want to pop at least one frame (the block frame)
+                    _ = self.pop_frame();
+                    while (wanted_frame != self.top_frame()) {
+                        // We should never fail to pop frame here,
+                        // since we assert above, that the block has no escaped its home context.
+                        _ = self.pop_frame();
+                    }
+
+                    // Put the return value on the top of the stack
+                    self.top_stack_object().* = return_value;
+
+                    continue :sw_instruction .normal_return;
                 },
             }
             if (DO_DEBUG_TRACE) {
@@ -452,17 +476,7 @@ pub const Interpreter = struct {
             .integer => |int| try self.stdout.print("{d}", .{int.header.value}),
             .double => |double| try self.stdout.print("{d}", .{double.value}),
             .string => |string| {
-                for (string.contents()) |char| {
-                    switch (char) {
-                        '\n' => try self.stdout.write("\\n"),
-                        '\r' => try self.stdout.write("\\r"),
-                        else => if (std.ascii.isPrint(char)) {
-                            try self.stdout.writeByte(char);
-                        } else {
-                            try self.stdout.print("\\x{x}", .{char});
-                        },
-                    }
-                }
+                try codegen_module.print_escaped_string(self.stdout, string.contents());
             },
             .generic_object => |generic_object| {
                 const class_name: SymbolId = generic_object.class.class_name;
@@ -535,9 +549,13 @@ pub const Interpreter = struct {
         var next_frame_idx: usize = 1;
         while (next_frame_idx <= self.stack.frames_count()) : (next_frame_idx += 1) {
             const current_frame: Stack.Frame = self.stack.frames[next_frame_idx - 1];
-            const frame_format_string = "[Frame {d:02} cons_base={d:03} ret_inst={d:03}] ";
+            const frame_format_string = "[{d:02} {s:<15} cons_base={d:03} ret_inst={d:03}] ";
             const frame_args = .{
                 next_frame_idx - 1,
+                switch (current_frame.kind) {
+                    .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
+                    .block => "block",
+                },
                 current_frame.constants_base_id().idx,
                 current_frame.after_return_instruction_id.idx,
             };
@@ -548,7 +566,7 @@ pub const Interpreter = struct {
                 if (next_frame_idx >= self.stack.frames_count()) {
                     break :blk self.stack.objects.len;
                 } else {
-                    break :blk self.stack.frames[next_frame_idx].base_ptr;
+                    break :blk self.stack.frames[next_frame_idx].base_ptr - self.stack.objects.ptr;
                 }
             };
             var first_iteration = true;
@@ -631,11 +649,12 @@ pub const Interpreter = struct {
     }
 
     /// Asserts that the stack is not empty
-    pub fn pop_frame(self: *Self) void {
+    pub fn pop_frame(self: *Self) struct { next_instruction: InstructionId } {
         assert(self.stack.frames_count() > 0);
         // We need to not pop the top-most object on the popped frame,
         // since there will be the return value of function that is getting returned out of
         // (therefore the `+1`):
+        const after_return_instruction_id = self.top_frame().after_return_instruction_id;
         const new_objects_len = (self.top_frame().base_ptr + 1) - self.stack.objects.ptr;
         const old_objects_len = self.stack.objects.len;
         self.stack.objects.len = new_objects_len;
@@ -646,6 +665,8 @@ pub const Interpreter = struct {
                 self.debug_frame_to_initialised_objects_mapping.unset(object_idx);
             }
         }
+
+        return .{ .next_instruction = after_return_instruction_id };
     }
 
     /// Asserts that the stack is not empty
@@ -690,8 +711,8 @@ pub const Interpreter = struct {
     }
 
     /// Asserts that the stack is not empty
-    pub fn top_stack_object(self: *Self) VmObject {
-        return self.stack.objects[self.stack.objects.len - 1];
+    pub fn top_stack_object(self: *Self) *VmObject {
+        return &self.stack.objects[self.stack.objects.len - 1];
     }
 
     pub fn call_method(self: *Self, method: *const MethodDefinition) Error!void {
@@ -720,7 +741,7 @@ pub const Interpreter = struct {
     }
 
     pub fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
-        const target_object: VmObject = self.top_stack_object();
+        const target_object: VmObject = self.top_stack_object().*;
         const class: *const ClassDefinition = self.get_class_of(target_object);
         const method: *const MethodDefinition = class.get_method(call_info.message_name) orelse {
             self.report_runtime_error(
@@ -790,6 +811,20 @@ pub const Interpreter = struct {
         return Error.primitive_type_error;
     }
 };
+
+fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
+    comptime assert(@typeInfo(@TypeOf(slice)).pointer.size == .slice);
+    comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);
+
+    const min: usize = @intFromPtr(slice.ptr);
+    const max: usize = min + slice.len;
+    const value: usize = @intFromPtr(ptr_to_item);
+
+    const check = min <= value and value <= max;
+    if (!check) return null;
+
+    return ptr_to_item - slice.ptr;
+}
 
 test {
     _ = @import("testing.zig");

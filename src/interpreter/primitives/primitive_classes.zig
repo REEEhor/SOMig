@@ -472,7 +472,7 @@ pub const Block2 = struct {
             else => return Interpreter.Error.primitive_type_error,
         };
 
-        try interpreter.push_object(interpreter.top_frame().self_object_ptr().*);
+        try interpreter.push_object(block.home_frame.self_object_ptr().*);
         try interpreter.push_frame(
             .{ .block = block },
             block.block_definition.body.bytecode,
@@ -491,7 +491,7 @@ pub const Block3 = struct {
             .block => |block| block,
             else => return Interpreter.Error.primitive_type_error,
         };
-        try interpreter.push_object(interpreter.top_frame().self_object_ptr().*);
+        try interpreter.push_object(block.home_frame.self_object_ptr().*);
         try interpreter.push_frame(
             .{ .block = block },
             block.block_definition.body.bytecode,
@@ -510,7 +510,7 @@ fn block_value_method(
         .block => |block| block,
         else => return Interpreter.Error.primitive_type_error,
     };
-    try interpreter.push_object(interpreter.top_frame().self_object_ptr().*);
+    try interpreter.push_object(block.home_frame.self_object_ptr().*);
     try interpreter.push_frame(
         .{ .block = block },
         block.block_definition.body.bytecode,

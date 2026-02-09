@@ -1250,7 +1250,11 @@ pub const BytecodeGenerator = struct {
                     .local_id = Instruction.LocalVarId.return_object,
                     .required_frame_up_steps = required_frame_upsteps_when_compiling_exit_outside_of_block,
                 } });
-                try self.add_instruction(.normal_return);
+                if (self.currently_compiling_block) {
+                    try self.add_instruction(.non_local_return);
+                } else {
+                    try self.add_instruction(.normal_return);
+                }
             },
             .array_literal => |array_literal| {
                 const sub_expressions: []const Ast.ExprId = self.ast.extras.variable_span_of(array_literal.elements);
@@ -1653,7 +1657,9 @@ pub const InstructionFormatter = struct {
                     try writer.print("float({d})", .{value});
                 },
                 .string => |value| {
-                    try writer.print("string({s})", .{value});
+                    try writer.print("string(", .{});
+                    try print_escaped_string(writer, value);
+                    try writer.print(")", .{});
                 },
                 .block => |block_info| {
                     try writer.print(
@@ -1669,6 +1675,21 @@ pub const InstructionFormatter = struct {
         }
     };
 };
+
+pub fn print_escaped_string(writer: *std.io.Writer, string_bytes: []const u8) std.io.Writer.Error!void {
+    for (string_bytes) |char| {
+        switch (char) {
+            '\n' => _ = try writer.write("\\n"),
+            '\r' => _ = try writer.write("\\r"),
+            '\'' => _ = try writer.write("\\'"),
+            else => if (std.ascii.isPrint(char)) {
+                try writer.writeByte(char);
+            } else {
+                try writer.print("\\x{x}", .{char});
+            },
+        }
+    }
+}
 
 pub fn print_bytecode(
     symbols_manager: *SymbolsManager,
@@ -1745,6 +1766,8 @@ pub const Instruction = union(enum(u8)) {
     load_global: SymbolId,
 
     normal_return,
+
+    non_local_return,
 
     /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable

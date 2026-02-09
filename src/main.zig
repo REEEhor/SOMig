@@ -273,6 +273,9 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
         \\
+        \\          ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['\x1b[1;31mOH NO! "3=3" is false\x1b[0m']) println.
+        \\          ((3=2) ifTrue: ['\x1b[1;31mOH NO! "3=2" is true\x1b[0m'] ifFalse: ['"3=2" is false']) println.
+        \\
         \\          #'this is some kind of symbol' println.
         \\
         \\          '\tThis is\n\tmultiline\n\ttext!' println.
@@ -327,7 +330,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\      block_example = (
         \\          | method1 method2 blk |
         \\          '\n== Block example ==' println.
-        \\          
+        \\
         \\          [ 'Hello SOMig from block!' ] value println.
         \\
         \\          method1 := [
@@ -368,7 +371,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          method1 := '"local method1"'.
         \\          method2 := '"local method2"'.
-        \\          [ 
+        \\          [
         \\              'Captured variable in block: ' print.
         \\              method1 println.
         \\          ] value.
@@ -379,7 +382,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              | a_block1 a_block2 |
         \\              a_block1 := '"local a_block1"'.
         \\              a_block2 := '"local a_block2"'.
-        \\              [ 
+        \\              [
         \\                  'Captured method variable in block:  ' print. method1 println.
         \\                  'Captured method variable in block:  ' print. method2 println.
         \\                  'Captured block A variable in block: ' print. a_block1 println.
@@ -394,7 +397,7 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\              | a_block1 a_block2 |
         \\              a_block1 := '"local a_block1"'.
         \\              a_block2 := '"local a_block2"'.
-        \\              [ 
+        \\              [
         \\                  'Captured method variable in block:    ' print. method1 println.
         \\                  'Captured method variable in block:    ' print. method2 println.
         \\                  'Captured block A variable in block:   ' print. a_block1 println.
@@ -418,20 +421,23 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          'Changed value by a block: ' print. method1 println.
         \\
         \\          '---' println.
-        \\          
+        \\
         \\          blk := [ instance_var2 := '"Instance var set by a block"'. ]
         \\          'Instance var before block: ' print. instance_var2 println.
-        \\          '\x1b[2m(calling `value`)\x1b[22m' println.
+        \\          '(calling `value`)' println.
         \\          blk value.
         \\          'After: ' print. instance_var2 println.
         \\
         \\          '---' println.
-        \\          
+        \\
         \\          instance_var2 := '"Hello from method scope :)"'.
-        \\          [[[['In a deeply nested block: ' print. instance_var2 println]]]] value value value value.
+        \\          [[[['In a deeply nested block: ' print. instance_var2 println]value]value]value]value.
+        \\
+        \\          "This does not work yet, because the blocks escape their scope"
+        \\          "[[[['In a deeply nested block: ' print. instance_var2 println]]]] value value value value."
         \\
         \\          '---' println.
-        \\          
+        \\
         \\      )
         \\
         \\      block_runner: blk with_argument: arg = (
@@ -464,8 +470,8 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\
         \\          '---' println.
         \\
-        \\          ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['OH NO! "3=3" is false']) println.
-        \\          ((3=2) ifTrue: ['"3=2" is false'] ifFalse: ['OH NO! "3=2" is true']) println.
+        \\          ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['\x1b[1;31mOH NO! "3=3" is false\x1b[0m']) println.
+        \\          ((3=2) ifTrue: ['\x1b[1;31mOH NO! "3=2" is true\x1b[0m'] ifFalse: ['"3=2" is false']) println.
         \\
         \\      )
         \\
