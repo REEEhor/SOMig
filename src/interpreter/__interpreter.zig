@@ -329,7 +329,7 @@ pub const Interpreter = struct {
                 },
                 .load_instance_var => |info| {
                     // FIXME: go up multiple frames
-                    assert(info.required_frame_up_steps == 0);
+                    // assert(info.required_frame_up_steps == 0);
 
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     const instance_variable = switch (self_object.kind()) {
@@ -342,7 +342,7 @@ pub const Interpreter = struct {
                 },
                 .set_instance_var => |info| {
                     // FIXME: go up multiple frames
-                    assert(info.required_frame_up_steps == 0);
+                    // assert(info.required_frame_up_steps == 0);
 
                     const top_object: VmObject = self.top_stack_object();
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;

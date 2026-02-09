@@ -268,6 +268,7 @@ test {
 fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *codegen.SourceCodeFiles, statics: *Statics) !void {
     try source_code_files.cached_source_files.putNoClobber(allocator, (try statics.symbols_manager.id_or_intern("Main")).id,
         \\  Main = (
+        \\      | instance_var1 instance_var2 |
         \\      run = (
         \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
@@ -417,6 +418,20 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          'Changed value by a block: ' print. method1 println.
         \\
         \\          '---' println.
+        \\          
+        \\          blk := [ instance_var2 := '"Instance var set by a block"'. ]
+        \\          'Instance var before block: ' print. instance_var2 println.
+        \\          '\x1b[2m(calling `value`)\x1b[22m' println.
+        \\          blk value.
+        \\          'After: ' print. instance_var2 println.
+        \\
+        \\          '---' println.
+        \\          
+        \\          instance_var2 := '"Hello from method scope :)"'.
+        \\          [[[['In a deeply nested block: ' print. instance_var2 println]]]] value value value value.
+        \\
+        \\          '---' println.
+        \\          
         \\      )
         \\
         \\      block_runner: blk with_argument: arg = (
