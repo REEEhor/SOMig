@@ -46,3 +46,16 @@ pub fn assert_arity_is(comptime source_location: std.builtin.SourceLocation, com
 }
 
 pub const NilPlaceholder = struct {};
+
+pub const Number = union(enum) {
+    integer: i48,
+    double: f64,
+
+    const Self = @This();
+    pub fn as_i48_maybe_lossy(self: Self) i48 {
+        return switch (self) {
+            .integer => |x| x,
+            .double => |x| std.math.lossyCast(i48, x),
+        };
+    }
+};

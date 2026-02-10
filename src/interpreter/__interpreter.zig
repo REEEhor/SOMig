@@ -738,9 +738,8 @@ pub const Interpreter = struct {
             },
             .primitive => |primitive_method| {
                 const result_object: ?VmObject = primitive_method(self) catch |err| {
-                    // TODO: remove this once we have a propper stack trace
                     self.report_info(
-                        "Error happened in the primitive method `{s}`",
+                        "Error happened in the primitive method `{s}`", // TODO: add the classname here once we can do `method.class`
                         .{self.statics.symbols_manager.symbol_with_id(method.method_name)},
                     ) catch {};
                     return err;

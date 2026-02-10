@@ -293,9 +293,11 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          ('Test of ' concatWith: 'concat strings') println.
         \\          'Number is: ' + 42 println.
         \\          ('I want ' + 98 + ' ice-creams.') println.
-        \\          (10.0 / 0.0) println.
-        \\          (10.0 / -0.0) println.
+        \\          "(10.0 // 0.0) println."        "TODO: uncomment this"
+        \\          "(10.0 // -0.0) println."       "TODO: uncomment this"
         \\          (10 / 4) println.
+        \\          '1+1.5 = ' print. (1+1.5) println
+        \\          '1.5+1 = ' print. (1.5+1) println
         \\
         \\          "Try uncommenting the line below to crash to program:"
         \\          "SomeClassWithSyntaxErrorInItsDefinition."

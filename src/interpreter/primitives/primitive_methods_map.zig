@@ -7,6 +7,7 @@ const unions = @import("../../unions.zig");
 const helpers_module = @import("helpers.zig");
 const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
 const NilPlaceholder = helpers_module.NilPlaceholder;
+const Number = helpers_module.Number;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -172,13 +173,16 @@ pub const PrimitiveMethodsMap = struct {
                             else => return invalid_argument(interpreter, som_parameter_idx, "Nil"),
                         },
                         f64 => switch (interpreter.pop_object().kind()) {
-                            .integer => |integer| @floatFromInt(integer.header.value),
                             .double => |double| double.value,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
+                            else => return invalid_argument(interpreter, som_parameter_idx, "Double"),
                         },
                         i48 => switch (interpreter.pop_object().kind()) {
                             .integer => |integer| integer.header.value,
-                            .double => |double| std.math.lossyCast(i48, double.value),
+                            else => return invalid_argument(interpreter, som_parameter_idx, "Integer"),
+                        },
+                        Number => switch (interpreter.pop_object().kind()) {
+                            .integer => |integer| .{ .integer = integer.header.value },
+                            .double => |double| .{ .double = double.value },
                             else => return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
                         },
                         *types.Class => switch (interpreter.pop_object().kind()) {
@@ -243,6 +247,10 @@ pub const PrimitiveMethodsMap = struct {
                 return switch (ReturnType) {
                     VmObject => result,
                     NilPlaceholder => VmObject.nil,
+                    Number => switch (result) {
+                        .integer => |value| try types.Integer.create_new(heap, value),
+                        .double => |value| try types.Double.create_new(heap, value),
+                    },
                     void => null,
                     i48 => try types.Integer.create_new(heap, result),
                     f64 => try types.Double.create_new(heap, result),

@@ -1,12 +1,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const unions = @import("../../unions.zig");
+
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolsManager = interning_module.SymbolsManager;
 
 const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
+const Number = helpers_module.Number;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -50,31 +53,42 @@ pub const Class = struct {
 };
 
 pub const Integer = struct {
-    pub fn @"="(self: i48, rhs: i48) bool {
-        return self == rhs;
+    pub fn @"="(self: i48, rhs: Number) bool {
+        return self == switch (rhs) {
+            .integer => |value| value,
+            .double => |value_as_f64| std.math.lossyCast(i48, value_as_f64),
+        };
     }
 
-    pub fn @"+"(self: i48, rhs: i48) i48 {
-        return self +% rhs;
+    pub fn @"+"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self +% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) + value_as_f64,
+            },
+        };
     }
 
-    pub fn @"-"(self: i48, rhs: i48) i48 {
-        return self -% rhs;
+    pub fn @"-"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self -% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) - value_as_f64,
+            },
+        };
     }
 
-    pub fn @"*"(self: i48, rhs: i48) i48 {
-        return self *% rhs;
+    pub fn @"*"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self *% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) * value_as_f64,
+            },
+        };
     }
 
-    pub fn @"/"(self: i48, rhs: i48, interpreter: *Interpreter) Interpreter.Error!i48 {
-        if (rhs == 0) {
-            @branchHint(.cold); // If we are in a fail state, we don't care that this branch is slow
-            interpreter.report_runtime_error("Tried to divide the Integer {d} by Integer zero.", .{self});
-            return Interpreter.Error.division_by_zero;
-        }
-        // TODO: Check if this is the correct behaviour. This is probably the behaviour of `//` on the `Integer` class. Which means we should return Double here maybe
-        // TODO: Also check if the `/` method rounds towards zero or -infinity (in case of towards zero, change to `@divTrunc`)
-        return @divFloor(self, rhs);
+    pub fn @"/"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+        return @"/_on_numbers"(self, rhs_raw, interpreter);
     }
 
     pub fn asString(self: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
@@ -83,20 +97,32 @@ pub const Integer = struct {
 };
 
 pub const Double = struct {
-    pub fn @"+"(self: f64, rhs: f64) f64 {
+    pub fn @"+"(self: f64, rhs_raw: Number) f64 {
+        const rhs: f64 = switch (rhs_raw) {
+            .double => |value| value,
+            .integer => |value_as_i48| @as(f64, @floatFromInt(value_as_i48)),
+        };
         return self + rhs;
     }
 
-    pub fn @"-"(self: f64, rhs: f64) f64 {
+    pub fn @"-"(self: f64, rhs_raw: Number) f64 {
+        const rhs: f64 = switch (rhs_raw) {
+            .double => |value| value,
+            .integer => |value_as_i48| @as(f64, @floatFromInt(value_as_i48)),
+        };
         return self - rhs;
     }
 
-    pub fn @"*"(self: f64, rhs: f64) f64 {
+    pub fn @"*"(self: f64, rhs_raw: Number) f64 {
+        const rhs: f64 = switch (rhs_raw) {
+            .double => |value| value,
+            .integer => |value_as_i48| @as(f64, @floatFromInt(value_as_i48)),
+        };
         return self * rhs;
     }
 
-    pub fn @"/"(self: f64, rhs: f64) f64 {
-        return self / rhs;
+    pub fn @"/"(self: f64, rhs: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+        return @"/_on_numbers"(self, rhs, interpreter);
     }
 
     pub fn asString(self: f64, interpreter: *Interpreter) Interpreter.Error!VmObject {
@@ -223,4 +249,20 @@ fn block_value_method(block: *types.Block, interpreter: *Interpreter) Interprete
         block.block_definition.number_of_aditional_args,
         block.block_definition.body.number_of_locals,
     );
+}
+
+fn @"/_on_numbers"(lhs_raw: anytype, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+    const lhs = switch (@TypeOf(lhs_raw)) {
+        i48 => lhs_raw,
+        f64 => std.math.lossyCast(i48, lhs_raw),
+        else => |Invalid| @compileError(std.fmt.comptimePrint("Invalid type: `{s}`", .{@typeName(Invalid)})),
+    };
+    const rhs = rhs_raw.as_i48_maybe_lossy();
+
+    if (rhs == 0) {
+        @branchHint(.cold); // If we are in a fail state, we don't care that this branch is slow
+        interpreter.report_runtime_error("Tried to divide the Integer {d} by Integer zero.", .{lhs});
+        return Interpreter.Error.division_by_zero;
+    }
+    return @divFloor(lhs, rhs);
 }
