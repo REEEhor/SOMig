@@ -5,7 +5,6 @@ const Allocator = std.mem.Allocator;
 const unions = @import("../../unions.zig");
 
 const helpers_module = @import("helpers.zig");
-const primitive_fn_postfix = helpers_module.primitive_fn_postfix;
 const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
 const NilPlaceholder = helpers_module.NilPlaceholder;
 
@@ -86,13 +85,8 @@ pub const PrimitiveMethodsMap = struct {
         // so the arraylists below don't have to realloc.
         const pritimive_classes_cnt = module_info.decls.len;
         comptime var primitive_methods_cnt = 0;
-        //
         inline for (module_info.decls) |decl| {
-            inline for (@typeInfo(@field(primitives_module, decl.name)).@"struct".decls) |primitive_decl| {
-                if (comptime std.mem.endsWith(u8, primitive_decl.name, primitive_fn_postfix)) {
-                    primitive_methods_cnt += 1;
-                }
-            }
+            primitive_methods_cnt += @typeInfo(@field(primitives_module, decl.name)).@"struct".decls.len;
         }
 
         var classes = try std.ArrayList(PrimitiveClass).initCapacity(allocator, pritimive_classes_cnt);
@@ -108,17 +102,16 @@ pub const PrimitiveMethodsMap = struct {
             // Go through each declaration in the primitive class
             // and find all functions that are supposed to be implementations of primitive SOM methods
             inline for (primitive_type_info.decls) |decl| {
-                if (comptime !std.mem.endsWith(u8, decl.name, primitive_fn_postfix)) continue;
-                const fn_name = decl.name[0..(decl.name.len - primitive_fn_postfix.len)];
-                const fn_arity: comptime_int = comptime get_method_arity_from_selector(fn_name);
+                const fn_selector = decl.name;
+                const fn_arity: comptime_int = comptime get_method_arity_from_selector(fn_selector);
                 const fn_impl: PrimitiveMethodImplementation = create_primitive_method_implementation(
                     @field(PrimitiveType, decl.name),
                     primitive_type_name,
-                    fn_name,
+                    fn_selector,
                 );
 
                 const primitive_method = PrimitiveMethod{
-                    .method_name = (try symbols_manager.id_or_intern(fn_name)).id,
+                    .method_name = (try symbols_manager.id_or_intern(fn_selector)).id,
                     .function = fn_impl,
                     .args_cnt = fn_arity,
                 };
@@ -157,12 +150,12 @@ pub const PrimitiveMethodsMap = struct {
     ) PrimitiveMethodImplementation {
         const Function = @TypeOf(function);
         const function_info = @typeInfo(Function).@"fn";
-        const ReturnType = blk: {
+        const ReturnType, const does_inner_function_return_error_union = blk: {
             const MaybeErrorUnion = function_info.return_type.?;
             if (unions.get_payload(@typeInfo(MaybeErrorUnion), .error_union)) |error_union| {
-                break :blk error_union.payload;
+                break :blk .{ error_union.payload, true };
             }
-            break :blk MaybeErrorUnion;
+            break :blk .{ MaybeErrorUnion, false };
         };
         const Arguments = std.meta.ArgsTuple(Function);
         return struct {
@@ -238,7 +231,12 @@ pub const PrimitiveMethodsMap = struct {
                 }
 
                 // Call the function implementation
-                const result: ReturnType = try @call(.auto, function, arguments);
+                const result: ReturnType = call: {
+                    if (does_inner_function_return_error_union) {
+                        break :call try @call(.always_inline, function, arguments);
+                    }
+                    break :call @call(.always_inline, function, arguments);
+                };
 
                 // Cast the result into a `VmObject`
                 const heap = interpreter.heap_allocator;
@@ -250,6 +248,12 @@ pub const PrimitiveMethodsMap = struct {
                     f64 => try types.Double.create_new(heap, result),
                     bool => interpreter.singletons.get_boolean_object(result),
                     SymbolId => try types.Symbol.create_new(heap, result),
+                    *types.String,
+                    *types.Array,
+                    *types.Class,
+                    *types.Symbol,
+                    *types.Block,
+                    => VmObject.from(result),
                     else => |Invalid| @compileError(std.fmt.comptimePrint(
                         "Invalid return type `{s}` in class `{s}` method `{s}`",
                         .{ @typeName(Invalid), class_name, fn_selector },

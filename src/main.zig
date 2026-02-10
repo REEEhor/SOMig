@@ -273,9 +273,6 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          | local_of_run1 local_of_run2 |
         \\          'Hello SOMig!' println.
         \\
-        \\          ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['\x1b[1;31mOH NO! "3=3" is false\x1b[0m']) println.
-        \\          ((3=2) ifTrue: ['\x1b[1;31mOH NO! "3=2" is true\x1b[0m'] ifFalse: ['"3=2" is false']) println.
-        \\
         \\          #'this is some kind of symbol' println.
         \\
         \\          '\tThis is\n\tmultiline\n\ttext!' println.

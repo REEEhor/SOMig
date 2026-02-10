@@ -1,5 +1,5 @@
-pub const DO_DEBUG_TRACE: bool = true;
-// pub const DO_DEBUG_TRACE: bool = false;
+// pub const DO_DEBUG_TRACE: bool = true;
+pub const DO_DEBUG_TRACE: bool = false;
 pub const PRINT_PTR_MODULO: bool = true;
 
 const std = @import("std");
@@ -211,6 +211,9 @@ pub const Interpreter = struct {
 
     source_code_files: *SourceCodeFiles,
 
+    /// TODO: put this into an argument and maybe set it to `false` by default
+    do_flush_on_every_print: bool = true,
+
     singletons: struct {
         true_object: VmObject,
         false_object: VmObject,
@@ -240,6 +243,7 @@ pub const Interpreter = struct {
         division_by_zero,
         compilation_error,
         block_escaped_its_home_scope,
+        out_of_bounds,
         TODO,
     } || Allocator.Error || Writer.Error;
 
@@ -800,6 +804,31 @@ pub const Interpreter = struct {
     pub fn report_runtime_error(self: *Self, comptime fmt: []const u8, args: anytype) void {
         // Ignore error since we report errors when there already is an error
         self.stderr.print(colors.ERR ++ "[runtime-error] " ++ colors.RESET ++ fmt ++ "\n", args) catch return;
+    }
+
+    pub fn check_out_of_bounds_get_1_base_index(self: *Self, params: struct { class_name: []const u8, length: usize, access_index: i48 }) Error!usize {
+        const class_name = params.class_name;
+        const length = params.length;
+        const access_index = params.access_index;
+        if (access_index == 0) {
+            @branchHint(.cold);
+            self.report_runtime_error("Out of bounds: Tried to access an instance of {s} at index 0. SOM has 1 based indexing ;)", .{class_name});
+            return Error.out_of_bounds;
+        }
+        if (access_index < 1) {
+            @branchHint(.cold);
+            self.report_runtime_error("Out of bounds: Tried to access an instance of {s} at index {d}.", .{ class_name, access_index });
+            return Error.out_of_bounds;
+        }
+        if (access_index > length) {
+            @branchHint(.cold);
+            self.report_runtime_error(
+                "Out of bounds: Tried to access an instance of {s} of length {d} at index {d}. Valid indexes are 1..{d}(inclusive).",
+                .{ class_name, length, access_index, length },
+            );
+            return Error.out_of_bounds;
+        }
+        return @intCast(access_index);
     }
 
     // TODO: position of the error
