@@ -1599,7 +1599,7 @@ pub const InstructionFormatter = struct {
                 },
                 .send_message => |send_message| {
                     const message_name = self.symbols_manager.symbol_with_id(send_message.message_name);
-                    try writer.print(" name=\"{s}\"", .{message_name});
+                    try writer.print(" selector=\"{s}\"", .{message_name});
                 },
                 .load_local => |info| {
                     try writer.print(" id({d}) up-frame-steps={d}", .{ info.local_id.idx, info.required_frame_up_steps });
@@ -1682,10 +1682,11 @@ pub fn print_escaped_string(writer: *std.io.Writer, string_bytes: []const u8) st
             '\n' => _ = try writer.write("\\n"),
             '\r' => _ = try writer.write("\\r"),
             '\'' => _ = try writer.write("\\'"),
+            '\t' => _ = try writer.write("\\t"),
             else => if (std.ascii.isPrint(char)) {
                 try writer.writeByte(char);
             } else {
-                try writer.print("\\x{x}", .{char});
+                try writer.print("\\x{x:02}", .{char});
             },
         }
     }
