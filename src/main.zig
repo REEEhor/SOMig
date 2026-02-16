@@ -430,13 +430,28 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\          '---' println.
         \\
         \\          instance_var2 := '"Hello from method scope :)"'.
-        \\          [[[['In a deeply nested block: ' print. instance_var2 println]value]value]value]value.
-        \\
-        \\          "This does not work yet, because the blocks escape their scope"
-        \\          "[[[['In a deeply nested block: ' print. instance_var2 println]]]] value value value value."
+        \\          [[[['In a deeply nested block 1: ' print. instance_var2 println]value]value]value]value.
+        \\          [[[['In a deeply nested block 2: ' print. instance_var2 println]]]] value value value value.
         \\
         \\          '---' println.
         \\
+        \\          'Creating a cat and capturing block from it. Result is:' println.
+        \\          (self cat_block: 38) value.
+        \\
+        \\          '---' println.
+        \\
+        \\      )
+        \\
+        \\      cat_block: h= (
+        \\          |cat blk|
+        \\          cat := Cat new.
+        \\          blk := cat get_capture_block.
+        //          TODO(consultation): is this correct? :D
+        \\          "In reverse order! The cat gets captured by `get_capture_block` and only then we set the variables :D"
+        \\          cat set_name_to: '"a cat from method"'.
+        \\          cat set_jump_height_to: h.
+        \\
+        \\          ^ blk.
         \\      )
         \\
         \\      block_runner: blk with_argument: arg = (
@@ -578,6 +593,17 @@ fn add_temprorary_source_code(allocator: std.mem.Allocator, source_code_files: *
         \\    jump = (
         \\       ('The cat named "' + (self name) + '"') print.
         \\       (' jumped ' + (jump_height) + ' cm high!') println.
+        \\    )
+        \\
+        \\    get_capture_block = (
+        \\        |local_variable|
+        \\        local_variable := '"This is a local variable from the `get_capture_block` method"'.
+        \\        ^ [
+        \\          'Block has captured: ' println.
+        \\          ' - local: ' print. local_variable println.
+        \\          ' - instance_var (jump_height): ' print. jump_height println.
+        \\          ' - super method (name): ' print. (super name) println.
+        \\        ].
         \\    )
         \\
         \\    " Used for super call shinenigans "

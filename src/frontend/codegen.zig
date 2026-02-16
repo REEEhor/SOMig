@@ -1244,12 +1244,6 @@ pub const BytecodeGenerator = struct {
             },
             .exit_expression => |exit_expr| {
                 try self.compile_expression(exit_expr.return_value);
-                // FIXME: here we will have to check, whether we are in an block or not - and generate a different return
-                const required_frame_upsteps_when_compiling_exit_outside_of_block = 0;
-                try self.add_instruction(.{ .set_local = .{
-                    .local_id = Instruction.LocalVarId.return_object,
-                    .required_frame_up_steps = required_frame_upsteps_when_compiling_exit_outside_of_block,
-                } });
                 if (self.currently_compiling_block) {
                     try self.add_instruction(.non_local_return);
                 } else {
@@ -1834,7 +1828,6 @@ pub const Instruction = union(enum(u8)) {
     /// To access the `local_variable[0]`, you would need `LocalId{.idx = 4}` (4 = <number-of-arguments> + <index-of-local>)
     pub const LocalVarId = packed struct {
         idx: u32,
-        pub const return_object = LocalVarId{ .idx = 0 };
     };
 
     pub const InstanceVarId = packed struct { idx: u32 };

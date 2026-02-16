@@ -9,6 +9,8 @@ const Writer = std.io.Writer;
 
 const colors = @import("../terminal.zig");
 
+const unions = @import("../unions.zig");
+
 const debug_module = @import("../debug/debug.zig");
 const dbg = debug_module.dbg;
 const dbg_nl = debug_module.dbg_nl;
@@ -42,6 +44,7 @@ pub const vm_object_module = @import("vm_object.zig");
 pub const VmObject = vm_object_module.VmObject;
 pub const HeapData = vm_object_module.HeapData;
 pub const types = vm_object_module.types;
+pub const FrameOnHeap = vm_object_module.FrameOnHeap;
 
 const primitives_module = @import("primitives/__primitives.zig");
 pub const primitives = primitives_module.primitive_classes;
@@ -107,6 +110,7 @@ pub const Stack = struct {
         base_ptr: [*]VmObject,
         after_return_instruction_id: InstructionId,
         kind: Kind,
+        escaped_blocks_list_head: ?*types.Block = null,
 
         pub const Kind = union(enum) {
             /// Has guaranteed that the `body` is of type `user_land`.
@@ -138,6 +142,14 @@ pub const Stack = struct {
 
         pub fn get_variable_ptr(self: @This(), objects: []VmObject, offset: u32) *VmObject {
             return &objects[self.base_ptr + offset];
+        }
+
+        pub fn number_of_args_and_locals(self: @This()) usize {
+            // NOTE: We have to do `1 + ` to include the `self` in the number of arguments
+            return switch (self.kind) {
+                .method => |method| 1 + method.number_of_aditional_args + method.body.user_land.number_of_locals,
+                .block => |block| 1 + block.block_definition.number_of_aditional_args + block.block_definition.body.number_of_locals,
+            };
         }
     };
 
@@ -294,7 +306,7 @@ pub const Interpreter = struct {
                     .symbols_manager = &self.statics.symbols_manager,
                     .use_color = true,
                 };
-                std.debug.print("\n[debug] Currently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
+                std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             sw_instruction: switch (instruction) {
                 .no_op => {},
@@ -335,6 +347,12 @@ pub const Interpreter = struct {
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
                     result_frame.base_ptr[info.local_id.idx] = to_assign;
 
+                    // TODO(consultation): can we really do the `info.required_frame_up_steps != 0` here?
+                    if (unions.get_payload(to_assign.kind(), .block)) |block| if (info.required_frame_up_steps != 0) {
+                        @branchHint(.unlikely);
+                        block.add_to_escaped_blocks_list();
+                    };
+
                     if (DO_DEBUG_TRACE) {
                         const ptr = &result_frame.base_ptr[info.local_id.idx];
                         if (index_from_pointer(ptr, self.stack.objects)) |index| {
@@ -360,6 +378,13 @@ pub const Interpreter = struct {
                         // FIXME: implement this
                         .class => return self.report_TODO("Setting of class variables", .{}),
                         else => unreachable,
+                    }
+
+                    // If we have assigned a block to an instance variable, we say that the block
+                    // will escape and out-live its home frame.
+                    if (unions.get_payload(top_object.kind(), .block)) |block| {
+                        @branchHint(.unlikely);
+                        block.add_to_escaped_blocks_list();
                     }
                 },
                 .pop_into_new_array => |info| {
@@ -395,6 +420,9 @@ pub const Interpreter = struct {
                         try self.push_object(newly_loaded_class.as_vm_object);
                     }
                 },
+                // .set_global => |global_symbol_id| {
+                // //  TODO: once we implent `.set_global`, we need to ensure, that check if assigned object is block and add it to the escaped blocks
+                // },
                 .load_symbol => |symbol_id| {
                     const object: VmObject = try types.Symbol.create_new(self.heap_allocator, symbol_id);
                     try self.push_object(object);
@@ -428,15 +456,20 @@ pub const Interpreter = struct {
                 .normal_return => {
                     const return_value: VmObject = self.top_stack_object().*;
 
+                    if (unions.get_payload(return_value.kind(), .block)) |block| {
+                        @branchHint(.cold);
+                        block.add_to_escaped_blocks_list();
+                    }
+
                     // Leaves a spot at the top of the stack for the `return_value`
-                    const next_instruction = self.pop_frame().next_instruction;
+                    const next_instruction = (try self.pop_frame()).next_instruction;
                     if (self.stack.frames.len == 0) {
                         try self.report_info("The program's entry point function has returned", .{});
                         return;
                     }
 
                     // Put the return value on the top of the stack
-                    self.stack.objects[self.stack.objects.len - 1] = return_value;
+                    self.top_stack_object().* = return_value;
 
                     const bytecode = self.top_frame().get_bytecode();
                     self.decoder.bytes = bytecode.bytes;
@@ -458,11 +491,11 @@ pub const Interpreter = struct {
                     };
 
                     // We know that we want to pop at least one frame (the block frame)
-                    _ = self.pop_frame();
+                    _ = try self.pop_frame();
                     while (wanted_frame != self.top_frame()) {
                         // We should never fail to pop frame here,
-                        // since we assert above, that the block has no escaped its home context.
-                        _ = self.pop_frame();
+                        // since we assert above, that the block has not escaped its home context.
+                        _ = try self.pop_frame();
                     }
 
                     // Put the return value on the top of the stack
@@ -487,7 +520,9 @@ pub const Interpreter = struct {
             .integer => |int| try self.stdout.print("{d}", .{int.header.value}),
             .double => |double| try self.stdout.print("{d}", .{double.value}),
             .string => |string| {
+                try self.stdout.print("'", .{});
                 try codegen_module.print_escaped_string(self.stdout, string.contents());
+                try self.stdout.print("'", .{});
             },
             .generic_object => |generic_object| {
                 const class_name: SymbolId = generic_object.class.class_name;
@@ -522,8 +557,26 @@ pub const Interpreter = struct {
                 const symbol_string = self.statics.symbols_manager.symbol_with_id(symbol_id);
                 try self.stdout.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
             },
-            .block => {
-                try self.stdout.print("block (yup, this is not really helpful info)", .{});
+            .block => |block| {
+                try self.stdout.print("block esc: {s} home: {s} self:", .{
+                    if (block.header.has_escaped_home_context) "true " else "false", switch (block.home_frame.kind) {
+                        .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
+                        .block => "(some block)",
+                    },
+                });
+                const home_frame_self = block.home_frame.self_object_ptr().*;
+                switch (home_frame_self.kind()) {
+                    .block => |self_block| {
+                        if (self_block == block) {
+                            try self.stdout.print(" (the same block)", .{});
+                        } else {
+                            try self.print_object_no_newline(home_frame_self);
+                        }
+                    },
+                    else => {
+                        try self.print_object_no_newline(home_frame_self);
+                    },
+                }
             },
         }
     }
@@ -570,8 +623,8 @@ pub const Interpreter = struct {
                 current_frame.constants_base_id().idx,
                 current_frame.after_return_instruction_id.idx,
             };
-            const frame_length = std.fmt.count(frame_format_string, frame_args);
-            std.debug.print(frame_format_string, frame_args);
+            const frame_length = std.fmt.count(frame_format_string, frame_args) + 2;
+            std.debug.print("• " ++ frame_format_string, frame_args);
 
             const sentinel_object_idx: usize = blk: {
                 if (next_frame_idx >= self.stack.frames_count()) {
@@ -660,8 +713,33 @@ pub const Interpreter = struct {
     }
 
     /// Asserts that the stack is not empty
-    pub fn pop_frame(self: *Self) struct { next_instruction: InstructionId } {
+    pub fn pop_frame(self: *Self) Allocator.Error!struct { next_instruction: InstructionId } {
         assert(self.stack.frames_count() > 0);
+
+        var number_of_escaped_blocks: if (DO_DEBUG_TRACE) i32 else void = if (DO_DEBUG_TRACE) 0 else {};
+        if (self.top_frame().escaped_blocks_list_head) |first_escaped_block| {
+            const heap_frame: *Stack.Frame = try FrameOnHeap.reallocate_frame_to_heap(
+                self.heap_allocator,
+                self.top_frame().*,
+            );
+            switch (self.top_frame().kind) {
+                .block => |block| block.add_to_escaped_blocks_list(),
+                .method => {},
+            }
+            var escaped_block = first_escaped_block;
+            while (true) {
+                assert(escaped_block.home_frame == self.top_frame());
+                assert(escaped_block.header.has_escaped_home_context == false);
+                if (DO_DEBUG_TRACE) number_of_escaped_blocks += 1;
+                escaped_block.home_frame = heap_frame;
+                escaped_block.header.has_escaped_home_context = true;
+                escaped_block = escaped_block.next_escaped_block orelse break;
+            }
+        }
+        if (DO_DEBUG_TRACE) {
+            std.debug.print("(popped a stackframe with {d} escaped blocks)\n", .{number_of_escaped_blocks});
+        }
+
         // We need to not pop the top-most object on the popped frame,
         // since there will be the return value of function that is getting returned out of
         // (therefore the `+1`):

@@ -45,6 +45,7 @@ pub const VmObject = struct {
         const heap_data: *HeapData = self.data orelse return .nil;
         switch (heap_data.header.tag) {
             .empty_heap_segment => unreachable,
+            .frame => unreachable,
             inline else => |heap_data_tag| {
                 const ObjectType: type = comptime for (std.meta.declarations(types)) |object_type_declaration| {
                     const ObjectType: type = @field(types, object_type_declaration.name);
@@ -70,6 +71,11 @@ pub const VmObject = struct {
         generic_object: *types.GenericObject,
 
         pub const Tag = std.meta.Tag(@This());
+
+        const Self = @This();
+        pub fn tag(self: Self) Tag {
+            return std.meta.activeTag(self);
+        }
 
         fn tag_with_object_type(comptime ObjectType: type) Tag {
             comptime {
@@ -113,6 +119,7 @@ pub const HeapData = struct {
             block,
             generic_object,
             empty_heap_segment,
+            frame,
         };
     };
 };
@@ -155,7 +162,6 @@ fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []Item {
     const ptr: [*]Item = @ptrFromInt(address);
     return ptr[0..length];
 }
-
 pub const types = struct {
     pub const Integer = extern struct {
         header: Header,
@@ -213,6 +219,7 @@ pub const types = struct {
     ///     instance_field[2]: VmObject,
     ///     instance_field[3]: VmObject,
     ///     ...
+    ///     instance_field[header.number_of_instance_fields-1]: VmObject,
     /// ```
     pub const GenericObject = extern struct {
         header: Header,
@@ -260,6 +267,7 @@ pub const types = struct {
     ///     class_fields_of_represented_class[2]: VmObject,
     ///     class_fields_of_represented_class[3]: VmObject,
     ///     ...
+    ///     class_fields_of_represented_class[header.number_of_class_fields-1]: VmObject,
     /// ```
     pub const Class = extern struct {
         header: Header,
@@ -319,6 +327,7 @@ pub const types = struct {
     ///     array_items[2]: VmObject,
     ///     array_items[3]: VmObject,
     ///     ...
+    ///     array_items[header.length-1]: VmObject,
     /// ```
     pub const Array = extern struct {
         header: Header,
@@ -355,11 +364,12 @@ pub const types = struct {
     /// Actual fields when allocated via `create_new` or `create_new_fmt` are:
     /// ```zig
     ///     header: Header,
-    ///     str[0]: u8,
-    ///     str[1]: u8,
-    ///     str[2]: u8,
-    ///     str[3]: u8,
+    ///     contents[0]: u8,
+    ///     contents[1]: u8,
+    ///     contents[2]: u8,
+    ///     contents[3]: u8,
     ///     ...
+    ///     contents[header.length-1]: u8,
     /// ```
     pub const String = extern struct {
         header: Header,
@@ -432,6 +442,15 @@ pub const types = struct {
         block_definition: *const BlockDefinition,
         home_frame: *Stack.Frame,
 
+        /// Next blocks which is also consider to be escaped from
+        /// its home frame.
+        ///
+        /// The `Block` might be a part of an intrusive list
+        /// which tracks all blocks, that escaped from their home context.
+        ///
+        /// The first item of this list is in `Stack.Frame.escaped_blocks_list_head`.
+        next_escaped_block: ?*types.Block = null,
+
         pub const Header = packed struct(u64) {
             tag: HeapData.Header.Tag = tag,
             is_marked: bool = false,
@@ -456,5 +475,97 @@ pub const types = struct {
             self.home_frame = parent_frame;
             return VmObject.from(self);
         }
+
+        pub fn add_to_escaped_blocks_list(self: *Block) void {
+            if (self.header.has_escaped_home_context) return;
+            const head = &self.home_frame.escaped_blocks_list_head;
+            self.next_escaped_block = head.*;
+            head.* = self;
+        }
     };
+};
+
+/// Just a namespace for manipulating a `Stack.Frame` which has been moved
+/// to the heap. We need to at least sometimes put a stack frame on a heap,
+/// because of blocks (lambdas) in SOM, which escape their home context
+/// (home context == stack frame in which the block was created).
+///
+/// The `FrameOnHeap` is just a namespace and not a `VmObject` as in other SOM implementations,
+/// because we want to hold the invariant, that the frame is not an object that
+/// can be stored in some class for example.
+///
+/// Also the `FrameOnHeap` cannot be accessed just via casting `*HeapData`
+/// to `*FrameOnHeap`, since `Stack.Frame` contains a tagged union,
+/// which has unspecified memory layout, therefore `Stack.Frame` cannot
+/// be an `extern struct`, therefore `FrameOnHeap` cannot be an `extern struct`,
+/// which means a `FrameOnHeap.Header` could not be ensured to be in front
+/// of the `Stack.Frame` when it is on the heap. We need header to be at the front
+/// for garbage collection.
+///
+/// The actual memory layout of heap allocated stackframe is this:
+/// ```zig
+///     header: Header,
+///     frame: Stack.Frame,
+///     locals_and_args[0]: VmObject,
+///     locals_and_args[1]: VmObject,
+///     locals_and_args[2]: VmObject,
+///     locals_and_args[3]: VmObject,
+///     ...
+///     locals_and_args[header.number_of_locals-1]: VmObject,
+/// ```
+pub const FrameOnHeap = struct {
+    pub const Header = packed struct(u64) {
+        tag: HeapData.Header.Tag = tag,
+        is_marked: bool = false,
+
+        /// Number of local variables (including arguments) of the frame.
+        /// These are stored right after the `Stack.Frame`
+        number_of_locals: u55,
+
+        pub fn object_size_in_bytes(header: @This()) usize {
+            return @sizeOf(Header) + @sizeOf(Stack.Frame) + header.number_of_locals * @sizeOf(VmObject);
+        }
+    };
+
+    pub const tag = HeapData.Header.Tag.frame;
+
+    comptime {
+        // We want to put the header right before the `Stack.Frame`.
+        // For that we need these comptime asserts.
+        // When the asserts pass, we know that we can find the `Header` at `pointer_to_frame - @sizeOf(Header)`.
+        // We also need these asserts so that `Header.object_size_in_bytes()` can just sum up the size of `Header` and `Stack.Frame`
+        // to get the result.
+        assert(@alignOf(Stack.Frame) == 8);
+        assert(@alignOf(Header) == 8);
+        assert(@sizeOf(Header) == 8);
+    }
+
+    pub fn header_from_frame(frame_ptr: *const Stack.Frame) *Header {
+        const frame_ptr_as_int: usize = @intFromPtr(frame_ptr);
+        const header_ptr_as_int: usize = frame_ptr_as_int - @sizeOf(Header);
+        const header_ptr: *Header = @ptrFromInt(header_ptr_as_int);
+        return header_ptr;
+    }
+
+    pub fn frame_from_header(header: *const Header) *Stack.Frame {
+        const header_ptr_as_int: usize = @intFromPtr(header);
+        const frame_ptr_as_int: usize = header_ptr_as_int + @sizeOf(Header);
+        const frame_ptr: *Stack.Frame = @ptrFromInt(frame_ptr_as_int);
+        return frame_ptr;
+    }
+
+    pub fn reallocate_frame_to_heap(allocator: Allocator, frame: Stack.Frame) Allocator.Error!*Stack.Frame {
+        const header_ptr: *Header = try allocate_heap_data(allocator, Header{
+            .number_of_locals = @truncate(frame.number_of_args_and_locals()),
+        });
+        const frame_ptr: *Stack.Frame = frame_from_header(header_ptr);
+        frame_ptr.* = frame;
+
+        // Move the locals onto the heap
+        const new_locals: []VmObject = slice_after(frame_ptr, VmObject, header_ptr.number_of_locals);
+        @memcpy(new_locals, frame.base_ptr[0..new_locals.len]);
+        frame_ptr.base_ptr = new_locals.ptr;
+
+        return frame_ptr;
+    }
 };
