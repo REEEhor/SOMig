@@ -564,11 +564,10 @@ pub fn compile_class_with_its_parents(
         }
 
         if (globals.get(parent_being_resolved)) |parent_definition| {
-            break switch (parent_definition.kind()) {
-                .class => |class| class.represented_class,
-                // TODO: make this error better
-                else => return error.parent_is_not_a_class,
-            };
+            break if (parent_definition.as(.class)) |class|
+                class.represented_class
+            else
+                return error.parent_is_not_a_class;
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
         try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });

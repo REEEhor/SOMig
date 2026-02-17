@@ -194,6 +194,7 @@ pub const BuiltinClassDefinitions = struct {
     block3: ?*ClassDefinition = null,
     // TODO: method
     // TODO: primitive
+    // TODO: system
 
     pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) ?*const ClassDefinition {
         return switch (number_of_non_self_arguments) {
@@ -347,7 +348,7 @@ pub const Interpreter = struct {
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
                     result_frame.base_ptr[info.local_id.idx] = to_assign;
 
-                    if (unions.get_payload(to_assign.kind(), .block)) |block| if (info.required_frame_up_steps != 0) {
+                    if (to_assign.as_block()) |block| if (info.required_frame_up_steps != 0) {
                         @branchHint(.unlikely);
                         block.add_to_escaped_blocks_list();
                     };
@@ -361,27 +362,17 @@ pub const Interpreter = struct {
                 },
                 .load_instance_var => |info| {
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                    const instance_variable = switch (self_object.kind()) {
-                        .generic_object => |object| object.get_fields()[info.instance_var_id.idx],
-                        // FIXME: implement this
-                        .class => return self.report_TODO("Loading of class variables", .{}),
-                        else => unreachable,
-                    };
+                    const instance_variable = self_object.get_instance_fields()[info.instance_var_id.idx];
                     try self.push_object(instance_variable);
                 },
                 .set_instance_var => |info| {
                     const top_object: VmObject = self.top_stack_object().*;
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                    switch (self_object.kind()) {
-                        .generic_object => |object| object.get_fields()[info.instance_var_id.idx] = top_object,
-                        // FIXME: implement this
-                        .class => return self.report_TODO("Setting of class variables", .{}),
-                        else => unreachable,
-                    }
+                    self_object.get_instance_fields()[info.instance_var_id.idx] = top_object;
 
                     // If we have assigned a block to an instance variable, we say that the block
                     // will escape and out-live its home frame.
-                    if (unions.get_payload(top_object.kind(), .block)) |block| {
+                    if (top_object.as_block()) |block| {
                         @branchHint(.unlikely);
                         block.add_to_escaped_blocks_list();
                     }
@@ -455,7 +446,7 @@ pub const Interpreter = struct {
                 .normal_return => {
                     const return_value: VmObject = self.top_stack_object().*;
 
-                    if (unions.get_payload(return_value.kind(), .block)) |block| {
+                    if (return_value.as_block()) |block| {
                         @branchHint(.cold);
                         block.add_to_escaped_blocks_list();
                     }
@@ -577,6 +568,8 @@ pub const Interpreter = struct {
                     },
                 }
             },
+            .empty_heap_segment => unreachable,
+            .frame_header => unreachable,
         }
     }
 
@@ -851,6 +844,7 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
+        // TODO(consultation): what to do here?
         return switch (object.kind()) {
             .class => |class| class.class_of_represented_class,
             .generic_object => |generic_object| generic_object.class,
@@ -864,6 +858,9 @@ pub const Interpreter = struct {
             .block => |block| self.builtin_class_definitions.block_from_number_of_non_self_arguments(
                 block.block_definition.number_of_aditional_args,
             ).?,
+
+            .frame_header => unreachable,
+            .empty_heap_segment => unreachable,
         };
     }
 

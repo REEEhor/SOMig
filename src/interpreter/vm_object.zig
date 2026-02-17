@@ -15,7 +15,6 @@ const BlockDefinition = codegen_module.BlockDefinition;
 const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 
-
 // TODO(speed): NaN tagging, we should be able to do:
 //                 - pointers to `ObjectHeader`
 //                 - booleans (false, true)
@@ -23,7 +22,7 @@ const SymbolId = interning_module.SymbolId;
 //                 - i48 numbers
 //                 - maybe small string optimisation?
 pub const VmObject = struct {
-    data: ?*HeapData,
+    data: ?*OpaqueHeader,
 
     pub const nil = VmObject{ .data = null };
 
@@ -36,7 +35,7 @@ pub const VmObject = struct {
             const header_type_info = @typeInfo(info.fields[0].type).@"struct";
             assert(header_type_info.layout == .@"packed");
             assert(header_type_info.backing_integer.? == u64);
-            assert(header_type_info.fields[0].type == HeapData.Header.Tag);
+            assert(header_type_info.fields[0].type == Tag);
             assert(header_type_info.fields[1].type == bool);
             assert(std.mem.eql(u8, header_type_info.fields[1].name, "is_marked"));
         }
@@ -44,94 +43,127 @@ pub const VmObject = struct {
         return object;
     }
 
+    /// Gets the inner `Kind` of the `VmObject`.
+    /// If you expect only a small subset of the `Kind`, consider using
+    /// methods that extract only a subset of the values, such as the method `as` or `as_integer`.
     pub fn kind(self: VmObject) Kind {
-        const heap_data: *HeapData = self.data orelse return .nil;
-        switch (heap_data.header.tag) {
-            .empty_heap_segment => unreachable,
-            .frame => unreachable,
-            inline else => |heap_data_tag| {
-                const ObjectType: type = comptime for (std.meta.declarations(types)) |object_type_declaration| {
-                    const ObjectType: type = @field(types, object_type_declaration.name);
-                    if (ObjectType.tag == heap_data_tag) break ObjectType;
-                } else @compileError(std.fmt.comptimePrint("Could not find an object type which has the tag `{t}`", .{heap_data_tag}));
-
-                const vm_object_type_tag: Kind.Tag = comptime Kind.tag_with_object_type(ObjectType);
-                const casted_self: *ObjectType = @ptrCast(heap_data);
-                return @unionInit(Kind, @tagName(vm_object_type_tag), casted_self);
-            },
-        }
+        const heap_data: *OpaqueHeader = self.data orelse return .nil;
+        return heap_data.kind();
     }
 
-    pub const Kind = union(enum) {
-        integer: *types.Integer,
-        double: *types.Double,
-        string: *types.String,
-        array: *types.Array,
-        nil,
-        class: *types.Class,
-        symbol: *types.Symbol,
-        block: *types.Block,
-        generic_object: *types.GenericObject,
-
-        pub const Tag = std.meta.Tag(@This());
-
-        const Self = @This();
-        pub fn tag(self: Self) Tag {
-            return std.meta.activeTag(self);
+    pub fn as(self: VmObject, comptime tag: Tag) ?@FieldType(Kind, @tagName(tag)) {
+        const ReturnType = @FieldType(Kind, @tagName(tag));
+        if (ReturnType == void) {
+            comptime assert(tag == .nil);
+            assert(self.data == null);
+            return void;
         }
+        const data: *OpaqueHeader = self.data orelse return null;
+        if (data.tag != tag) return null;
+        return @ptrCast(data);
+    }
 
-        fn tag_with_object_type(comptime ObjectType: type) Tag {
-            comptime {
-                var result_tag: ?Tag = null;
-                for (@typeInfo(Kind).@"union".fields) |field| {
-                    if (field.type != *ObjectType) continue;
-                    const current_tag = @field(Tag, field.name);
-                    if (result_tag != null) {
-                        @compileError(std.fmt.comptimePrint(
-                            "Found payload `{s}` for tags `{t}` and `{t}`",
-                            .{ @typeName(ObjectType), result_tag.?, current_tag },
-                        ));
-                    }
-                    result_tag = current_tag;
-                }
+    /// Just a simple wrapper around `self.as(.block)`
+    pub fn as_block(self: VmObject) ?*types.Block {
+        return self.as(.block);
+    }
 
-                return result_tag orelse @compileError(std.fmt.comptimePrint(
-                    "Could not find payload of type `{s}` in `{s}`",
-                    .{ @typeName(*ObjectType), @typeName(@This()) },
-                ));
-            }
+    pub fn as_integer(self: VmObject) ?i48 {
+        const integer = self.as(.integer) orelse return null;
+        return integer.header.value;
+    }
+
+    pub fn get_instance_fields(self: VmObject) []VmObject {
+        const empty: []VmObject = &[0]VmObject{};
+        const data = self.data orelse return empty;
+        switch (data.tag) {
+            .generic_object => {
+                const object = data.unchecked_cast_to(.generic_object);
+                return object.get_fields();
+            },
+            .class => {
+                const class = data.unchecked_cast_to(.class);
+                return class.get_class_fields();
+            },
+            else => return empty,
         }
-    };
+    }
 };
 
-pub const HeapData = struct {
-    header: Header,
+/// Defined separatelly, because of dependency loop error.
+/// It is probably caused by payloads of `Kind`, which refer to the `Tag`.
+/// For example `Kind.string` has payload of `*types.Integer` which contains a `Tag`.
+pub const Tag = enum(u8) {
+    integer,
+    double,
+    string,
+    array,
+    class,
+    symbol,
+    block,
+    generic_object,
+    empty_heap_segment,
+    frame_header,
+    nil,
+};
 
-    pub const Header = packed struct(u64) {
-        tag: Tag,
-        is_marked: bool,
-        _padding: u55,
+pub const Kind = union(Tag) {
+    integer: *types.Integer,
+    double: *types.Double,
+    string: *types.String,
+    array: *types.Array,
+    class: *types.Class,
+    symbol: *types.Symbol,
+    block: *types.Block,
+    generic_object: *types.GenericObject,
 
-        pub const Tag = enum(u8) {
-            integer,
-            double,
-            string,
-            array,
-            class,
-            symbol,
-            block,
-            generic_object,
-            empty_heap_segment,
-            frame,
+    /// TODO: representation of the `empty_heap_segment`
+    empty_heap_segment,
+
+    frame_header: *FrameOnHeap.Header,
+
+    /// Does not have a payload since it is a singleton with no fields.
+    nil,
+
+    const Self = @This();
+
+    pub fn tag(self: Self) Tag {
+        return std.meta.activeTag(self);
+    }
+};
+
+/// Header which is at the beginning of every heap allocated segment (or a free segment that is on the heap).
+/// Each runtime objects must contain a header at their beginning which can be casted to this struct.
+pub const OpaqueHeader = packed struct(u64) {
+    tag: Tag,
+    is_marked: bool,
+    /// Other objects can reuse this field to store some information
+    _padding: u55,
+
+    pub fn kind(header: *OpaqueHeader) Kind {
+        return switch (header.tag) {
+            inline else => |kind_tag| {
+                const tag_name = @tagName(kind_tag);
+                const PayloadType = @FieldType(Kind, tag_name);
+                if (PayloadType == void) {
+                    return @unionInit(Kind, tag_name, {});
+                }
+                const casted_self: PayloadType = @ptrCast(header);
+                return @unionInit(Kind, tag_name, casted_self);
+            },
         };
-    };
+    }
+
+    pub fn unchecked_cast_to(header: *OpaqueHeader, comptime tag: Tag) @FieldType(Kind, @tagName(tag)) {
+        return @ptrCast(header);
+    }
 };
 
 comptime {
     // Simplifies a lot of things (especially the alignment).
     // It is far easier to allocate header and then other fields after it for example.
-    assert(@sizeOf(HeapData) == 8);
-    assert(@alignOf(HeapData) == 8);
+    assert(@sizeOf(OpaqueHeader) == 8);
+    assert(@alignOf(OpaqueHeader) == 8);
 }
 
 fn allocate_heap_data(
@@ -143,7 +175,7 @@ fn allocate_heap_data(
         assert(info.layout == .@"packed");
         assert(info.backing_integer.? == u64);
         //
-        assert(info.fields[0].type == HeapData.Header.Tag);
+        assert(info.fields[0].type == Tag);
         assert(std.mem.eql(u8, info.fields[0].name, "tag"));
         //
         assert(info.fields[1].type == bool);
@@ -151,7 +183,7 @@ fn allocate_heap_data(
         assert(std.meta.hasFn(@TypeOf(header), "object_size_in_bytes"));
     }
 
-    const alignment = comptime std.mem.Alignment.fromByteUnits(@alignOf(HeapData));
+    const alignment = comptime std.mem.Alignment.fromByteUnits(@alignOf(OpaqueHeader));
     const byte_size: usize = header.object_size_in_bytes();
     const bytes_ptr = try allocator.alignedAlloc(u8, alignment, byte_size);
     const ptr: *@TypeOf(header) = @ptrCast(bytes_ptr);
@@ -170,7 +202,7 @@ pub const types = struct {
         header: Header,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u7 = undefined,
             value: i48,
@@ -181,7 +213,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .integer;
+        pub const tag: Tag = .integer;
 
         pub fn create_new(allocator: Allocator, value: i48) Allocator.Error!VmObject {
             const self: *Integer = @ptrCast(try allocate_heap_data(allocator, Header{ .value = value }));
@@ -194,7 +226,7 @@ pub const types = struct {
         value: f64,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u55 = undefined,
 
@@ -204,7 +236,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .double;
+        pub const tag: Tag = .double;
 
         pub fn create_new(allocator: Allocator, value: f64) Allocator.Error!VmObject {
             const self: *Double = @ptrCast(try allocate_heap_data(allocator, Header{}));
@@ -229,7 +261,7 @@ pub const types = struct {
         class: *ClassDefinition,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u7 = undefined,
             number_of_instance_fields: i48,
@@ -240,7 +272,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .generic_object;
+        pub const tag: Tag = .generic_object;
 
         pub fn create_new(allocator: Allocator, class: *ClassDefinition) Allocator.Error!VmObject {
             const number_of_instance_fields: i48 = @intCast(class.fields_count_including_parents());
@@ -278,7 +310,7 @@ pub const types = struct {
         class_of_represented_class: *ClassDefinition,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u7 = undefined,
             number_of_class_fields: i48,
@@ -289,7 +321,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .class;
+        pub const tag: Tag = .class;
 
         pub fn create_new(
             allocator: Allocator,
@@ -336,7 +368,7 @@ pub const types = struct {
         header: Header,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u7 = undefined,
             length: i48,
@@ -347,7 +379,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .array;
+        pub const tag: Tag = .array;
 
         pub fn create_new(allocator: Allocator, items_to_copy: []VmObject) Allocator.Error!VmObject {
             const length: i48 = @intCast(items_to_copy.len);
@@ -378,7 +410,7 @@ pub const types = struct {
         header: Header,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u7 = undefined,
             length: i48,
@@ -389,7 +421,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .string;
+        pub const tag: Tag = .string;
 
         pub fn init_with_undefined_contents(allocator: Allocator, length: i48) Allocator.Error!*String {
             const self: *String = @ptrCast(try allocate_heap_data(allocator, Header{ .length = length }));
@@ -421,7 +453,7 @@ pub const types = struct {
         header: Header,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u31 = undefined,
             symbol_id: SymbolId,
@@ -432,7 +464,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .symbol;
+        pub const tag: Tag = .symbol;
 
         pub fn create_new(allocator: Allocator, symbol_id: SymbolId) Allocator.Error!VmObject {
             const self: *Symbol = @ptrCast(try allocate_heap_data(allocator, Header{ .symbol_id = symbol_id }));
@@ -455,7 +487,7 @@ pub const types = struct {
         next_escaped_block: ?*types.Block = null,
 
         pub const Header = packed struct(u64) {
-            tag: HeapData.Header.Tag = tag,
+            tag: Tag = tag,
             is_marked: bool = false,
             _padding: u54 = undefined,
             has_escaped_home_context: bool = false,
@@ -466,7 +498,7 @@ pub const types = struct {
             }
         };
 
-        pub const tag: HeapData.Header.Tag = .block;
+        pub const tag: Tag = .block;
 
         pub fn create_new(
             allocator: Allocator,
@@ -518,7 +550,7 @@ pub const types = struct {
 /// ```
 pub const FrameOnHeap = struct {
     pub const Header = packed struct(u64) {
-        tag: HeapData.Header.Tag = tag,
+        tag: Tag = tag,
         is_marked: bool = false,
 
         /// Number of local variables (including arguments) of the frame.
@@ -528,9 +560,13 @@ pub const FrameOnHeap = struct {
         pub fn object_size_in_bytes(header: @This()) usize {
             return @sizeOf(Header) + @sizeOf(Stack.Frame) + header.number_of_locals * @sizeOf(VmObject);
         }
+
+        pub fn frame_ptr(header_ptr: *const @This()) *Stack.Frame {
+            return frame_from_header(header_ptr);
+        }
     };
 
-    pub const tag = HeapData.Header.Tag.frame;
+    pub const tag = Tag.frame_header;
 
     comptime {
         // We want to put the header right before the `Stack.Frame`.
