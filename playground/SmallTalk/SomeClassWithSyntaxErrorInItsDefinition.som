@@ -1,0 +1,3 @@
+SomeClassWithSyntaxErrorInItsDefinition = (
+      say_hi = this_causes_parser_error
+)

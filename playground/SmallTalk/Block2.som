@@ -1,0 +1,4 @@
+Block2 = Block (
+      value           = ( self value: nil )
+      value: argument = primitive
+)

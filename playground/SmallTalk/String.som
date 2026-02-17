@@ -1,0 +1,10 @@
+String = (
+      + obj = ( ^ self concatWith: obj asString  )
+      concatWith: otherString = primitive
+      asString = ( ^ self )
+      asSymbol = primitive
+      print = primitive
+      println = primitive
+      substringFrom: from to: to = ( ^ self primSubstringFrom: from to: to. )
+      primSubstringFrom: _ to: _ = primitive
+)

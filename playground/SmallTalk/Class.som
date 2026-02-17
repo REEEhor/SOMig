@@ -1,0 +1,5 @@
+Class = (
+    name = primitive
+    asString = ( ^ self name asString )
+    new = primitive
+)

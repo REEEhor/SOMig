@@ -264,18 +264,113 @@ pub const LexicalScopesStack = struct {
 };
 
 pub const SourceCodeFiles = struct {
-    cached_source_files: std.AutoArrayHashMapUnmanaged(SymbolId, []const u8),
+    cached_source_filepaths: Map,
+    /// Arena used for storing the `cached_source_filepaths`, including the owned filepaths in it.
+    arena: std.heap.ArenaAllocator,
+    root_filepath: Filepath,
 
     const Self = @This();
-    pub const Map = std.AutoArrayHashMapUnmanaged(SymbolId, []const u8);
+    pub const Map = std.AutoArrayHashMapUnmanaged(SymbolId, Filepath);
+    pub const Filepath = []const u8;
 
-    pub const LookupError = error{some_file_error};
-    pub fn get_source_code_of(self: Self, class_name: SymbolId) LookupError!?[]const u8 {
-        const source = self.cached_source_files.get(class_name) orelse {
-            // TODO: try to look in the file system
+    pub const LookupError = RefreshError;
+    pub const LookupResult = struct {
+        source_code: []const u8,
+        filepath: Filepath,
+    };
+    pub fn get_source_code_of(self: *Self, class_name: SymbolId, source_code_allocator: Allocator, refresh_params: RefreshParams) LookupError!?LookupResult {
+        var retry_count: i32 = 0;
+        const max_retry_count = 1;
+        const filepath = while (retry_count <= max_retry_count) : (retry_count += 1) {
+            if (self.cached_source_filepaths.get(class_name)) |filepath| break filepath;
+            try self.refresh_cached_filepaths(refresh_params);
+        } else return null;
+
+        var root_dir = std.fs.cwd().openDir(self.root_filepath, .{}) catch |err| {
+            refresh_params.error_reporter.report_error(
+                .no_location,
+                "Could not open the root directory '{s}' containing SOM code, because: {t}.",
+                .{ self.root_filepath, err },
+            );
             return null;
         };
-        return source;
+        defer root_dir.close();
+
+        var file = root_dir.openFile(filepath, .{ .mode = .read_only }) catch |err| {
+            refresh_params.error_reporter.report_error(
+                .no_location,
+                "Could not open '{s}' which should contain the class '{s}', because: {t}.",
+                .{ filepath, refresh_params.symbols_manager.symbol_with_id(class_name), err },
+            );
+            return null;
+        };
+        defer file.close();
+
+        const source_code = file.readToEndAlloc(source_code_allocator, 1 << 32) catch |err| {
+            refresh_params.error_reporter.report_error(
+                .no_location,
+                "Could not read the entire sourcecode in '{s}' which should contain the class '{s}', because: {t}.",
+                .{ filepath, refresh_params.symbols_manager.symbol_with_id(class_name), err },
+            );
+            return null;
+        };
+
+        return .{ .source_code = source_code, .filepath = filepath };
+    }
+
+    pub const RefreshError = Allocator.Error;
+    pub const RefreshParams = struct {
+        temporary_allocator: Allocator,
+        symbols_manager: *SymbolsManager,
+        /// For reporting duplicate errors and file errors
+        error_reporter: *ErrorReporter,
+    };
+    pub fn refresh_cached_filepaths(
+        self: *Self,
+        params: RefreshParams,
+    ) RefreshError!void {
+        const temporary_allocator = params.temporary_allocator;
+        const symbols_manager = params.symbols_manager;
+        const error_reporter = params.error_reporter;
+        var root_dir = std.fs.cwd().openDir(self.root_filepath, .{ .iterate = true }) catch |err| {
+            var filepath_buffer: [2048]u8 = undefined;
+            const path = std.fs.cwd().realpath(self.root_filepath, &filepath_buffer) catch {
+                error_reporter.report_error(.no_location, "Error while opening the root directory '{s}': {t}.", .{ self.root_filepath, err });
+                return;
+            };
+            error_reporter.report_error(.no_location, "Error while opening the root directory '{s}': {t}.", .{ path, err });
+            return;
+        };
+        defer root_dir.close();
+        var walker = try root_dir.walk(temporary_allocator);
+        defer walker.deinit();
+
+        // Free all the cached entries
+        _ = self.arena.reset(.retain_capacity);
+
+        while (true) {
+            const entry = walker.next() catch |err| {
+                // TODO: if we ever have warnings, they would be nice here
+                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ self.root_filepath, err });
+                continue;
+            } orelse break;
+            if (entry.kind != .file) continue;
+            const file_ending = ".som";
+            if (!std.mem.endsWith(u8, entry.basename, file_ending)) continue;
+            const class_name = entry.basename[0 .. entry.basename.len - file_ending.len];
+            const class_name_as_symbol: SymbolId = (try symbols_manager.id_or_intern(class_name)).id;
+            const owned_path: Filepath = try self.arena.allocator().dupe(u8, entry.path);
+            const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
+            if (gop.found_existing) {
+                error_reporter.report_error(
+                    .no_location,
+                    "Found the same class definition for '{s}' in multiple files. First in '{s}' and now in '{s}'. Ignoring the later entry.",
+                    .{ class_name, gop.value_ptr.*, owned_path },
+                );
+            } else {
+                gop.value_ptr.* = owned_path;
+            }
+        }
     }
 };
 
@@ -334,19 +429,24 @@ pub fn find_file_and_parse_it(
     parse_allocator: Allocator,
 ) !ParsedFile {
     var reporter = ErrorReporter{
-        .source = undefined, // TODO(HACK)
-        .source_path = statics.symbols_manager.symbol_with_id(class_name), // TODO: get the actual path to the source code
+        .source = undefined,
+        .source_path = null,
         .use_color = true,
         .writer = error_writer,
     };
-    const source_code = (try source_code_files.get_source_code_of(class_name)) orelse {
+    const lookup_result = (try source_code_files.get_source_code_of(class_name, parse_allocator, .{
+        .error_reporter = &reporter,
+        .temporary_allocator = parse_allocator,
+        .symbols_manager = &statics.symbols_manager,
+    })) orelse {
         const class_name_str = statics.symbols_manager.symbol_with_id(class_name);
         reporter.report_error(.no_location, "Could not find the source code for the class: {s}", .{class_name_str});
         return error.sourcecode_for_class_not_found;
     };
-    reporter.source = source_code;
+    reporter.source = lookup_result.source_code;
+    reporter.source_path = lookup_result.filepath;
 
-    const tokenized_file = try lexer_module.tokenize(parse_allocator, source_code, &reporter);
+    const tokenized_file = try lexer_module.tokenize(parse_allocator, lookup_result.source_code, &reporter);
     var parser = parser_module.Parser.create(tokenized_file, &reporter, parse_allocator);
     const parsed_file = try parser.parse();
 

@@ -1,3 +1,5 @@
+//! TODO: make this simpler
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -12,6 +14,7 @@ const BlockDefinition = codegen_module.BlockDefinition;
 
 const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
+
 
 // TODO(speed): NaN tagging, we should be able to do:
 //                 - pointers to `ObjectHeader`

@@ -1,0 +1,6 @@
+Symbol = String (
+    asString = primitive
+    asSymbol = ( ^ self )
+    print = ( '#' print. super print )
+    println = ( '#' print. super println )
+)

@@ -1,0 +1,15 @@
+True = Boolean (
+
+    "Converting"
+    asString       = ( ^'true' )
+
+    "Conditional evaluation"
+    ifTrue:  block = ( ^block value )
+    ifFalse: block = ( ^nil )
+
+    "Logical operations"
+    not        = ( ^false )
+    or: block  = ( ^true )
+    and: block = ( ^block value )
+
+)

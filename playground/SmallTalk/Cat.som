@@ -1,0 +1,34 @@
+Cat = Animal (
+    | jump_height |
+
+    asString = ( ^ 'cat named "' + (self name) + '"' )
+
+    set_jump_height_to: new_jump_height_in_cm = (
+       jump_height := new_jump_height_in_cm.
+    )
+
+    jump = (
+       ('The cat named "' + (self name) + '"') print.
+       (' jumped ' + (jump_height) + ' cm high!') println.
+    )
+
+    get_capture_block = (
+        |local_variable|
+        local_variable := '"This is a local variable from the `get_capture_block` method"'.
+        ^ [
+          'Block has captured: ' println.
+          ' - local: ' print. local_variable println.
+          ' - instance_var (jump_height): ' print. jump_height println.
+          ' - super method (name): ' print. (super name) println.
+        ].
+    )
+
+    " Used for super call shinenigans "
+    get_likability = (
+       |parent_likability|
+       ''println.
+       '  (calling to super to get likability...)' println.
+       parent_likability := super get_likability.
+       ^ parent_likability + 5.
+    )
+)

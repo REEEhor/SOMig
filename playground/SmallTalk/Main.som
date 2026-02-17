@@ -1,0 +1,269 @@
+Main = (
+    | instance_var1 instance_var2 |
+    run = (
+        | local_of_run1 local_of_run2 |
+        'Hello SOMig!' println.
+
+        #'this is some kind of symbol' println.
+
+        '\tThis is\n\tmultiline\n\ttext!' println.
+
+        'Before assignment: ' print.
+        local_of_run1 print. ' ' print.
+        local_of_run2 println.
+
+        local_of_run2 := local_of_run1 := 42.
+
+        'After assignment: ' print.
+        local_of_run1 print. ' ' print.
+        local_of_run2 println.
+
+        (42) println.
+        (5 + 3) println.
+        (1000.0 - 0.01) println.
+        ('Test of ' concatWith: 'concat strings') println.
+        'Number is: ' + 42 println.
+        ('I want ' + 98 + ' ice-creams.') println.
+        "(10.0 // 0.0) println."        "TODO: uncomment this"
+        "(10.0 // -0.0) println."       "TODO: uncomment this"
+        (10 / 4) println.
+        '1+1.5 = ' print. (1+1.5) println
+        '1.5+1 = ' print. (1.5+1) println
+
+        "Try uncommenting the line below to crash to program:"
+        "SomeClassWithSyntaxErrorInItsDefinition."
+
+         "12345678"
+        ('knihovna' substringFrom: 2 to: 5) println.
+
+        self println.
+
+        'This-is-symbol' asSymbol println.
+        "123456"
+        ('SYMBOL' asSymbol substringFrom: 1 to: 3) println.
+
+        self some_other_method.
+        1.
+        self get_message println.
+
+        self array_example.
+
+        '"5 + 3 * 2.0 + 3" is ' + (5 + 3 * 2.0 + 3).
+        (4 asString + 2) println.
+
+        self block_example.
+
+        self boolean_example.
+
+    )
+
+    block_example = (
+        | method1 method2 blk |
+        '\n== Block example ==' println.
+
+        [ 'Hello SOMig from block!' ] value println.
+
+        method1 := [
+            | block_local |
+            block_local := '"I am a local variable from a block"'.
+            'In a block: ' print.
+            block_local println.
+            block_local.
+        ] value.
+        'Outside of a block: ' print.
+        method1 println.
+
+        [ :arg |
+            'This print is from a block: ' print.
+            arg println.
+        ] value.
+
+        [ :arg |
+            'This print is from a block: ' print.
+            arg println.
+        ] value: '"Argument to a block"'.
+
+        [ :arg1 :arg2 |
+            'This print is from a block. Arg1: ' print.
+            arg1 print.
+            ' Arg2: ' print.
+            arg2 println.
+        ] value: '"Argument 1 to a block"' with: '"Argument 2 to a block"'.
+
+        [ :arg1 :arg2 |
+            'This print is from a block. Arg1: ' print.
+            arg1 print.
+            ' Arg2: ' print.
+            arg2 println.
+        ] value: '"Argument 1 to a block"'.
+
+        '---' println.
+
+        method1 := '"local method1"'.
+        method2 := '"local method2"'.
+        [
+            'Captured variable in block: ' print.
+            method1 println.
+        ] value.
+
+        '---' println.
+
+        [
+            | a_block1 a_block2 |
+            a_block1 := '"local a_block1"'.
+            a_block2 := '"local a_block2"'.
+            [
+                'Captured method variable in block:  ' print. method1 println.
+                'Captured method variable in block:  ' print. method2 println.
+                'Captured block A variable in block: ' print. a_block1 println.
+                'Captured block A variable in block: ' print. a_block2 println.
+            ] value.
+        ] value.
+
+        '---' println.
+
+        'block_runner:' println.
+        self block_runner: [ :a_block_argument |
+            | a_block1 a_block2 |
+            a_block1 := '"local a_block1"'.
+            a_block2 := '"local a_block2"'.
+            [
+                'Captured method variable in block:    ' print. method1 println.
+                'Captured method variable in block:    ' print. method2 println.
+                'Captured block A variable in block:   ' print. a_block1 println.
+                'Captured block A variable in block:   ' print. a_block2 println.
+                'Captured block A argument in a block: ' print. a_block_argument println.
+            ] value.
+        ] with_argument: '"This is an argument to the `block_runner:` method"'.
+
+        '---' println.
+
+        method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.
+        blk := [ 'In block: ' print. method1 println. ].
+        method1 := '"Changed method1 value"'.
+        blk value.
+
+        '---' println.
+
+        method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.
+        blk := [ method1 := '"Value set by a block"'. ].
+        blk value.
+        'Changed value by a block: ' print. method1 println.
+
+        '---' println.
+
+        blk := [ instance_var2 := '"Instance var set by a block"'. ]
+        'Instance var before block: ' print. instance_var2 println.
+        '(calling `value`)' println.
+        blk value.
+        'After: ' print. instance_var2 println.
+
+        '---' println.
+
+        instance_var2 := '"Hello from method scope :)"'.
+        [[[['In a deeply nested block 1: ' print. instance_var2 println]value]value]value]value.
+        [[[['In a deeply nested block 2: ' print. instance_var2 println]]]] value value value value.
+
+        '---' println.
+
+        'Creating a cat and capturing block from it. Result is:' println.
+        (self cat_block: 38) value.
+
+        '---' println.
+
+    )
+
+    cat_block: h= (
+        |cat blk|
+        cat := Cat new.
+        blk := cat get_capture_block.
+        "In reverse order! The cat gets captured by `get_capture_block` and only then we set the variables :D"
+        cat set_name_to: '"a cat from method"'.
+        cat set_jump_height_to: h.
+
+        ^ blk.
+    )
+
+    block_runner: blk with_argument: arg = (
+        [
+            blk value: arg.
+        ] value.
+    )
+
+    boolean_example = (
+        | var1 var2 var3 |
+
+        '' println.
+        '== Boolean example ==' println.
+
+        '3=4: ' print. (3 = 4) println.
+        '3=3: ' print. (3 = 3) println.
+        '3=2: ' print. (3 = 2) println.
+
+        (3=2) ifFalse: [ '3 really does not equal 2' println. ].
+        (3=2) ifTrue:  [ 'Uh oh, 3 = 2' println. ].
+
+        (3=3) ifTrue:  [ '3 really equals 2' println. ].
+        (3=3) ifFalse: [ 'Uh oh, 3 != 3' println. ].
+
+        var1 := (3 = 3) not.
+        var2 := (10 = 4.2).
+        var3 := (var1 not and: [ true ]) or: var2. "<- `var2` here should be a block, but its fine"
+        var3 ifTrue: [ '`var3` is really true, nice. The class is: ' print ].
+        var3 class println.
+
+        '---' println.
+
+        ((3=3) ifTrue: ['"3=3" is true'] ifFalse: ['\x1b[1;31mOH NO! "3=3" is false\x1b[0m']) println.
+        ((3=2) ifTrue: ['\x1b[1;31mOH NO! "3=2" is true\x1b[0m'] ifFalse: ['"3=2" is false']) println.
+
+    )
+
+    array_example = (
+        | arr |
+
+        '' println.
+        '== Array example ==' println.
+
+        arr := #().
+        ('Array length: ' + (arr length)) println.
+
+        arr := #( 10 ).
+        ('Array length: ' + (arr length) + ' item: ' + (arr at: 1)) println.
+
+        arr := #( 10 20 30 ).
+        ('Array length: ' + (arr length) + ' items: ' + (arr at: 1) + ' ' + (arr at: 2) + ' ' + (arr at: 3)) println.
+
+        'Array at index 2: ' print. (arr at: 2) println.
+        arr at: 2 put: 42.
+        'Array at index 2: ' print. (arr at: 2) print. ' (after update)' println.
+
+        arr println.
+        '' println.
+    )
+
+    some_other_method = (
+        | some_variable cat |
+        cat := Cat new.
+        cat say_hi.
+        cat println.
+        cat set_name_to: 'Shrodinger'.
+        cat println.
+        cat set_jump_height_to: 150 + 2.
+        cat say_hi.
+        cat jump.
+        cat print_likability.
+
+        '`Cat static_say_hi:`       ' print.
+        Cat static_say_hi.
+
+        '`cat class static_say_hi:` ' print.
+        cat class static_say_hi.
+    )
+
+    get_message = (
+        'Currently inside the `get_message` function'.
+        ^ 'This is a message from a function'.
+    )
+
+)

@@ -347,7 +347,6 @@ pub const Interpreter = struct {
                     const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
                     result_frame.base_ptr[info.local_id.idx] = to_assign;
 
-                    // TODO(consultation): can we really do the `info.required_frame_up_steps != 0` here?
                     if (unions.get_payload(to_assign.kind(), .block)) |block| if (info.required_frame_up_steps != 0) {
                         @branchHint(.unlikely);
                         block.add_to_escaped_blocks_list();
