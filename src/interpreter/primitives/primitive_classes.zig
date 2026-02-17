@@ -9,7 +9,6 @@ const SymbolsManager = interning_module.SymbolsManager;
 
 const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
-const Number = helpers_module.Number;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -23,6 +22,7 @@ const ClassDefinition = class_definition_module.ClassDefinition;
 const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
 const HeapData = vm_object_module.HeapData;
+const Number = vm_object_module.Number;
 
 // NOTE(epic-zig): the reflection used to extract this info is really nice :D
 

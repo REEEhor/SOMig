@@ -7,7 +7,6 @@ const unions = @import("../../unions.zig");
 const helpers_module = @import("helpers.zig");
 const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
 const NilPlaceholder = helpers_module.NilPlaceholder;
-const Number = helpers_module.Number;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -19,6 +18,7 @@ const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
+const Number = vm_object_module.Number;
 const types = vm_object_module.types;
 
 pub const PrimitiveMethodsMap = struct {
@@ -168,51 +168,43 @@ pub const PrimitiveMethodsMap = struct {
                 inline for (function_info.params, 0..) |parameter, inner_function_parameter_idx| {
                     const Parameter = parameter.type.?;
                     const argument: Parameter = switch (Parameter) {
-                        NilPlaceholder => switch (interpreter.pop_object().kind()) {
-                            .nil => .{},
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Nil"),
+                        NilPlaceholder => if (interpreter.pop_object().as(.nil) != null) .{} else {
+                            return invalid_argument(interpreter, som_parameter_idx, "Nil");
                         },
-                        f64 => switch (interpreter.pop_object().kind()) {
-                            .double => |double| double.value,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Double"),
-                        },
-                        i48 => switch (interpreter.pop_object().kind()) {
-                            .integer => |integer| integer.header.value,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Integer"),
-                        },
-                        Number => switch (interpreter.pop_object().kind()) {
-                            .integer => |integer| .{ .integer = integer.header.value },
-                            .double => |double| .{ .double = double.value },
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
-                        },
-                        *types.Class => switch (interpreter.pop_object().kind()) {
-                            .class => |class| class,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Class"),
-                        },
-                        *types.Array => switch (interpreter.pop_object().kind()) {
-                            .array => |array| array,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Array"),
-                        },
-                        []VmObject => switch (interpreter.pop_object().kind()) {
-                            .array => |array| array.get_items(),
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Array"),
-                        },
-                        []const u8 => switch (interpreter.pop_object().kind()) {
-                            .string => |string| string.contents(),
-                            .symbol => |symbol| interpreter.statics.symbols_manager.symbol_with_id(symbol.header.symbol_id),
-                            else => return invalid_argument(interpreter, som_parameter_idx, "String"),
-                        },
+                        f64 => interpreter.pop_object().as_double() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Double"),
+
+                        i48 => interpreter.pop_object().as_integer() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Integer"),
+
+                        Number => interpreter.pop_object().as_number() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
+
+                        *types.Class => interpreter.pop_object().as(.class) orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Class"),
+
+                        *types.Array => interpreter.pop_object().as(.array) orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Array"),
+
+                        []VmObject => interpreter.pop_object().as_array() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Array"),
+
+                        []const u8 => (interpreter.pop_object().as_text(&interpreter.statics.symbols_manager)) orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "String"),
+
                         SymbolId => switch (interpreter.pop_object().kind()) {
                             .symbol => |symbol| symbol.header.symbol_id,
                             .string => return invalid_argument(interpreter, som_parameter_idx, "Symbol, use `asSymbol` if the interning of the string is an okay cost to pay"),
                             else => return invalid_argument(interpreter, som_parameter_idx, "Symbol"),
                         },
-                        *types.Block => switch (interpreter.pop_object().kind()) {
-                            .block => |block| block,
-                            else => return invalid_argument(interpreter, som_parameter_idx, "Block"),
-                        },
+
+                        *types.Block => interpreter.pop_object().as_block() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Block"),
+
                         VmObject => interpreter.pop_object(),
+
                         *Interpreter => interpreter,
+
                         else => |Invalid| @compileError(std.fmt.comptimePrint(
                             "Invalid argument type `{s}` in class `{s}` method `{s}` at index: {d}",
                             .{ @typeName(Invalid), class_name, fn_selector, inner_function_parameter_idx },

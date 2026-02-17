@@ -14,6 +14,7 @@ const BlockDefinition = codegen_module.BlockDefinition;
 
 const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
+const SymbolsManager = interning_module.SymbolsManager;
 
 // TODO(speed): NaN tagging, we should be able to do:
 //                 - pointers to `ObjectHeader`
@@ -73,6 +74,45 @@ pub const VmObject = struct {
         return integer.header.value;
     }
 
+    pub fn as_double(self: VmObject) ?f64 {
+        const double = self.as(.double) orelse return null;
+        return double.value;
+    }
+
+    pub fn as_array(self: VmObject) ?[]VmObject {
+        const array = self.as(.array) orelse return null;
+        return array.get_items();
+    }
+
+    pub fn as_text(self: VmObject, symbols_manager: *SymbolsManager) ?[]const u8 {
+        const data = self.data orelse return null;
+        switch (data.tag) {
+            .symbol => {
+                const symbol_object = data.unchecked_cast_to(.symbol);
+                const symbol_id: SymbolId = symbol_object.header.symbol_id;
+                return symbols_manager.symbol_with_id(symbol_id);
+            },
+            .string => {
+                const string_object = data.unchecked_cast_to(.string);
+                return string_object.contents();
+            },
+            else => return null,
+        }
+    }
+
+    pub fn as_number(self: VmObject) ?Number {
+        const data = self.data orelse return null;
+        return switch (data.tag) {
+            .integer => .{
+                .integer = data.unchecked_cast_to(.integer).header.value,
+            },
+            .double => .{
+                .double = data.unchecked_cast_to(.double).value,
+            },
+            else => return null,
+        };
+    }
+
     pub fn get_instance_fields(self: VmObject) []VmObject {
         const empty: []VmObject = &[0]VmObject{};
         const data = self.data orelse return empty;
@@ -87,6 +127,19 @@ pub const VmObject = struct {
             },
             else => return empty,
         }
+    }
+};
+
+pub const Number = union(enum) {
+    integer: i48,
+    double: f64,
+
+    const Self = @This();
+    pub fn as_i48_maybe_lossy(self: Self) i48 {
+        return switch (self) {
+            .integer => |x| x,
+            .double => |x| std.math.lossyCast(i48, x),
+        };
     }
 };
 
