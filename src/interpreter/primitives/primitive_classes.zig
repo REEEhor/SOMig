@@ -58,8 +58,11 @@ pub const Integer = struct {
     pub fn @"="(self: i48, rhs: Number) bool {
         return self == switch (rhs) {
             .integer => |value| value,
-            // TODO: fix this, `3 != 2` but this method returns true for `3 = 2`
-            .double => |value_as_f64| std.math.lossyCast(i48, value_as_f64),
+            .double => |value_as_f64| {
+                const ceil = std.math.lossyCast(i48, std.math.ceil(value_as_f64));
+                const floor = std.math.lossyCast(i48, std.math.floor(value_as_f64));
+                return self == ceil and self == floor;
+            },
         };
     }
 
