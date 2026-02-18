@@ -158,7 +158,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     // );
 
     // Allocate stack
-    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 10);
+    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 1000);
     defer allocator.free(frames);
     const objects = try allocator.alloc(interpreter_module.VmObject, 100);
     defer allocator.free(objects);

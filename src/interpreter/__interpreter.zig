@@ -576,6 +576,9 @@ pub const Interpreter = struct {
                     },
                 }
             },
+            .system => {
+                try self.stdout.print("system_singleton", .{});
+            },
             .empty_heap_segment => unreachable,
             .frame_header => unreachable,
         }

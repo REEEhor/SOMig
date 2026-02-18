@@ -1,8 +1,19 @@
 Integer = (
-     = _ = primitive
      + _ = primitive
      - _ = primitive
      * _ = primitive
      / _ = primitive
      asString = primitive
+     
+    "Comparing"
+    =  argument = primitive
+    == argument = ( ^self = argument )
+    ~= argument = ( ^(self = argument) not )
+    <  argument = primitive
+    >= argument = ( ^(self < argument) not )
+    <= argument = ( ^(self < argument) or: [ self = argument ] )
+    negative    = ( ^self < 0 )
+    
+    "between: a and: b = ( ^(self > a) and: [ self < b ] )"
+    ">  argument = ( ^(self >= argument) and: [ self <> argument ] )"
 )

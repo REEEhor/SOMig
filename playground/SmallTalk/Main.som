@@ -56,6 +56,8 @@ Main = (
         self boolean_example.
 
         self loop_example.
+        
+        self fibonacci_example.
     )
 
     loop_example = (
@@ -91,6 +93,26 @@ Main = (
            (array at: index) println.
            index := index + 1.
         ]
+    )
+    
+    fibonacci_example = (
+        |i|
+        i := 0.
+        
+        '\n== Fibonacci example ==' println.
+        
+        [ i = 9 ] whileFalse: [
+            'Fibonacci of ' print. i print. ' is: ' print.
+            (self fib: i) println.
+            i := i + 1.
+        ]
+    )
+    
+   "defines the fib: method with the argument n"
+    fib: n = (
+        ^ n <= 1
+            ifTrue:  [ 1 ]
+            ifFalse: [ (self fib: (n - 1)) + (self fib: (n - 2)) ]
     )
     
     block_example = (
