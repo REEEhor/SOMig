@@ -225,6 +225,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block2"));
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block3"));
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("System"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Method"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Primitive"));
         inline for (std.meta.fields(interpreter_module.BuiltinClassDefinitions)) |field| {
             assert(@field(interpreter.builtin_class_definitions, field.name) != null);
         }

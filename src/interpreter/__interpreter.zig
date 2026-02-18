@@ -201,8 +201,8 @@ pub const BuiltinClassDefinitions = struct {
     block2: ?*ClassDefinition = null,
     block3: ?*ClassDefinition = null,
     system: ?*ClassDefinition = null,
-    // TODO: method
-    // TODO: primitive
+    method: ?*ClassDefinition = null,
+    primitive: ?*ClassDefinition = null,
 
     pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) ?*const ClassDefinition {
         return switch (number_of_non_self_arguments) {
@@ -871,6 +871,11 @@ pub const Interpreter = struct {
             .block => |block| self.builtin_class_definitions.block_from_number_of_non_self_arguments(
                 block.block_definition.number_of_aditional_args,
             ).?,
+
+            .method => |method| blk: {
+                if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive.?;
+                break :blk self.builtin_class_definitions.method.?;
+            },
 
             .frame_header => unreachable,
             .empty_heap_segment => unreachable,

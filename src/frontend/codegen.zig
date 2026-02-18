@@ -710,6 +710,8 @@ pub fn compile_class(
             SymbolsManager.comptime_id_of("Block2").idx => &builtin_class_definitions.block2,
             SymbolsManager.comptime_id_of("Block3").idx => &builtin_class_definitions.block3,
             SymbolsManager.comptime_id_of("System").idx => &builtin_class_definitions.system,
+            SymbolsManager.comptime_id_of("Method").idx => &builtin_class_definitions.method,
+            SymbolsManager.comptime_id_of("Primitive").idx => &builtin_class_definitions.primitive,
             else => break :register_builtin_class,
         };
         builtin_class.* = instance_portion_definition;

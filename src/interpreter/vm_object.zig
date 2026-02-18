@@ -8,6 +8,9 @@ const BuiltinClassType = @import("__interpreter.zig").BuiltinClassType;
 const interpreter_module = @import("__interpreter.zig");
 const ClassDefinition = interpreter_module.ClassDefinition;
 const Stack = interpreter_module.Stack;
+const MethodDefinition = interpreter_module.MethodDefinition;
+
+const SmallPtr = @import("small_ptr.zig").SmallPtr;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const BlockDefinition = codegen_module.BlockDefinition;
@@ -156,6 +159,7 @@ pub const Tag = enum(u8) {
     frame_header,
     nil,
     system,
+    method,
 };
 
 pub const Kind = union(Tag) {
@@ -178,6 +182,8 @@ pub const Kind = union(Tag) {
 
     /// TODO: remove the payload once we have NaN boxing, `System` is a singleton with no state
     system: *types.System,
+
+    method: *types.Method,
 
     const Self = @This();
 
@@ -592,6 +598,34 @@ pub const types = struct {
             const self: *System = @ptrCast(try allocate_heap_data(allocator, Header{}));
             return VmObject.from(self);
         }
+    };
+
+    pub const Method = extern struct {
+        header: Header,
+
+        pub const Header = packed struct(u64) {
+            tag: Tag = tag,
+            is_marked: bool = false,
+            _padding: u7 = undefined,
+            method: SmallPtr(*const MethodDefinition),
+
+            pub fn object_size_in_bytes(header: @This()) usize {
+                _ = header;
+                return @sizeOf(Header);
+            }
+        };
+
+        pub const tag = Tag.method;
+
+        pub fn method(self: *Self) *const MethodDefinition {
+            return self.header.method.pointee();
+        }
+
+        pub fn is_primitive(self: *Self) bool {
+            return self.method().body == .primitive;
+        }
+
+        const Self = @This();
     };
 };
 

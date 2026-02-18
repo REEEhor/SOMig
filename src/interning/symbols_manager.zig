@@ -132,6 +132,8 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Block2",
     "Block3",
     "System",
+    "Method",
+    "Primitive",
 
     // Keywords of the language
     "self",
