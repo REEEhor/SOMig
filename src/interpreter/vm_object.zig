@@ -600,17 +600,18 @@ pub const types = struct {
 /// because of blocks (lambdas) in SOM, which escape their home context
 /// (home context == stack frame in which the block was created).
 ///
-/// The `FrameOnHeap` is just a namespace and not a `VmObject` as in other SOM implementations,
-/// because we want to hold the invariant, that the frame is not an object that
-/// can be stored in some class for example.
+/// Sadly, `FrameOnHeap` cannot be a struct like other `VmObject`s,
+/// and accessed just via casting `*OpaqueHeader`to `*FrameOnHeap`, since:
+///     - `Stack.Frame` contains a tagged union (which we don't want to remove, it's really handy),
+///     - but a tagged union has unspecified memory layout,
+///     - therefore `Stack.Frame` cannot be an `extern struct`,
+///     - therefore `FrameOnHeap` cannot be an `extern struct`,
+///     - therefore `FrameOnHeap.Header` could not be ensured
+///         to be in front of the `Stack.Frame` in this hypothetical `FrameOnHeap` object.
+/// ... but we need header to be at the front for garbage collection.
 ///
-/// Also the `FrameOnHeap` cannot be accessed just via casting `*HeapData`
-/// to `*FrameOnHeap`, since `Stack.Frame` contains a tagged union,
-/// which has unspecified memory layout, therefore `Stack.Frame` cannot
-/// be an `extern struct`, therefore `FrameOnHeap` cannot be an `extern struct`,
-/// which means a `FrameOnHeap.Header` could not be ensured to be in front
-/// of the `Stack.Frame` when it is on the heap. We need header to be at the front
-/// for garbage collection.
+/// The namespace `FrameOnHeap` and `FrameOnHeap.Header` have methods for accessing
+/// individual parts (header, frame, and local+argument variables).
 ///
 /// The actual memory layout of heap allocated stackframe is this:
 /// ```zig
@@ -666,6 +667,17 @@ pub const FrameOnHeap = struct {
         const frame_ptr_as_int: usize = header_ptr_as_int + @sizeOf(Header);
         const frame_ptr: *Stack.Frame = @ptrFromInt(frame_ptr_as_int);
         return frame_ptr;
+    }
+
+    pub fn get_arguments_and_locals(header_ptr_or_frame_ptr: anytype) []VmObject {
+        const frame_ptr, const header_ptr = switch (@TypeOf(header_ptr_or_frame_ptr)) {
+            *Header, *const Header => .{ frame_from_header(header_ptr_or_frame_ptr), header_ptr_or_frame_ptr },
+            *Stack.Frame, *const Stack.Frame => .{ header_ptr_or_frame_ptr, header_from_frame(header_ptr_or_frame_ptr) },
+            else => |Invalid| @compileError(std.fmt.comptimePrint("Invalid type: `{s}`", .{@typeName(Invalid)})),
+        };
+
+        const length: u47 = header_ptr.number_of_locals;
+        return slice_after(frame_ptr, VmObject, length);
     }
 
     pub fn reallocate_frame_to_heap(allocator: Allocator, frame: Stack.Frame) Allocator.Error!*Stack.Frame {

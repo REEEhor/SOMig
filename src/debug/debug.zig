@@ -1,7 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 
-var printned_newline = false;
+pub var printned_newline = false;
 
 pub fn dbg_nl() void {
     print("\n", .{});

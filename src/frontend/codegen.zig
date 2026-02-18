@@ -346,6 +346,7 @@ pub const SourceCodeFiles = struct {
         defer walker.deinit();
 
         // Free all the cached entries
+        self.cached_source_filepaths.clearRetainingCapacity();
         _ = self.arena.reset(.retain_capacity);
 
         while (true) {

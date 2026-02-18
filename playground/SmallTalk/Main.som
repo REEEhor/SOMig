@@ -73,6 +73,13 @@ Main = (
         '---' println.
         self print_array: #('Hello' #(100 200 300) ':)' 42).
         '---' println.
+        'Big loop...' print.
+        index := 0.
+        [ index = 1000 ] whileFalse: [
+            index := index + 1. 
+        ].
+        'done. Counted to: ' print. index println.
+        '---' println.
     )
     
     print_array: array = (
