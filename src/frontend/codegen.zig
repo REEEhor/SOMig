@@ -779,8 +779,22 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     }
     defer lexical_scopes.pop_scope();
 
+    // Add the class to the list of all classes
+    const compiled_class: *ClassDefinition = blk: {
+        const ptr = try statics.all_classes.addOne(statics.allocator);
+        ptr.* = ClassDefinition{
+            .class_name = class_name_symbol,
+            .instance_methods = undefined,
+            .as_vm_object = undefined,
+            .identifiers_of_instance_variables = field_identifiers,
+            .parent = compiled_parent,
+            .number_of_parent_instance_variables = if (compiled_parent) |p| p.fields_count_including_parents() else 0,
+        };
+        break :blk ptr;
+    };
+
     const all_methods_len = ast_portion.methods.len + (if (compiled_parent) |p| p.instance_methods.items.len else 0);
-    var compiled_methods: []MethodDefinition = try temporary_allocator.alloc(MethodDefinition, all_methods_len);
+    var compiled_methods: []*const MethodDefinition = try temporary_allocator.alloc(*const MethodDefinition, all_methods_len);
     defer temporary_allocator.free(compiled_methods);
 
     const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
@@ -830,11 +844,14 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     continue;
                 };
 
-                compiled_methods[method_idx] = MethodDefinition{
+                const new_method_ptr: *MethodDefinition = try statics.all_methods.addOne(statics.allocator);
+                new_method_ptr.* = MethodDefinition{
                     .method_name = method_selector,
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
                     .body = MethodBody{ .primitive = primitive_method.function },
+                    .source_class = compiled_class,
                 };
+                compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
             .impl => |function_body| {
@@ -857,7 +874,8 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     reporter.report_error(.{ .pos = ast.pos_of(method_ast.header.span()) }, "Too many arguments. Found {d} arguments, maximum is {d}.", .{ number_of_aditional_args, std.math.maxInt(u16) });
                     return error.too_many_arguments;
                 }
-                compiled_methods[method_idx] = MethodDefinition{
+                const new_method_ptr: *MethodDefinition = try statics.all_methods.addOne(statics.allocator);
+                new_method_ptr.* = MethodDefinition{
                     .method_name = method_selector,
                     .number_of_aditional_args = @truncate(number_of_aditional_args),
                     .body = MethodBody{ .user_land = .{
@@ -865,7 +883,9 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                         .number_of_locals = @truncate(number_of_locals),
                         .constants_base_id = method_constants_base_id,
                     } },
+                    .source_class = compiled_class,
                 };
+                compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
         }
@@ -884,21 +904,20 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             for (ast_portion.methods) |method_ast| {
                 selector_writer.end = 0;
                 const selector = get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter) catch unreachable;
-                if (selector.idx == duplicate_method_selector.idx) {
-                    if (first_encounter) {
-                        first_encounter = false;
-                        reporter.report_error(
-                            .{ .pos = ast.pos_of(method_ast.header.span()) },
-                            "The class '{s}' contains a duplicate definition of the '{s}' method.",
-                            .{ class_name, duplicate_selector_text },
-                        );
-                    } else {
-                        reporter.add_note(
-                            .{ .pos = ast.pos_of(method_ast.header.span()) },
-                            "The method with the same selector '{s}' is also defined here.",
-                            .{duplicate_selector_text},
-                        );
-                    }
+                if (selector.idx != duplicate_method_selector.idx) continue;
+                if (first_encounter) {
+                    first_encounter = false;
+                    reporter.report_error(
+                        .{ .pos = ast.pos_of(method_ast.header.span()) },
+                        "The class '{s}' contains a duplicate definition of the '{s}' method.",
+                        .{ class_name, duplicate_selector_text },
+                    );
+                } else {
+                    reporter.add_note(
+                        .{ .pos = ast.pos_of(method_ast.header.span()) },
+                        "The method with the same selector '{s}' is also defined here.",
+                        .{duplicate_selector_text},
+                    );
                 }
             }
             assert(first_encounter == false);
@@ -906,31 +925,17 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
         },
     };
 
-    const instance_methods = blk: {
+    compiled_class.instance_methods = blk: {
         const parents_methods: ClassDefinition.MethodMap = if (compiled_parent) |parent_class|
             parent_class.instance_methods
         else
-            .{ .items = &[0]MethodDefinition{} };
+            .{ .items = &[0]*const MethodDefinition{} };
         const combined_methods = try ClassDefinition.MethodMap.from_merge_of(
             only_instance_methods,
             parents_methods,
             statics.allocator,
         );
         break :blk combined_methods;
-    };
-
-    // Add the class to the list of all classes
-    const compiled_class: *ClassDefinition = blk: {
-        const ptr = try statics.all_classes.addOne(statics.allocator);
-        ptr.* = ClassDefinition{
-            .class_name = class_name_symbol,
-            .instance_methods = instance_methods,
-            .as_vm_object = undefined,
-            .identifiers_of_instance_variables = field_identifiers,
-            .parent = compiled_parent,
-            .number_of_parent_instance_variables = if (compiled_parent) |p| p.fields_count_including_parents() else 0,
-        };
-        break :blk ptr;
     };
 
     return compiled_class;
@@ -1207,7 +1212,7 @@ pub const BytecodeGenerator = struct {
             self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver) }, "Referencing `super` inside a class without a parent class.", .{});
             return CompileError.super_call_in_class_without_parent;
         };
-        const method_ptr: *const MethodDefinition = parent_methods.get_ptr(message_selector) orelse {
+        const method_ptr: *const MethodDefinition = parent_methods.get(message_selector) orelse {
             // SAFETY: we can access `self.ast.class_ast.super_class_name.?` because the current class has a parent in this branch of code (we are currently compiling a call to a method from the parent)
             const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.super_class_name.?);
             const parent_name = self.ast.text_at(position_of_parent_declaration);

@@ -29,13 +29,22 @@ pub fn SymbolArrayMap(
     comptime Item: type,
     comptime symbol_field_name_in_item: []const u8,
 ) type {
-    if (!@hasField(Item, symbol_field_name_in_item)) {
+    const ActualType = switch (@typeInfo(Item)) {
+        .@"struct" => Item,
+        .pointer => |info| info.child,
+        else => |invalid| @compileError(std.fmt.comptimePrint(
+            "Expected `Item` (which is `{s}`) to be either a struct or a pointer to a struct. But it is {t}.",
+            .{ @typeName(Item), @tagName(invalid) },
+        )),
+    };
+
+    if (!@hasField(ActualType, symbol_field_name_in_item)) {
         @compileError(std.fmt.comptimePrint(
             "The type `Item` (which is `{s}`) does not have the field `{s}`.",
             .{ @typeName(Item), symbol_field_name_in_item },
         ));
     }
-    if (@FieldType(Item, symbol_field_name_in_item) != SymbolId) {
+    if (@FieldType(ActualType, symbol_field_name_in_item) != SymbolId) {
         @compileError(std.fmt.comptimePrint(
             "The type of `{s}.{s}` is `{s}`, but but it should be `{s}`.",
             .{

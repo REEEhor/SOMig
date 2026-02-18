@@ -124,6 +124,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     //
     var statics = Statics{
         .all_classes = .{},
+        .all_methods = .{},
         // TODO: use a different allocator dedicated
         .allocator = interpreter_allocator,
         .symbols_manager = blk: {

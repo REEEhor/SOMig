@@ -70,6 +70,10 @@ pub const Statics = struct {
     ///       If this was just an `ArrayList`, then the pointers to `ClassDefinition`s would get invalidated during reallocations.
     all_classes: std.SegmentedList(ClassDefinition, 64),
 
+    /// NOTE: This must be a `SegmentedList`, because we want to be able to store pointers to `MethodDefinition` in other structures.
+    ///       If this was just an `ArrayList`, then the pointers to `MethodDefinition`s would get invalidated during reallocations.
+    all_methods: std.SegmentedList(MethodDefinition, 128),
+
     constants_manager: ConstantsManager,
 
     const Self = @This();

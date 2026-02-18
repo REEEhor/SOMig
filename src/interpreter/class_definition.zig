@@ -23,7 +23,7 @@ pub const ClassDefinition = struct {
     parent: ?*ClassDefinition,
 
     const Self = @This();
-    pub const MethodMap = SymbolArrayMap(MethodDefinition, "method_name");
+    pub const MethodMap = SymbolArrayMap(*const MethodDefinition, "method_name");
 
     pub fn get_metaclass_through_vm_object(self: Self) Interpreter.Error!*ClassDefinition {
         return switch (self.as_vm_object.kind()) {
@@ -37,8 +37,7 @@ pub const ClassDefinition = struct {
     }
 
     pub fn get_method(self: Self, method_name: SymbolId) ?*const MethodDefinition {
-        const idx = self.instance_methods.get_idx(method_name) orelse return null;
-        return &self.instance_methods.items[idx];
+        return self.instance_methods.get(method_name);
     }
 };
 
@@ -56,6 +55,8 @@ pub const MethodDefinition = struct {
     ///
     /// This field is used for example for a stackframe creation.
     number_of_aditional_args: u16,
+
+    source_class: *const ClassDefinition,
 
     body: MethodBody,
 };
