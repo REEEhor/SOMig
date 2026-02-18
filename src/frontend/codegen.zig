@@ -926,6 +926,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             .as_vm_object = undefined,
             .identifiers_of_instance_variables = field_identifiers,
             .parent = compiled_parent,
+            .number_of_parent_instance_variables = if (compiled_parent) |p| p.fields_count_including_parents() else 0,
         };
         break :blk ptr;
     };
