@@ -1,7 +1,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const primitive_fn_postfix = "__somig_primitive_fn";
+const vm_object_module = @import("../vm_object.zig");
+const types = vm_object_module.types;
+
+const MethodDefinition = @import("../__interpreter.zig").MethodDefinition;
 
 pub fn get_method_arity_from_selector(selector: []const u8) u32 {
     const lexer_module = @import("../../frontend/lexer.zig");
@@ -24,27 +27,6 @@ pub fn get_method_arity_from_selector(selector: []const u8) u32 {
     return 1;
 }
 
-pub fn assert_arity_is(comptime source_location: std.builtin.SourceLocation, comptime expected_arity: u32) void {
-    comptime {
-        if (!std.mem.endsWith(u8, source_location.fn_name, primitive_fn_postfix)) {
-            @compileError(std.fmt.comptimePrint(
-                "The function `{s}` does not end with `{s}`.",
-                .{ source_location.fn_name, primitive_fn_postfix },
-            ));
-        }
-        const end_index_of_selector = source_location.fn_name.len - primitive_fn_postfix.len;
-        const selector = source_location.fn_name[0..end_index_of_selector];
-        const actual_arity = get_method_arity_from_selector(selector);
-
-        if (actual_arity != expected_arity) {
-            @compileError(std.fmt.comptimePrint(
-                "Failed arity check! The selector `{s}` has the arity {d}, but {d} was expected.",
-                .{ selector, actual_arity, expected_arity },
-            ));
-        }
-    }
-}
-
 /// Represents the `nil` value in SOM. Since we don't have a
 /// representation for `nil` in `VmObject` (or rather.. it has no extra payload/information/state),
 /// we use this zero-sized struct to indicate that a primitive method accepts or returns
@@ -55,3 +37,12 @@ pub const NilPlaceholder = struct {};
 /// does not cary any infromation, we use this zero-sized struct to indicate
 /// that a primitive method accepts or returns an instance of the `System` class.
 pub const SystemPlaceholder = struct {};
+
+pub const PrimitiveMethodWrapper = struct {
+    method_definition: *const MethodDefinition,
+
+    pub fn init(method: *const MethodDefinition) PrimitiveMethodWrapper {
+        assert(method.body == .primitive);
+        return .{ .method_definition = method };
+    }
+};

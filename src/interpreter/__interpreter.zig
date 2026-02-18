@@ -259,6 +259,7 @@ pub const Interpreter = struct {
     const Self = @This();
 
     pub const Error = error{
+        /// TODO: maybe remove this and replace all instances with a proper error
         generic_runtime_error,
         primitive_type_error,
         method_not_found,
@@ -269,6 +270,8 @@ pub const Interpreter = struct {
         compilation_error,
         block_escaped_its_home_scope,
         out_of_bounds,
+
+        /// TODO: remove this
         TODO,
     } || Allocator.Error || Writer.Error;
 

@@ -11,11 +11,13 @@ const SymbolsManager = interning_module.SymbolsManager;
 const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
+const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Heap = interpreter_module.Heap;
 const BlockDefinition = interpreter_module.BlockDefinition;
+const MethodDefinition = interpreter_module.MethodDefinition;
 const types = interpreter_module.types;
 
 const class_definition_module = @import("../class_definition.zig");
@@ -242,6 +244,93 @@ pub const System = struct {
             try interpreter.stdout.flush();
         }
         return .{};
+    }
+};
+
+const method_and_primitive_implementations = struct {
+    pub inline fn signature(method: *const MethodDefinition) SymbolId {
+        return method.method_name;
+    }
+
+    pub inline fn holder(method: *const MethodDefinition) VmObject {
+        return method.source_class.as_vm_object;
+    }
+
+    pub inline fn @"invokeOn:with:"(
+        method: *const MethodDefinition,
+        receiver: VmObject,
+        args: VmObject,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!void {
+        const args_array: []VmObject = args.as_array() orelse {
+            const class_name = interpreter.statics.symbols_manager.symbol_with_id(method.source_class.class_name);
+            interpreter.report_runtime_error(
+                "The method `invokeOn:` expects an array of objects as arguments, but got non-array object of class {s}.",
+                .{class_name},
+            );
+            switch (method.number_of_aditional_args) {
+                0 => _ = interpreter.report_info("Consider passing in an empty array, like this: `#( )`.", .{}) catch {},
+                1 => _ = interpreter.report_info("Consider wrapping the argument into an array, like this: `#( <the-argument> )`.", .{}) catch {},
+                else => {},
+            }
+            return Interpreter.Error.primitive_type_error;
+        };
+
+        if (method.number_of_aditional_args != args_array.len) {
+            const method_selector = interpreter.statics.symbols_manager.symbol_with_id(method.method_name);
+            interpreter.report_runtime_error(
+                "Passed incorrect number of arguments to the method `{s}`. Expected {d} arguments, but the arguments array has length {d}.",
+                .{ method_selector, method.number_of_aditional_args, args_array.len },
+            );
+            return Interpreter.Error.generic_runtime_error;
+        }
+
+        // Now we put the arguments onto the stack but in a reverse order (according to the calling convention)
+        var iter = std.mem.reverseIterator(args_array);
+        while (iter.next()) |argument| try interpreter.push_object(argument);
+        try interpreter.push_object(receiver); // The receiver object is the top-most argument on the stack before the call
+
+        // Now call the method
+        // (this will result in a new stack frame being created or an execution of primitive method)
+        try interpreter.call_method(method);
+    }
+};
+
+pub const Method = struct {
+    pub fn signature(method: *const MethodDefinition) SymbolId {
+        return method_and_primitive_implementations.signature(method);
+    }
+
+    pub fn holder(method: *const MethodDefinition) VmObject {
+        return method_and_primitive_implementations.holder(method);
+    }
+
+    pub fn @"invokeOn:with:"(
+        method: *const MethodDefinition,
+        receiver: VmObject,
+        args: VmObject,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!void {
+        return method_and_primitive_implementations.@"invokeOn:with:"(method, receiver, args, interpreter);
+    }
+};
+
+pub const Primitive = struct {
+    pub fn signature(method: PrimitiveMethodWrapper) SymbolId {
+        return method_and_primitive_implementations.signature(method.method_definition);
+    }
+
+    pub fn holder(method: PrimitiveMethodWrapper) VmObject {
+        return method_and_primitive_implementations.holder(method.method_definition);
+    }
+
+    pub fn @"invokeOn:with:"(
+        method: PrimitiveMethodWrapper,
+        receiver: VmObject,
+        args: VmObject,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!void {
+        return method_and_primitive_implementations.@"invokeOn:with:"(method.method_definition, receiver, args, interpreter);
     }
 };
 

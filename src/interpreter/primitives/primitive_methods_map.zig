@@ -8,9 +8,11 @@ const helpers_module = @import("helpers.zig");
 const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
 const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
+const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
+const MethodDefinition = interpreter_module.MethodDefinition;
 
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
@@ -201,6 +203,22 @@ pub const PrimitiveMethodsMap = struct {
 
                         *types.Block => interpreter.pop_object().as_block() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Block"),
+
+                        *const MethodDefinition => blk: {
+                            const method_object: *types.Method = interpreter.pop_object().as(.method) orelse return invalid_argument(interpreter, som_parameter_idx, "Method");
+                            if (method_object.is_primitive()) {
+                                return invalid_argument(interpreter, som_parameter_idx, "Method, the class Primitive represents a method which is marked as `primitive` and is different to class Method");
+                            }
+                            break :blk method_object.method();
+                        },
+
+                        PrimitiveMethodWrapper => blk: {
+                            const method_object: *types.Method = interpreter.pop_object().as(.method) orelse return invalid_argument(interpreter, som_parameter_idx, "Primitive");
+                            if (!method_object.is_primitive()) {
+                                return invalid_argument(interpreter, som_parameter_idx, "Primitive, the class Method represents a method which is NOT marked as `primitive` and is different to class Primitive");
+                            }
+                            break :blk PrimitiveMethodWrapper.init(method_object.method());
+                        },
 
                         SystemPlaceholder => if (interpreter.pop_object().as(.system) != null) .{} else {
                             return invalid_argument(interpreter, som_parameter_idx, "System");
