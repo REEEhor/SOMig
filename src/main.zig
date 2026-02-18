@@ -224,18 +224,23 @@ fn playground(allocator: std.mem.Allocator) !void {
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block1"));
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block2"));
         _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block3"));
+        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("System"));
         inline for (std.meta.fields(interpreter_module.BuiltinClassDefinitions)) |field| {
             assert(@field(interpreter.builtin_class_definitions, field.name) != null);
         }
     }
+
     // Load singletons
     {
         const true_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
         const false_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
+        const system_object = try interpreter_module.types.System.crate_new(statics.allocator);
         interpreter.singletons = .{
             .true_object = true_object,
             .false_object = false_object,
+            .system = system_object,
         };
+        try interpreter.globals.put(SymbolsManager.comptime_id_of("system"), system_object);
     }
 
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);

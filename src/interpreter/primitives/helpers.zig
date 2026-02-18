@@ -45,4 +45,13 @@ pub fn assert_arity_is(comptime source_location: std.builtin.SourceLocation, com
     }
 }
 
+/// Represents the `nil` value in SOM. Since we don't have a
+/// representation for `nil` in `VmObject` (or rather.. it has no extra payload/information/state),
+/// we use this zero-sized struct to indicate that a primitive method accepts or returns
+/// a `nil`.
 pub const NilPlaceholder = struct {};
+
+/// Represents the `system` value in SOM. Since the representation of `system` in `VmObject`
+/// does not cary any infromation, we use this zero-sized struct to indicate
+/// that a primitive method accepts or returns an instance of the `System` class.
+pub const SystemPlaceholder = struct {};

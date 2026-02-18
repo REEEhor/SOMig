@@ -192,9 +192,9 @@ pub const BuiltinClassDefinitions = struct {
     block1: ?*ClassDefinition = null,
     block2: ?*ClassDefinition = null,
     block3: ?*ClassDefinition = null,
+    system: ?*ClassDefinition = null,
     // TODO: method
     // TODO: primitive
-    // TODO: system
 
     pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) ?*const ClassDefinition {
         return switch (number_of_non_self_arguments) {
@@ -230,6 +230,7 @@ pub const Interpreter = struct {
     singletons: struct {
         true_object: VmObject,
         false_object: VmObject,
+        system: VmObject,
 
         pub fn get_boolean_object(self: @This(), boolean: bool) VmObject {
             if (boolean) {
@@ -237,7 +238,6 @@ pub const Interpreter = struct {
             }
             return self.false_object;
         }
-        // NOTE: here will also maybe be the `System` object
     } = undefined, // TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
 
     stack: Stack,
@@ -844,7 +844,7 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
-        // TODO(consultation): what to do here?
+        // TODO(consultation): what to do here? Can we use `.kind()` here?
         return switch (object.kind()) {
             .class => |class| class.class_of_represented_class,
             .generic_object => |generic_object| generic_object.class,
@@ -855,6 +855,8 @@ pub const Interpreter = struct {
             .nil => self.builtin_class_definitions.nil.?,
             .array => self.builtin_class_definitions.array.?,
             .symbol => self.builtin_class_definitions.symbol.?,
+            .system => self.builtin_class_definitions.system.?,
+
             .block => |block| self.builtin_class_definitions.block_from_number_of_non_self_arguments(
                 block.block_definition.number_of_aditional_args,
             ).?,

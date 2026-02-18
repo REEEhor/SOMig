@@ -7,6 +7,7 @@ const unions = @import("../../unions.zig");
 const helpers_module = @import("helpers.zig");
 const get_method_arity_from_selector = helpers_module.get_method_arity_from_selector;
 const NilPlaceholder = helpers_module.NilPlaceholder;
+const SystemPlaceholder = helpers_module.SystemPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -200,6 +201,10 @@ pub const PrimitiveMethodsMap = struct {
 
                         *types.Block => interpreter.pop_object().as_block() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Block"),
+
+                        SystemPlaceholder => if (interpreter.pop_object().as(.system) != null) .{} else {
+                            return invalid_argument(interpreter, som_parameter_idx, "System");
+                        },
 
                         VmObject => interpreter.pop_object(),
 

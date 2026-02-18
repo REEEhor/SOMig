@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const unions = @import("../../unions.zig");
@@ -9,6 +10,7 @@ const SymbolsManager = interning_module.SymbolsManager;
 
 const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
+const SystemPlaceholder = helpers_module.SystemPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -209,6 +211,26 @@ pub const Array = struct {
 
     pub fn length(self: []VmObject) i48 {
         return @intCast(self.len);
+    }
+};
+
+pub const System = struct {
+    pub fn printNewline(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        const newline = switch (builtin.os.tag) {
+            .windows => "\r\n",
+            else => "\n",
+        };
+        _ = try interpreter.stdout.write(newline);
+        try interpreter.stdout.flush();
+        return .{};
+    }
+
+    pub fn @"printString:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        _ = try interpreter.stdout.write(string);
+        if (interpreter.do_flush_on_every_print) {
+            try interpreter.stdout.flush();
+        }
+        return .{};
     }
 };
 

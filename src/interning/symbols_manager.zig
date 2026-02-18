@@ -131,12 +131,14 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Block1",
     "Block2",
     "Block3",
+    "System",
 
     // Keywords of the language
     "self",
     "nil",
     "true",
     "false",
+    "system",
 });
 
 const testing = struct {

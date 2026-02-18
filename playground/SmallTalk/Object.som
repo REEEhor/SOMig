@@ -1,6 +1,8 @@
 Object = nil (
-        print = ( self asString print )
-        println = ( self asString println )
-        asString = ( ^ 'An instance of the class ' + self class name )
-        class = primitive
+    "Printing"
+    print     = ( self asString print )
+    println   = ( self print. system printNewline )
+
+    asString = ( ^ 'An instance of the class ' + self class name )
+    class = primitive
 )

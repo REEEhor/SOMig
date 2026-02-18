@@ -708,6 +708,7 @@ pub fn compile_class(
             SymbolsManager.comptime_id_of("Block1").idx => &builtin_class_definitions.block1,
             SymbolsManager.comptime_id_of("Block2").idx => &builtin_class_definitions.block2,
             SymbolsManager.comptime_id_of("Block3").idx => &builtin_class_definitions.block3,
+            SymbolsManager.comptime_id_of("System").idx => &builtin_class_definitions.system,
             else => break :register_builtin_class,
         };
         builtin_class.* = instance_portion_definition;
@@ -798,11 +799,11 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     const method_selector_text = statics.symbols_manager.symbol_with_id(method_selector);
                     reporter.report_error(
                         .{ .pos = ast.pos_of(method_ast.span) },
-                        "The class '{s}' has the method '{s}' declared as `primitive`, but the class '{s}' is not primitive at all.",
+                        "The class '{s}' has the method '{s}' declared as `primitive`, but the class '{s}' is not primitive at all (has no primitive methods).",
                         .{ class_name, method_selector_text, class_name },
                     );
                     reporter.add_note(
-                        .{ .pos = ast.pos_of(method_ast.header.span()) },
+                        .no_location,
                         "The method '{s}' will not be compiled into the class.",
                         .{method_selector_text},
                     );
@@ -818,7 +819,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                         .{ class_name, method_selector_text },
                     );
                     reporter.add_note(
-                        .{ .pos = ast.pos_of(method_ast.header.span()) },
+                        .no_location,
                         "The method '{s}' will not be compiled into the class.",
                         .{method_selector_text},
                     );

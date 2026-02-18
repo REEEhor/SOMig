@@ -53,11 +53,8 @@ pub const VmObject = struct {
     }
 
     pub fn as(self: VmObject, comptime tag: Tag) ?@FieldType(Kind, @tagName(tag)) {
-        const ReturnType = @FieldType(Kind, @tagName(tag));
-        if (ReturnType == void) {
-            comptime assert(tag == .nil);
-            assert(self.data == null);
-            return void;
+        if (comptime tag == .nil) {
+            return if (self.data == null) {} else null;
         }
         const data: *OpaqueHeader = self.data orelse return null;
         if (data.tag != tag) return null;
@@ -158,6 +155,7 @@ pub const Tag = enum(u8) {
     empty_heap_segment,
     frame_header,
     nil,
+    system,
 };
 
 pub const Kind = union(Tag) {
@@ -177,6 +175,9 @@ pub const Kind = union(Tag) {
 
     /// Does not have a payload since it is a singleton with no fields.
     nil,
+
+    /// TODO: remove the payload once we have NaN boxing, `System` is a singleton with no state
+    system: *types.System,
 
     const Self = @This();
 
@@ -569,6 +570,27 @@ pub const types = struct {
             const head = &self.home_frame.escaped_blocks_list_head;
             self.next_escaped_block = head.*;
             head.* = self;
+        }
+    };
+
+    /// TODO: remove this class
+    pub const System = extern struct {
+        header: Header,
+        pub const Header = packed struct(u64) {
+            tag: Tag = tag,
+            is_marked: bool = false,
+            _padding: u55 = undefined,
+
+            pub fn object_size_in_bytes(header: @This()) usize {
+                _ = header;
+                return @sizeOf(Header);
+            }
+        };
+        pub const tag = Tag.system;
+
+        pub fn crate_new(allocator: Allocator) Allocator.Error!VmObject {
+            const self: *System = @ptrCast(try allocate_heap_data(allocator, Header{}));
+            return VmObject.from(self);
         }
     };
 };
