@@ -238,6 +238,12 @@ pub const Block = struct {
     pub fn value(self: *types.Block, interpreter: *Interpreter) Interpreter.Error!void {
         return try block_value_method(self, interpreter);
     }
+
+    pub fn restart(_: *types.Block, interpreter: *Interpreter) void {
+        interpreter.decoder.set_id_of_the_next_instruction(.{ .idx = 0 });
+        // TODO(consultation): is this needed here? At least the usecase for `restart` in `Block restart` does not need this
+        interpreter.stack.pop_all_temporaries_from_top_frame();
+    }
 };
 
 pub const Block1 = struct {

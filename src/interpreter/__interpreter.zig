@@ -175,6 +175,14 @@ pub const Stack = struct {
     pub inline fn frames_count(self: *Self) usize {
         return self.frames.len;
     }
+
+    pub fn pop_all_temporaries_from_top_frame(self: *Self) void {
+        const base_ptr: [*]VmObject = self.top_frame().base_ptr;
+        const number_of_args_and_locals: usize = self.top_frame().number_of_args_and_locals();
+        const ptr_to_first_temporary: [*]VmObject = base_ptr + number_of_args_and_locals;
+        const new_length: usize = index_or_length_from_pointer(ptr_to_first_temporary, self.objects).?;
+        self.objects.len = new_length;
+    }
 };
 
 pub const BuiltinClassDefinitions = struct {
@@ -922,6 +930,7 @@ pub const Interpreter = struct {
     }
 };
 
+/// TODO: maybe refactor together with `index_or_length_from_pointer`
 fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.size == .slice);
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);
@@ -930,7 +939,22 @@ fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     const max: usize = @intFromPtr(slice.ptr + slice.len);
     const value: usize = @intFromPtr(ptr_to_item);
 
-    const check = (min <= value) and (value < max);
+    const check = (min <= value) and (value < max); // Difference `<= max`
+    if (!check) return null;
+
+    return ptr_to_item - slice.ptr;
+}
+
+/// TODO: maybe refactor together with `index_or_length`
+fn index_or_length_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
+    comptime assert(@typeInfo(@TypeOf(slice)).pointer.size == .slice);
+    comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);
+
+    const min: usize = @intFromPtr(slice.ptr);
+    const max: usize = @intFromPtr(slice.ptr + slice.len);
+    const value: usize = @intFromPtr(ptr_to_item);
+
+    const check = (min <= value) and (value <= max); // Difference `<= max`
     if (!check) return null;
 
     return ptr_to_item - slice.ptr;

@@ -55,8 +55,37 @@ Main = (
 
         self boolean_example.
 
+        self loop_example.
     )
 
+    loop_example = (
+        | index | 
+        '\n== Looping example ==' println. 
+        
+        index := 0.
+        [ (index = 4) not ] whileTrue: [
+            index println. 
+            index := index + 1.
+        ].
+        
+        '---' println.
+        self print_array: #(10 20 30 40 50 60 70).
+        '---' println.
+        self print_array: #('Hello' #(100 200 300) ':)' 42).
+        '---' println.
+    )
+    
+    print_array: array = (
+        | index |
+        index := 1.
+        
+        [ index - 1 = array length ] whileFalse: [
+           'array at index ' print. index print. ': ' print.
+           (array at: index) println.
+           index := index + 1.
+        ]
+    )
+    
     block_example = (
         | method1 method2 blk |
         '\n== Block example ==' println.
