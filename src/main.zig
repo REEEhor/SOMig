@@ -244,6 +244,9 @@ fn playground(allocator: std.mem.Allocator) !void {
             .system = system_object,
         };
         try interpreter.globals.put(SymbolsManager.comptime_id_of("system"), system_object);
+        try interpreter.globals.put(SymbolsManager.comptime_id_of("true"), true_object);
+        try interpreter.globals.put(SymbolsManager.comptime_id_of("false"), false_object);
+        try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), interpreter_module.VmObject.nil);
     }
 
     const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);

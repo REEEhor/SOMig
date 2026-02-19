@@ -1302,30 +1302,22 @@ pub const BytecodeGenerator = struct {
             },
             .variable => |identifier_token| {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(identifier_token);
-                // NOTE(epic-zig): `comptime_id_of`
-                switch (identifier_symbol.idx) {
-                    SymbolsManager.comptime_id_of("nil").idx => try self.add_instruction(.load_nil),
-                    SymbolsManager.comptime_id_of("true").idx => try self.add_instruction(.load_true),
-                    SymbolsManager.comptime_id_of("false").idx => try self.add_instruction(.load_false),
-                    else => {
-                        const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
-                            .instance => |info| {
-                                break :sw .{ .load_instance_var = .{
-                                    .required_frame_up_steps = info.scope_depth_difference,
-                                    .instance_var_id = info.instance_variable_id,
-                                } };
-                            },
-                            .local_or_method_argument => |info| {
-                                break :sw .{ .load_local = .{
-                                    .local_id = info.local_variable_id,
-                                    .required_frame_up_steps = info.scope_depth_difference,
-                                } };
-                            },
-                            .global => break :sw .{ .load_global = identifier_symbol },
-                        };
-                        try self.add_instruction(load_instr);
+                const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
+                    .instance => |info| {
+                        break :sw .{ .load_instance_var = .{
+                            .required_frame_up_steps = info.scope_depth_difference,
+                            .instance_var_id = info.instance_variable_id,
+                        } };
                     },
-                }
+                    .local_or_method_argument => |info| {
+                        break :sw .{ .load_local = .{
+                            .local_id = info.local_variable_id,
+                            .required_frame_up_steps = info.scope_depth_difference,
+                        } };
+                    },
+                    .global => break :sw .{ .load_global = identifier_symbol },
+                };
+                try self.add_instruction(load_instr);
             },
             .assignment => |assignment| {
                 try self.compile_expression(assignment.target_value);
