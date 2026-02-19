@@ -58,6 +58,19 @@ Main = (
         self loop_example.
         
         self fibonacci_example.
+    
+        self load_file_example.
+    )
+
+    load_file_example = (
+        | some_file filepath |
+        '\n== Load file example ==' println.
+        
+        filepath := 'playground/SmallTalk/Nil.som'.
+        some_file := (system loadFile: filepath).
+        
+        'Source code of the `Nil` class:' println.
+        some_file println.
     )
 
     loop_example = (

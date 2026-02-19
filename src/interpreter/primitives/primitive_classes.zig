@@ -1,3 +1,7 @@
+//! This file gets parsed (or.. "comptime reflected")
+//! via the function `PrimitivesMethodsMap.init_from` in `primitives/primitives_methods_map`
+//! NOTE(epic-zig): the reflection used to extract this info is really nice :D
+
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -27,8 +31,6 @@ const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
 const HeapData = vm_object_module.HeapData;
 const Number = vm_object_module.Number;
-
-// NOTE(epic-zig): the reflection used to extract this info is really nice :D
 
 pub const Object = struct {
     pub fn class(self: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
@@ -228,6 +230,45 @@ pub const Array = struct {
 };
 
 pub const System = struct {
+    // ========================= Globals =========================
+    pub fn @"global:"(_: SystemPlaceholder, global_name: SymbolId, interpreter: *Interpreter) VmObject {
+        return interpreter.globals.get(global_name) orelse VmObject.nil;
+    }
+    pub fn @"global:put:"(_: SystemPlaceholder, global_name: SymbolId, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        try interpreter.globals.put(global_name, new_value);
+        return .{};
+    }
+    pub fn @"hasGlobal:"(_: SystemPlaceholder, global_name: SymbolId, interpreter: *Interpreter) bool {
+        return interpreter.globals.contains(global_name);
+    }
+
+    // ========================= File support =========================
+    pub fn @"loadFile:"(_: SystemPlaceholder, filepath: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // TODO: maybe use working directory of the interpreter here. Meaning we have to add `working_directory` into the interpreter which will be passes via a console argument
+        var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch return VmObject.nil;
+        defer file.close();
+
+        const file_size = (file.stat() catch return VmObject.nil).size;
+        const string_object: *types.String = try types.String.create_with_undefined_contents(
+            interpreter.heap_allocator,
+            std.math.cast(i48, file_size) orelse return VmObject.nil,
+        );
+        var reader = file.reader(string_object.contents());
+        _ = reader.interface.take(file_size) catch return VmObject.nil;
+
+        return VmObject.from(string_object);
+    }
+
+    // ========================= Exiting =========================
+    pub fn @"exit:"(_: SystemPlaceholder, error_code: i48, interpreter: *Interpreter) Interpreter.Error!void {
+        const error_code_as_u8: u8 = std.math.cast(u8, error_code) orelse {
+            interpreter.report_runtime_error("Invalid argument, got integer {d} but only integers from the range [0,255] are expected.", .{error_code});
+            return Interpreter.Error.generic_runtime_error;
+        };
+        std.process.exit(error_code_as_u8);
+    }
+
+    // ========================= Printing =========================
     pub fn printNewline(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         const newline = switch (builtin.os.tag) {
             .windows => "\r\n",
@@ -237,7 +278,6 @@ pub const System = struct {
         try interpreter.stdout.flush();
         return .{};
     }
-
     pub fn @"printString:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stdout.write(string);
         if (interpreter.do_flush_on_every_print) {

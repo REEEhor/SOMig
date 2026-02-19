@@ -483,20 +483,20 @@ pub const types = struct {
 
         pub const tag: Tag = .string;
 
-        pub fn init_with_undefined_contents(allocator: Allocator, length: i48) Allocator.Error!*String {
+        pub fn create_with_undefined_contents(allocator: Allocator, length: i48) Allocator.Error!*String {
             const self: *String = @ptrCast(try allocate_heap_data(allocator, Header{ .length = length }));
             return self;
         }
 
         pub fn create_new(allocator: Allocator, contents_to_copy: []const u8) Allocator.Error!VmObject {
-            const self: *String = try init_with_undefined_contents(allocator, @intCast(contents_to_copy.len));
+            const self: *String = try create_with_undefined_contents(allocator, @intCast(contents_to_copy.len));
             @memcpy(self.contents(), contents_to_copy);
             return VmObject.from(self);
         }
 
         pub fn create_new_fmt(allocator: Allocator, comptime fmt: []const u8, args: anytype) Allocator.Error!VmObject {
             const length = std.fmt.count(fmt, args);
-            const self: *String = try init_with_undefined_contents(allocator, @intCast(length));
+            const self: *String = try create_with_undefined_contents(allocator, @intCast(length));
             const res = std.fmt.bufPrint(self.contents(), fmt, args) catch unreachable;
             assert(res.len == self.contents().len);
             return VmObject.from(self);
