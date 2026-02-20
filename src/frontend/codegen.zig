@@ -1,3 +1,5 @@
+//! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String`
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;

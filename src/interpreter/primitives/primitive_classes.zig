@@ -41,16 +41,30 @@ pub const Object = struct {
 
 pub const Class = struct {
     pub fn new(class: *types.Class, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        // TODO(consultation): How to do this? We could maybe do `interpreter.builtin_class_definitions`, but that is not comptime
         // FIXME: this does not work! We have to handle cases for primtive classes
+        // TODO(consultation): How to do this? We could maybe do `interpreter.builtin_class_definitions`, but that is not possible via a comptime switch :(
+        // NOTE: Maybe we could store a function pointer to an implementation of `new`?
+        //
+        //      This `switch` actually might work. Since there is no way of deleting globals (see the `System` class)
+        //      and we force-load builtin classses at startup, then there cannot really be another class with the name `Integer` for example,
+        //      only the original one.
+        //
+        //      So if we have a class of the name `Integer`, we know we can create a new object.
+        //
+        //      Or... we could just always do the `types.GenericObject.create_new(...)` and let the program
+        //      crash when a primitive integer method encounters a generic object instead of a builtin `Integer` :)
+        //      There seems to not be a test with something like `Integer new` cheche >:)
+        //
+        // WARN: The "Symbol" case is broken
         // switch(class.represented_class.class_name) {
-        //     SymbolsManager.comptime_id_of("Integer").idx => todo,
-        //     SymbolsManager.comptime_id_of("Double").idx => todo,
-        //     SymbolsManager.comptime_id_of("Symbol").idx => todo,
-        //     SymbolsManager.comptime_id_of("String").idx => todo,
+        //     SymbolsManager.comptime_id_of("Integer").idx => try types.Integer.create_new(0),
+        //     SymbolsManager.comptime_id_of("Double").idx =>  try types.Double.create_new(0),
+        //     SymbolsManager.comptime_id_of("Symbol").idx =>  try types.Symbol.create_new(SymbolsManager.comptime_id_of("")),  !!?????????!!
+        //     SymbolsManager.comptime_id_of("String").idx =>  try types.String.create_new(""),
         //     // ...
         //     else => try types.GenericObject.create_new(interpreter.heap_allocator, class.represented_class),
         // }
+        //
         return try types.GenericObject.create_new(interpreter.heap_allocator, class.represented_class);
     }
 
