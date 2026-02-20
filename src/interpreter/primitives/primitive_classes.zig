@@ -37,10 +37,222 @@ pub const Object = struct {
         const class_definition = interpreter.get_class_of(self);
         return VmObject.from(class_definition.as_vm_object);
     }
+
+    pub fn objectSize(self: VmObject) i48 {
+        const heap_size: usize = switch (self.kind()) {
+            .nil => 0,
+            .empty_heap_segment => unreachable,
+            .frame_header => unreachable,
+            inline else => |object| object.header.object_size_in_bytes(),
+        };
+        const total_size = @sizeOf(VmObject) + heap_size;
+        return @intCast(total_size);
+    }
+
+    pub fn @"=="(self: VmObject, other: VmObject) bool {
+        return self.data == other.data;
+    }
+
+    /// FIXME: This will be a lot easier with NaN boxing, since same `Double`s must have the same hashcode
+    pub fn hashcode(self: VmObject) i48 {
+        _ = self;
+        return 0;
+    }
+
+    /// FIXME: This probably does not provide that much useful info, check the output
+    pub fn inspect(self: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        try interpreter.stderr.print("{any}\n", .{self.kind()});
+        try interpreter.stderr.flush();
+        return .{};
+    }
+
+    /// FIXME: It would be better to maybe call a precompiled bytecode with the `halt` instruction...
+    pub fn halt(self: VmObject, interpreter: *Interpreter) void {
+        _ = self;
+        interpreter.report_info("Stopped execution due to the `halt` method being invoked.", .{}) catch {};
+        std.process.exit(0);
+    }
+
+    /// FIXME: Check what happens when doing `someObject perform: #perform: withArguments: #( #someMethod )` - probably stack overflow?
+    ///
+    /// NOTE: But the stack overflow will be probably of the program itself, not error.stack_overflow! Which is bad, that shouldn't happen.
+    ///
+    /// NOTE: We can't really ensure, that `perform:` will not be called via indirect infinite recursion, but in that case, there will be actual stack frames getting created which will actually overflow.
+    ///
+    pub fn @"perform:"(self: VmObject, method_selector: SymbolId, interpreter: *Interpreter) Interpreter.Error!void {
+        const class_definition = interpreter.get_class_of(self);
+        const method = class_definition.get_method(method_selector) orelse return failed_finding_method(
+            method_selector,
+            class_definition,
+            interpreter,
+        );
+
+        if (method.number_of_aditional_args != 0) {
+            interpreter.report_runtime_error("Tried to call `perform:` with a method `{s}`, which requires {d} arguments. Consider using the `perform:withArgs:` method.", .{
+                interpreter.string_from_symbol(method_selector), method.number_of_aditional_args,
+            });
+            return Interpreter.Error.generic_runtime_error;
+        }
+        try invoke(.{
+            .receiver = self,
+            .method = method,
+            .maybe_args = null,
+            .invoker_method = "perform:",
+            .interpreter = interpreter,
+        });
+    }
+
+    pub fn @"perform:withArguments:"(self: VmObject, method_selector: SymbolId, args: VmObject, interpreter: *Interpreter) Interpreter.Error!void {
+        const class_definition = interpreter.get_class_of(self);
+        const method = class_definition.get_method(method_selector) orelse return failed_finding_method(
+            method_selector,
+            class_definition,
+            interpreter,
+        );
+        try invoke(.{
+            .receiver = self,
+            .method = method,
+            .maybe_args = args,
+            .invoker_method = "perform:",
+            .interpreter = interpreter,
+        });
+    }
+
+    pub fn @"perform:inSuperclass:"(
+        self: VmObject,
+        method_selector: SymbolId,
+        super_class: *const ClassDefinition,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!void {
+        try check_class_is_actually_a_superclass(.{
+            .child_class = interpreter.get_class_of(self),
+            .supposed_superclass = super_class,
+            .interpreter = interpreter,
+        });
+        const method = super_class.get_method(method_selector) orelse return failed_finding_method(
+            method_selector,
+            super_class,
+            interpreter,
+        );
+        if (method.number_of_aditional_args != 0) {
+            interpreter.report_runtime_error("Tried to call `perform:inSuperClass:` with a method `{s}`, which requires {d} arguments. Consider using the `perform:inSuperClass:withArguments:` method.", .{
+                interpreter.string_from_symbol(method_selector), method.number_of_aditional_args,
+            });
+            return Interpreter.Error.generic_runtime_error;
+        }
+        try invoke(.{
+            .receiver = self,
+            .method = method,
+            .maybe_args = null,
+            .invoker_method = "perform:inSuperclass:",
+            .interpreter = interpreter,
+        });
+    }
+
+    pub fn @"perform:inSuperclass:withArguments:"(
+        self: VmObject,
+        method_selector: SymbolId,
+        super_class: *const ClassDefinition,
+        args: VmObject,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!void {
+        try check_class_is_actually_a_superclass(.{
+            .child_class = interpreter.get_class_of(self),
+            .supposed_superclass = super_class,
+            .interpreter = interpreter,
+        });
+        const method = super_class.get_method(method_selector) orelse return failed_finding_method(
+            method_selector,
+            super_class,
+            interpreter,
+        );
+        if (method.number_of_aditional_args != 0) {
+            interpreter.report_runtime_error("Tried to call `perform:inSuperClass:` with a method `{s}`, which requires {d} arguments. Consider using the `perform:inSuperClass:withArgs:` method.", .{
+                interpreter.string_from_symbol(method_selector), method.number_of_aditional_args,
+            });
+            return Interpreter.Error.generic_runtime_error;
+        }
+        try invoke(.{
+            .receiver = self,
+            .method = method,
+            .maybe_args = args,
+            .invoker_method = "perform:inSuperclass:",
+            .interpreter = interpreter,
+        });
+    }
+
+    pub fn @"instVarAt:"(self: VmObject, index: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const cls = interpreter.get_class_of(self);
+        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        const index_usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "array of instance fields",
+            .length = instance_fields.len,
+            .access_index = index,
+        });
+        return instance_fields[index_usize];
+    }
+
+    pub fn @"instVarAt:put:"(self: VmObject, index: i48, new_object: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        const cls = interpreter.get_class_of(self);
+        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        const index_usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "array of instance fields",
+            .length = instance_fields.len,
+            .access_index = index,
+        });
+        instance_fields[index_usize] = new_object;
+        return .{};
+    }
+
+    pub fn @"instVarNamed:"(self: VmObject, field_name: SymbolId, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const cls = interpreter.get_class_of(self);
+        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        for (cls.identifiers_of_instance_variables, 0..) |actual_field_name, index| {
+            if (actual_field_name == field_name) {
+                return instance_fields[index];
+            }
+        }
+        interpreter.report_runtime_error("There is no instance field named `{s}` in class `{s}`.", .{
+            interpreter.string_from_symbol(field_name), interpreter.string_from_symbol(cls.class_name),
+        });
+        return Interpreter.Error.generic_runtime_error;
+    }
 };
 
+fn check_class_is_actually_a_superclass(
+    params: struct {
+        child_class: *const ClassDefinition,
+        supposed_superclass: *const ClassDefinition,
+        interpreter: *Interpreter,
+    },
+) Interpreter.Error!void {
+    const child_class = params.child_class;
+    const supposed_superclass = params.supposed_superclass;
+    const interpreter = params.interpreter;
+
+    var it_super_class: ?*const ClassDefinition = child_class;
+    while (it_super_class) |current_super_class| {
+        if (current_super_class == supposed_superclass) break;
+        it_super_class = current_super_class.parent;
+    } else {
+        interpreter.report_runtime_error("Superclass argument `{s}` is not a superclass of the receiver, which is an instance of the class `{s}`.", .{
+            interpreter.string_from_symbol(supposed_superclass.class_name),
+            interpreter.string_from_symbol(child_class.class_name),
+        });
+        return Interpreter.Error.generic_runtime_error;
+    }
+}
+
+fn failed_finding_method(method_selector: SymbolId, class_definition: *const ClassDefinition, interpreter: *Interpreter) Interpreter.Error {
+    interpreter.report_runtime_error(
+        "Failed to find method `{s}` defined in class `{s}`.",
+        .{ interpreter.string_from_symbol(method_selector), interpreter.string_from_symbol(class_definition.class_name) },
+    );
+    return Interpreter.Error.method_not_found;
+}
+
 pub const Class = struct {
-    pub fn new(class: *types.Class, interpreter: *Interpreter) Interpreter.Error!VmObject {
+    pub fn new(class: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         // FIXME: this does not work! We have to handle cases for primtive classes
         // TODO(consultation): How to do this? We could maybe do `interpreter.builtin_class_definitions`, but that is not possible via a comptime switch :(
         // NOTE: Maybe we could store a function pointer to an implementation of `new`?
@@ -55,7 +267,7 @@ pub const Class = struct {
         //      crash when a primitive integer method encounters a generic object instead of a builtin `Integer` :)
         //      There seems to not be a test with something like `Integer new` cheche >:)
         //
-        // WARN: The "Symbol" case is broken
+        // WARN: The "Symbol" case is broken (should we really return an empty symbol?)
         // switch(class.represented_class.class_name) {
         //     SymbolsManager.comptime_id_of("Integer").idx => try types.Integer.create_new(0),
         //     SymbolsManager.comptime_id_of("Double").idx =>  try types.Double.create_new(0),
@@ -65,11 +277,44 @@ pub const Class = struct {
         //     else => try types.GenericObject.create_new(interpreter.heap_allocator, class.represented_class),
         // }
         //
-        return try types.GenericObject.create_new(interpreter.heap_allocator, class.represented_class);
+        return try types.GenericObject.create_new(interpreter.heap_allocator, class);
     }
 
-    pub fn name(self: *types.Class) SymbolId {
-        return self.represented_class.class_name;
+    pub fn name(self: *const ClassDefinition) SymbolId {
+        return self.class_name;
+    }
+
+    pub fn superclass(self: *ClassDefinition) VmObject {
+        const parent = self.parent orelse return VmObject.nil;
+        return VmObject.from(parent.as_vm_object);
+    }
+
+    pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const field_names: []SymbolId = self.identifiers_of_instance_variables;
+        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, field_names.len);
+        for (array.get_items(), field_names) |*item, field_name| {
+            item.* = try types.Symbol.create_new(interpreter.heap_allocator, field_name);
+        }
+        return VmObject.from(array);
+    }
+
+    pub fn methods(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const all_method_definitions = self.instance_methods.items;
+        var non_inherited_methods_count: usize = 0;
+        for (all_method_definitions) |method_definition| {
+            if (method_definition.source_class == self) non_inherited_methods_count += 1;
+        }
+
+        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, non_inherited_methods_count);
+        const methods_slice = array.get_items();
+        var result_array_index: usize = 0;
+        for (all_method_definitions) |method_definition| {
+            if (method_definition.source_class != self) continue;
+            methods_slice[result_array_index] = VmObject.from(method_definition.as_vm_object);
+            result_array_index += 1;
+        }
+
+        return VmObject.from(array);
     }
 };
 
@@ -193,13 +438,13 @@ pub const String = struct {
     }
 
     pub fn @"primSubstringFrom:to:"(self: []const u8, from_idx_raw: i48, to_idx_raw: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const from_index: usize = try interpreter.check_out_of_bounds_get_1_base_index(.{
-            .class_name = "String",
+        const from_index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "an instance of String",
             .length = self.len,
             .access_index = from_idx_raw,
         });
-        const to_index: usize = try interpreter.check_out_of_bounds_get_1_base_index(.{
-            .class_name = "String",
+        const to_index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "an instance of String",
             .length = self.len,
             .access_index = to_idx_raw,
         });
@@ -209,6 +454,11 @@ pub const String = struct {
         }
         const substring: []const u8 = self[(from_index - 1)..(to_index)];
         return try types.String.create_new(interpreter.heap_allocator, substring);
+    }
+
+    /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
+    pub fn @"="(self: []const u8, other: []const u8) bool {
+        return std.mem.eql(u8, self, other);
     }
 };
 
@@ -221,8 +471,8 @@ pub const Symbol = struct {
 
 pub const Array = struct {
     pub fn @"at:"(self: []VmObject, index_raw: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const index: usize = try interpreter.check_out_of_bounds_get_1_base_index(.{
-            .class_name = "Array",
+        const index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "an instance of Array",
             .length = self.len,
             .access_index = index_raw,
         });
@@ -230,8 +480,8 @@ pub const Array = struct {
     }
 
     pub fn @"at:put:"(self: []VmObject, index_raw: i48, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        const index: usize = try interpreter.check_out_of_bounds_get_1_base_index(.{
-            .class_name = "Array",
+        const index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
+            .accessee = "an instance of Array",
             .length = self.len,
             .access_index = index_raw,
         });
@@ -274,6 +524,12 @@ pub const System = struct {
         return VmObject.from(string_object);
     }
 
+    // ========================= Loading =========================
+    pub fn @"load:"(_: SystemPlaceholder, class_name: SymbolId, interpreter: *Interpreter) VmObject {
+        const loaded_class: *ClassDefinition = interpreter.load_class(class_name) catch return VmObject.nil;
+        return VmObject.from(loaded_class.as_vm_object);
+    }
+
     // ========================= Exiting =========================
     pub fn @"exit:"(_: SystemPlaceholder, error_code: i48, interpreter: *Interpreter) Interpreter.Error!void {
         const error_code_as_u8: u8 = std.math.cast(u8, error_code) orelse {
@@ -285,10 +541,6 @@ pub const System = struct {
 
     // ========================= Printing =========================
     pub fn printNewline(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        const newline = switch (builtin.os.tag) {
-            .windows => "\r\n",
-            else => "\n",
-        };
         _ = try interpreter.stdout.write(newline);
         try interpreter.stdout.flush();
         return .{};
@@ -300,28 +552,95 @@ pub const System = struct {
         }
         return .{};
     }
+    pub fn @"errorPrintln:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        _ = try interpreter.stderr.write(string);
+        _ = try interpreter.stderr.write(newline);
+        try interpreter.stderr.flush();
+        return .{};
+    }
+    pub fn @"errorPrint:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        _ = try interpreter.stderr.write(string);
+        if (interpreter.do_flush_on_every_print) {
+            try interpreter.stderr.flush();
+        }
+        return .{};
+    }
+    /// TODO: Make this prettier
+    pub fn printStackTrace(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        for (interpreter.stack.frames) |frame| {
+            switch (frame.kind) {
+                .method => |method| {
+                    try interpreter.stderr.print("- Method {s}>>{s}\n", .{
+                        interpreter.string_from_symbol(method.source_class.class_name),
+                        interpreter.string_from_symbol(method.method_name),
+                    });
+                },
+                .block => |block| {
+                    const method = block.home_method();
+                    try interpreter.stderr.print("- Block from method {s}>>{s}\n", .{
+                        interpreter.string_from_symbol(method.source_class.class_name),
+                        interpreter.string_from_symbol(method.method_name),
+                    });
+                },
+            }
+        }
+        try interpreter.stderr.flush();
+        return .{};
+    }
+
+    // ========================= Time =========================
+    pub fn time(_: SystemPlaceholder, interpreter: *Interpreter) i48 {
+        var timer = interpreter.timer orelse return 0;
+        const nanos = timer.read();
+        const millis = nanos / 1000 / 1000;
+        return std.math.lossyCast(i48, millis);
+    }
+    pub fn ticks(_: SystemPlaceholder, interpreter: *Interpreter) i48 {
+        var timer = interpreter.timer orelse return 0;
+        const nanos = timer.read();
+        const micros = nanos / 1000;
+        return std.math.lossyCast(i48, micros);
+    }
+
+    // ========================= Force Garbage Collection =========================
+    /// FIXME: implement actual GC
+    /// NOTE: yes, it should really return a `bool`, see `IntegrationTests/Tests/fullgc.com`
+    pub fn fullGC(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!bool {
+        return interpreter.report_TODO("Garbage collection is not yet implemented :)", .{});
+    }
 };
 
-const method_and_primitive_implementations = struct {
-    pub inline fn signature(method: *const MethodDefinition) SymbolId {
-        return method.method_name;
-    }
+const newline = switch (builtin.os.tag) {
+    .windows => "\r\n",
+    else => "\n",
+};
 
-    pub inline fn holder(method: *const MethodDefinition) VmObject {
-        return VmObject.from(method.source_class.as_vm_object);
-    }
-
-    pub inline fn @"invokeOn:with:"(
-        method: *const MethodDefinition,
+fn invoke(
+    params: struct {
         receiver: VmObject,
-        args: VmObject,
+        method: *const MethodDefinition,
+        maybe_args: ?VmObject,
+        invoker_method: []const u8,
         interpreter: *Interpreter,
-    ) Interpreter.Error!void {
-        const args_array: []VmObject = args.as_array() orelse {
+    },
+) Interpreter.Error!void {
+    const receiver = params.receiver;
+    const method = params.method;
+    const maybe_args = params.maybe_args;
+    const invoker_method = params.invoker_method;
+    const interpreter = params.interpreter;
+
+    const args_array: []VmObject = get_args_array: {
+        const args = maybe_args orelse {
+            assert(method.number_of_aditional_args == 0); // This should get handeled above
+            break :get_args_array &.{};
+        };
+
+        const args_array = args.as_array() orelse {
             const class_name = interpreter.statics.symbols_manager.symbol_with_id(method.source_class.class_name);
             interpreter.report_runtime_error(
-                "The method `invokeOn:` expects an array of objects as arguments, but got non-array object of class {s}.",
-                .{class_name},
+                "The method `{s}` expects an array of objects as arguments, but got non-array object of class {s}.",
+                .{ invoker_method, class_name },
             );
             switch (method.number_of_aditional_args) {
                 0 => _ = interpreter.report_info("Consider passing in an empty array, like this: `#( )`.", .{}) catch {},
@@ -334,30 +653,33 @@ const method_and_primitive_implementations = struct {
         if (method.number_of_aditional_args != args_array.len) {
             const method_selector = interpreter.statics.symbols_manager.symbol_with_id(method.method_name);
             interpreter.report_runtime_error(
-                "Passed incorrect number of arguments to the method `{s}`. Expected {d} arguments, but the arguments array has length {d}.",
+                "Passed incorrect number of arguments for the method `{s}`. Expected {d} arguments, but the arguments array has length {d}.",
                 .{ method_selector, method.number_of_aditional_args, args_array.len },
             );
             return Interpreter.Error.generic_runtime_error;
         }
 
-        // Now we put the arguments onto the stack but in a reverse order (according to the calling convention)
-        var iter = std.mem.reverseIterator(args_array);
-        while (iter.next()) |argument| try interpreter.push_object(argument);
-        try interpreter.push_object(receiver); // The receiver object is the top-most argument on the stack before the call
+        break :get_args_array args_array;
+    };
 
-        // Now call the method
-        // (this will result in a new stack frame being created or an execution of primitive method)
-        try interpreter.call_method(method);
-    }
-};
+    // Now we put the arguments onto the stack but in a reverse order (according to the calling convention)
+    var iter = std.mem.reverseIterator(args_array);
+    while (iter.next()) |argument| try interpreter.push_object(argument);
+    try interpreter.push_object(receiver); // The receiver object is the top-most argument on the stack before the call
+
+    // Now call the method.
+    // This will result in a new stack frame being created or an execution of primitive method,
+    // then the interpreter will resume.
+    try interpreter.call_method(method);
+}
 
 pub const Method = struct {
     pub fn signature(method: *const MethodDefinition) SymbolId {
-        return method_and_primitive_implementations.signature(method);
+        return method.method_name;
     }
 
     pub fn holder(method: *const MethodDefinition) VmObject {
-        return method_and_primitive_implementations.holder(method);
+        return VmObject.from(method.source_class.as_vm_object);
     }
 
     pub fn @"invokeOn:with:"(
@@ -366,17 +688,23 @@ pub const Method = struct {
         args: VmObject,
         interpreter: *Interpreter,
     ) Interpreter.Error!void {
-        return method_and_primitive_implementations.@"invokeOn:with:"(method, receiver, args, interpreter);
+        return invoke(.{
+            .receiver = receiver,
+            .method = method,
+            .maybe_args = args,
+            .invoker_method = "invokeOn:with:",
+            .interpreter = interpreter,
+        });
     }
 };
 
 pub const Primitive = struct {
     pub fn signature(method: PrimitiveMethodWrapper) SymbolId {
-        return method_and_primitive_implementations.signature(method.method_definition);
+        return method.method_definition.method_name;
     }
 
     pub fn holder(method: PrimitiveMethodWrapper) VmObject {
-        return method_and_primitive_implementations.holder(method.method_definition);
+        return VmObject.from(method.method_definition.source_class.as_vm_object);
     }
 
     pub fn @"invokeOn:with:"(
@@ -385,7 +713,13 @@ pub const Primitive = struct {
         args: VmObject,
         interpreter: *Interpreter,
     ) Interpreter.Error!void {
-        return method_and_primitive_implementations.@"invokeOn:with:"(method.method_definition, receiver, args, interpreter);
+        return invoke(.{
+            .receiver = receiver,
+            .method = method.method_definition,
+            .maybe_args = args,
+            .invoker_method = "invokeOn:with:",
+            .interpreter = interpreter,
+        });
     }
 };
 

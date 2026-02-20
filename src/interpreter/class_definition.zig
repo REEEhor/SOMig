@@ -56,6 +56,8 @@ pub const MethodDefinition = struct {
 
     source_class: *const ClassDefinition,
 
+    as_vm_object: *types.Method,
+
     body: MethodBody,
 };
 

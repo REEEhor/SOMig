@@ -141,6 +141,10 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "true",
     "false",
     "system",
+
+    // Required for runtime checks
+    "perform:",
+    "perform:withArguments:",
 });
 
 const testing = struct {

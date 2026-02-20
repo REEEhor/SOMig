@@ -1,4 +1,7 @@
 Object = nil (
+
+    objectSize = primitive  "size in bytes"
+
     "Printing"
     print     = ( self asString print )
     println   = ( self print. system printNewline )

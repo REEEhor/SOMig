@@ -13,6 +13,7 @@ const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const MethodDefinition = interpreter_module.MethodDefinition;
+const ClassDefinition = interpreter_module.ClassDefinition;
 
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
@@ -182,6 +183,11 @@ pub const PrimitiveMethodsMap = struct {
 
                         Number => interpreter.pop_object().as_number() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
+
+                        *const ClassDefinition,
+                        *ClassDefinition,
+                        => interpreter.pop_object().as_class() orelse
+                            return invalid_argument(interpreter, som_parameter_idx, "Class"),
 
                         *types.Class => interpreter.pop_object().as(.class) orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Class"),

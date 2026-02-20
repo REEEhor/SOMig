@@ -69,6 +69,16 @@ pub const VmObject = struct {
         return self.as(.block);
     }
 
+    pub fn as_symbol(self: VmObject) ?SymbolId {
+        const symbol = self.as(.symbol) orelse return null;
+        return symbol.header.symbol_id;
+    }
+
+    pub fn as_class(self: VmObject) ?*ClassDefinition {
+        const cls = self.as(.class) orelse return null;
+        return cls.represented_class;
+    }
+
     pub fn as_integer(self: VmObject) ?i48 {
         const integer = self.as(.integer) orelse return null;
         return integer.header.value;
@@ -448,6 +458,11 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
+        pub fn create_with_undefined_items(allocator: Allocator, length: usize) Allocator.Error!*Array {
+            const self: *Array = @ptrCast(try allocate_heap_data(allocator, Header{ .length = @intCast(length) }));
+            return self;
+        }
+
         const Self = @This();
         pub fn get_items(self: *Self) []VmObject {
             const length: usize = @intCast(self.header.length);
@@ -576,6 +591,14 @@ pub const types = struct {
             self.next_escaped_block = head.*;
             head.* = self;
         }
+
+        pub fn home_method(self: *Block) *const MethodDefinition {
+            var it_frame = self.home_frame;
+            while (true) switch (self.home_frame.kind) {
+                .method => |method| return method,
+                .block => |block| it_frame = block.home_frame,
+            };
+        }
     };
 
     /// TODO: remove this class
@@ -615,6 +638,14 @@ pub const types = struct {
         };
 
         pub const tag = Tag.method;
+
+        pub fn create_new(allocator: Allocator, method_definition: *MethodDefinition) Allocator.Error!VmObject {
+            const self: *Method = @ptrCast(try allocate_heap_data(allocator, Header{
+                .method = SmallPtr(*const MethodDefinition).new(method_definition),
+            }));
+            method_definition.as_vm_object = self;
+            return VmObject.from(self);
+        }
 
         pub fn method(self: *Self) *const MethodDefinition {
             return self.header.method.pointee();

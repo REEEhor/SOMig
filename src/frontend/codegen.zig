@@ -537,9 +537,6 @@ pub fn compile_class_with_its_parents(
     const globals = params.globals;
     const builtin_class_definitions = params.builtin_class_definitions;
 
-    // This method is expected to be called only when we cannot resolve a global symbol (presumably a class name)
-    assert(!globals.contains(bottom_class_name));
-
     // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
@@ -659,11 +656,7 @@ pub fn compile_class(
             .represented_class = compiled_class,
             .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
         });
-        // Someone might have tried to create a global variable with the name of the class of the represented class.
-        // (for example it is concievable that someone could have created a global with the name "Integer class")
-        // Therefore we do not assert, that the global does not exist already (we are using `.put(..)` not `.putNoClobber(..)`).
         try globals.put(compiled_class.class_name, class_as_som_object);
-
         break :blk compiled_class;
     };
 
@@ -684,12 +677,7 @@ pub fn compile_class(
             .represented_class = compiled_class,
             .class_of_represented_class = class_portion_definition,
         });
-
-        // We assert that there was no such global before.
-        // This should hold, otherwise we would have looked up the
-        // class previously when we were figuring out the class hiearchy above.
-        try globals.putNoClobber(compiled_class.class_name, class_as_som_object);
-
+        try globals.put(compiled_class.class_name, class_as_som_object);
         break :blk compiled_class;
     };
 
@@ -850,7 +838,9 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
                     .body = MethodBody{ .primitive = primitive_method.function },
                     .source_class = compiled_class,
+                    .as_vm_object = undefined,
                 };
+                _ = try object_types.Method.create_new(statics.allocator, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
@@ -884,7 +874,9 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                         .constants_base_id = method_constants_base_id,
                     } },
                     .source_class = compiled_class,
+                    .as_vm_object = undefined,
                 };
+                _ = try object_types.Method.create_new(statics.allocator, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },

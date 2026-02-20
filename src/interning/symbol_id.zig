@@ -16,7 +16,7 @@
 /// and SOM string objects are managed elsewhere.
 /// In a similiar way as other virtual machine objects are.
 ///
-pub const SymbolId = packed struct {
+pub const SymbolId = packed struct(u24) {
     ///
     /// Index into an array of symbols in `SymbolsManager`.
     ///

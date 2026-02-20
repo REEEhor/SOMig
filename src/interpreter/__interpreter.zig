@@ -236,6 +236,8 @@ pub const Interpreter = struct {
 
     source_code_files: *SourceCodeFiles,
 
+    timer: ?std.time.Timer,
+
     /// TODO: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
 
@@ -293,6 +295,7 @@ pub const Interpreter = struct {
             .statics = statics,
             .heap = Heap{ .arena = std.heap.ArenaAllocator.init(allocator_for_heap) },
             .heap_allocator = undefined,
+            .timer = null,
             .primitive_methods = primitive_methods,
             .globals = .init(allocator_for_globals),
             .source_code_files = source_code_files,
@@ -309,6 +312,12 @@ pub const Interpreter = struct {
     pub const NewObjectAllocationStrategy = enum { heap, static };
 
     pub fn run(self: *Self) !void {
+        self.timer = std.time.Timer.start() catch blk: {
+            // TODO: make this a warning
+            self.report_runtime_error("Could not initialise internal timer. `system time` and `system ticks` will return 0 every time.", .{});
+            break :blk null;
+        };
+
         while (true) {
             const instr_id = self.decoder.id_of_next_instruction();
             const instruction: Instruction = self.decoder.next_instruction() orelse {
@@ -904,25 +913,29 @@ pub const Interpreter = struct {
         self.stderr.print(colors.ERR ++ "[runtime-error] " ++ colors.RESET ++ fmt ++ "\n", args) catch return;
     }
 
-    pub fn check_out_of_bounds_get_1_base_index(self: *Self, params: struct { class_name: []const u8, length: usize, access_index: i48 }) Error!usize {
-        const class_name = params.class_name;
+    pub fn string_from_symbol(self: *Self, symbol_id: SymbolId) []const u8 {
+        return self.statics.symbols_manager.symbol_with_id(symbol_id);
+    }
+
+    pub fn check_out_of_bounds_get_1_based_index(self: *Self, params: struct { accessee: []const u8, length: usize, access_index: i48 }) Error!usize {
+        const accessee = params.accessee;
         const length = params.length;
         const access_index = params.access_index;
         if (access_index == 0) {
             @branchHint(.cold);
-            self.report_runtime_error("Out of bounds: Tried to access an instance of {s} at index 0. SOM has 1 based indexing ;)", .{class_name});
+            self.report_runtime_error("Out of bounds: Tried to access {s} at index 0. SOM has 1 based indexing ;)", .{accessee});
             return Error.out_of_bounds;
         }
         if (access_index < 1) {
             @branchHint(.cold);
-            self.report_runtime_error("Out of bounds: Tried to access an instance of {s} at index {d}.", .{ class_name, access_index });
+            self.report_runtime_error("Out of bounds: Tried to access {s} at index {d}.", .{ accessee, access_index });
             return Error.out_of_bounds;
         }
         if (access_index > length) {
             @branchHint(.cold);
             self.report_runtime_error(
-                "Out of bounds: Tried to access an instance of {s} of length {d} at index {d}. Valid indexes are 1..{d}(inclusive).",
-                .{ class_name, length, access_index, length },
+                "Out of bounds: Tried to access {s} of length {d} at index {d}. Valid indexes are 1..{d}(inclusive).",
+                .{ accessee, length, access_index, length },
             );
             return Error.out_of_bounds;
         }
