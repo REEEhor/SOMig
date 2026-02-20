@@ -33,14 +33,15 @@ const HeapData = vm_object_module.HeapData;
 const Number = vm_object_module.Number;
 
 pub const Object = struct {
-    pub fn class(self: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+    pub fn class(self: VmObject, interpreter: *Interpreter) VmObject {
         const class_definition = interpreter.get_class_of(self);
-        return class_definition.as_vm_object;
+        return VmObject.from(class_definition.as_vm_object);
     }
 };
 
 pub const Class = struct {
     pub fn new(class: *types.Class, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // TODO(consultation): How to do this? We could maybe do `interpreter.builtin_class_definitions`, but that is not comptime
         // FIXME: this does not work! We have to handle cases for primtive classes
         // switch(class.represented_class.class_name) {
         //     SymbolsManager.comptime_id_of("Integer").idx => todo,
@@ -293,7 +294,7 @@ const method_and_primitive_implementations = struct {
     }
 
     pub inline fn holder(method: *const MethodDefinition) VmObject {
-        return method.source_class.as_vm_object;
+        return VmObject.from(method.source_class.as_vm_object);
     }
 
     pub inline fn @"invokeOn:with:"(

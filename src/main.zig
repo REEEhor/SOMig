@@ -184,11 +184,11 @@ fn playground(allocator: std.mem.Allocator) !void {
     {
         const object_definition, const object_class_definition = blk: {
             const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Object"));
-            break :blk .{ class, class.get_metaclass_through_vm_object() catch unreachable };
+            break :blk .{ class, class.get_metaclass_through_vm_object() };
         };
         const class_definition, const class_class_definition = blk: {
             const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Class"));
-            break :blk .{ class, class.get_metaclass_through_vm_object() catch unreachable };
+            break :blk .{ class, class.get_metaclass_through_vm_object() };
         };
 
         // Assign the parents
@@ -200,12 +200,12 @@ fn playground(allocator: std.mem.Allocator) !void {
 
         // Update all VM objects which represent some metaclass in the runtime,
         // so the "class of the class they are representing" is actually metaclass and not undefined.
-        object_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
-        class_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
+        object_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
+        class_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
         {
-            const metaclass_class_definition = metaclass_definition.get_metaclass_through_vm_object() catch unreachable;
-            metaclass_class_definition.as_vm_object.kind().class.class_of_represented_class = metaclass_definition;
-            assert(metaclass_class_definition.get_metaclass_through_vm_object() catch unreachable == metaclass_definition);
+            const metaclass_class_definition = metaclass_definition.get_metaclass_through_vm_object();
+            metaclass_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
+            assert(metaclass_class_definition.get_metaclass_through_vm_object() == metaclass_definition);
         }
     }
 

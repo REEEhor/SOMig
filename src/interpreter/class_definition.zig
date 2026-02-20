@@ -7,6 +7,7 @@ const Interpreter = interpreter_module.Interpreter;
 //
 const vm_object_module = @import("vm_object.zig");
 const VmObject = vm_object_module.VmObject;
+const types = vm_object_module.types;
 //
 const codegen_module = @import("../frontend/codegen.zig");
 const InstructionId = codegen_module.InstructionId;
@@ -17,7 +18,7 @@ const Bytecode = codegen_module.Bytecode;
 pub const ClassDefinition = struct {
     class_name: SymbolId,
     instance_methods: MethodMap,
-    as_vm_object: VmObject,
+    as_vm_object: *types.Class,
     identifiers_of_instance_variables: []SymbolId,
     number_of_parent_instance_variables: usize,
     parent: ?*ClassDefinition,
@@ -25,11 +26,8 @@ pub const ClassDefinition = struct {
     const Self = @This();
     pub const MethodMap = SymbolArrayMap(*const MethodDefinition, "method_name");
 
-    pub fn get_metaclass_through_vm_object(self: Self) Interpreter.Error!*ClassDefinition {
-        return switch (self.as_vm_object.kind()) {
-            .class => |class| class.class_of_represented_class,
-            else => Interpreter.Error.primitive_type_error,
-        };
+    pub fn get_metaclass_through_vm_object(self: Self) *ClassDefinition {
+        return self.as_vm_object.class_of_represented_class;
     }
 
     pub fn fields_count_including_parents(self: Self) usize {

@@ -422,7 +422,7 @@ pub const Interpreter = struct {
                     } else {
                         // TODO: here we will probably invoke `doesNotUnderstand` or something similiar
                         const newly_loaded_class: *ClassDefinition = try self.load_class(global_symbol_id);
-                        try self.push_object(newly_loaded_class.as_vm_object);
+                        try self.push_object(VmObject.from(newly_loaded_class.as_vm_object));
                     }
                 },
                 // .set_global => |global_symbol_id| {

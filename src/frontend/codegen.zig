@@ -581,7 +581,7 @@ pub fn compile_class_with_its_parents(
     // Compile the classes
     var current_parent: ?ClassDefinitionPair = blk: {
         const parent_definition = parent_of_last_class orelse break :blk null;
-        const parent_metaclass = parent_definition.get_metaclass_through_vm_object() catch unreachable;
+        const parent_metaclass = parent_definition.get_metaclass_through_vm_object();
         break :blk ClassDefinitionPair{ .class = parent_definition, .metaclass = parent_metaclass };
     };
     var iter = std.mem.reverseIterator(classes_to_compile.items);
@@ -657,7 +657,6 @@ pub fn compile_class(
             .represented_class = compiled_class,
             .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
         });
-        assert(compiled_class.as_vm_object.data == class_as_som_object.data);
         // Someone might have tried to create a global variable with the name of the class of the represented class.
         // (for example it is concievable that someone could have created a global with the name "Integer class")
         // Therefore we do not assert, that the global does not exist already (we are using `.put(..)` not `.putNoClobber(..)`).
@@ -683,7 +682,6 @@ pub fn compile_class(
             .represented_class = compiled_class,
             .class_of_represented_class = class_portion_definition,
         });
-        assert(compiled_class.as_vm_object.data == class_as_som_object.data);
 
         // We assert that there was no such global before.
         // This should hold, otherwise we would have looked up the

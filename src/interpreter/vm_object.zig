@@ -401,9 +401,8 @@ pub const types = struct {
                 field_object.* = VmObject.nil;
             }
 
-            const object = VmObject.from(self);
-            classes.represented_class.as_vm_object = object;
-            return object;
+            classes.represented_class.as_vm_object = self;
+            return VmObject.from(self);
         }
 
         const Self = @This();
