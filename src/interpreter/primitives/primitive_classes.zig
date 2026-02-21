@@ -190,7 +190,7 @@ pub const Object = struct {
             .length = instance_fields.len,
             .access_index = index,
         });
-        return instance_fields[index_usize];
+        return instance_fields[index_usize - 1];
     }
 
     pub fn @"instVarAt:put:"(self: VmObject, index: i48, new_object: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
@@ -201,7 +201,7 @@ pub const Object = struct {
             .length = instance_fields.len,
             .access_index = index,
         });
-        instance_fields[index_usize] = new_object;
+        instance_fields[index_usize - 1] = new_object;
         return .{};
     }
 
