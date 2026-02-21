@@ -240,6 +240,8 @@ pub const Interpreter = struct {
 
     /// TODO: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
+    /// TODO: put this into an argument and maybe set it to `false` by default
+    nil_out_items_of_new_array: bool = false,
 
     singletons: struct {
         true_object: VmObject,

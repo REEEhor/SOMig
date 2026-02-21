@@ -9,6 +9,7 @@ const get_method_arity_from_selector = helpers_module.get_method_arity_from_sele
 const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
 const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
+const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -181,6 +182,19 @@ pub const PrimitiveMethodsMap = struct {
                         i48 => interpreter.pop_object().as_integer() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Integer"),
 
+                        usize => blk: {
+                            const interger = interpreter.pop_object().as_integer() orelse {
+                                return invalid_argument(interpreter, som_parameter_idx, "Integer (which isn't negative)");
+                            };
+                            break :blk std.math.cast(usize, interger) orelse {
+                                interpreter.report_runtime_error("Invalid argument at index {d}: Expected a non-negative integer, got: {d}.", .{
+                                    som_parameter_idx,
+                                    interger,
+                                });
+                                return Interpreter.Error.generic_runtime_error;
+                            };
+                        },
+
                         Number => interpreter.pop_object().as_number() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "Integer or Double"),
 
@@ -228,6 +242,16 @@ pub const PrimitiveMethodsMap = struct {
 
                         SystemPlaceholder => if (interpreter.pop_object().as(.system) != null) .{} else {
                             return invalid_argument(interpreter, som_parameter_idx, "System");
+                        },
+
+                        ArrayClassPlaceholder => blk: {
+                            const class_definition = interpreter.pop_object().as_class() orelse {
+                                return invalid_argument(interpreter, som_parameter_idx, "Array class");
+                            };
+                            if (class_definition.class_name != SymbolsManager.comptime_id_of("Array class")) {
+                                return invalid_argument(interpreter, som_parameter_idx, "Array class");
+                            }
+                            break :blk .{};
                         },
 
                         VmObject => interpreter.pop_object(),
@@ -295,9 +319,9 @@ pub const PrimitiveMethodsMap = struct {
     fn invalid_argument(interpreter: *Interpreter, parameter_idx: comptime_int, comptime expected: []const u8) Interpreter.Error {
         const actual_object: VmObject = interpreter.stack.objects.ptr[interpreter.stack.objects.len]; // We bypass the bounds check here
         const actual_class_name: SymbolId = interpreter.get_class_of(actual_object).class_name;
-        interpreter.report_runtime_error("Argument at index {d} has invalid class: {s}. Expected an instance of " ++ expected, .{
+        interpreter.report_runtime_error("Argument at index {d} has invalid class: '{s}'. Expected an instance of '" ++ expected ++ "'.", .{
             parameter_idx,
-            interpreter.statics.symbols_manager.symbol_with_id(actual_class_name),
+            interpreter.string_from_symbol(actual_class_name),
         });
         return Interpreter.Error.primitive_type_error;
     }

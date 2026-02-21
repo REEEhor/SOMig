@@ -145,6 +145,7 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     // Required for runtime checks
     "perform:",
     "perform:withArguments:",
+    "Array class",
 });
 
 const testing = struct {

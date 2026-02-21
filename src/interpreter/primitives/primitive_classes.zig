@@ -16,6 +16,7 @@ const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
 const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
+const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -491,6 +492,16 @@ pub const Array = struct {
 
     pub fn length(self: []VmObject) i48 {
         return @intCast(self.len);
+    }
+};
+
+pub const @"Array class" = struct {
+    pub fn @"new:"(_: ArrayClassPlaceholder, length: usize, interpreter: *Interpreter) Interpreter.Error!*types.Array {
+        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, length);
+        if (interpreter.nil_out_items_of_new_array) {
+            for (array.get_items()) |*item| item.* = VmObject.nil;
+        }
+        return array;
     }
 };
 

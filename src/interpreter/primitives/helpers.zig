@@ -46,3 +46,6 @@ pub const PrimitiveMethodWrapper = struct {
         return .{ .method_definition = method };
     }
 };
+
+/// Represents an "Array class" instance.
+pub const ArrayClassPlaceholder = struct {};
