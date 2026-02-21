@@ -151,6 +151,12 @@ pub const Number = union(enum) {
             .double => |x| std.math.lossyCast(i48, x),
         };
     }
+    pub fn as_f64(self: Self) f64 {
+        return switch (self) {
+            .integer => |x| @floatFromInt(x),
+            .double => |x| x,
+        };
+    }
 };
 
 /// Defined separatelly, because of dependency loop error.

@@ -49,3 +49,9 @@ pub const PrimitiveMethodWrapper = struct {
 
 /// Represents an "Array class" instance.
 pub const ArrayClassPlaceholder = struct {};
+
+/// Represents an "Integer class" instance.
+pub const IntegerClassPlaceholder = struct {};
+
+/// Represents a "Double class" instance.
+pub const DoubleClassPlaceholder = struct {};

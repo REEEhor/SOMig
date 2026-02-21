@@ -10,6 +10,8 @@ const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
 const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
+const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
+const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -83,7 +85,7 @@ pub const PrimitiveMethodsMap = struct {
         comptime primitives_module: type,
         symbols_manager: *SymbolsManager,
     ) Allocator.Error!Self {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(10_000);
 
         const module_info: std.builtin.Type.Struct = @typeInfo(primitives_module).@"struct";
 
@@ -244,15 +246,9 @@ pub const PrimitiveMethodsMap = struct {
                             return invalid_argument(interpreter, som_parameter_idx, "System");
                         },
 
-                        ArrayClassPlaceholder => blk: {
-                            const class_definition = interpreter.pop_object().as_class() orelse {
-                                return invalid_argument(interpreter, som_parameter_idx, "Array class");
-                            };
-                            if (class_definition.class_name != SymbolsManager.comptime_id_of("Array class")) {
-                                return invalid_argument(interpreter, som_parameter_idx, "Array class");
-                            }
-                            break :blk .{};
-                        },
+                        ArrayClassPlaceholder => try pop_specific_class("Array class", ArrayClassPlaceholder, som_parameter_idx, interpreter),
+                        IntegerClassPlaceholder => try pop_specific_class("Integer class", IntegerClassPlaceholder, som_parameter_idx, interpreter),
+                        DoubleClassPlaceholder => try pop_specific_class("Double class", DoubleClassPlaceholder, som_parameter_idx, interpreter),
 
                         VmObject => interpreter.pop_object(),
 
@@ -314,6 +310,21 @@ pub const PrimitiveMethodsMap = struct {
                 };
             }
         }.primitive_method_implementation;
+    }
+
+    fn pop_specific_class(
+        comptime class_name: []const u8,
+        comptime Result: type,
+        parameter_idx: comptime_int,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!Result {
+        const class_definition = interpreter.pop_object().as_class() orelse {
+            return invalid_argument(interpreter, parameter_idx, class_name);
+        };
+        if (class_definition.class_name != SymbolsManager.comptime_id_of(class_name)) {
+            return invalid_argument(interpreter, parameter_idx, class_name);
+        }
+        return Result{};
     }
 
     fn invalid_argument(interpreter: *Interpreter, parameter_idx: comptime_int, comptime expected: []const u8) Interpreter.Error {

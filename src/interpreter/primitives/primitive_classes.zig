@@ -17,6 +17,8 @@ const NilPlaceholder = helpers_module.NilPlaceholder;
 const SystemPlaceholder = helpers_module.SystemPlaceholder;
 const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
+const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
+const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
 
 const interpreter_module = @import("../__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
@@ -320,6 +322,79 @@ pub const Class = struct {
 };
 
 pub const Integer = struct {
+    // ========================= Arithmetic =========================
+    pub fn @"+"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self +% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) + value_as_f64,
+            },
+        };
+    }
+    pub fn @"-"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self -% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) - value_as_f64,
+            },
+        };
+    }
+    pub fn @"*"(self: i48, rhs: Number) Number {
+        return switch (rhs) {
+            .integer => |value| .{ .integer = self *% value },
+            .double => |value_as_f64| .{
+                .double = @as(f64, @floatFromInt(self)) * value_as_f64,
+            },
+        };
+    }
+    pub fn @"/"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+        return @"/_on_numbers"(self, rhs_raw, interpreter);
+    }
+    pub fn @"//"(self: i48, rhs_raw: Number) f64 {
+        return @"//_on_numbers"(self, rhs_raw);
+    }
+    /// FIXME:
+    pub fn @"%"(self: i48, rhs: Number, interpreter: *Interpreter) Interpreter.Error!Number {
+        _ = self;
+        _ = rhs;
+        return interpreter.report_TODO("Integer >> %", .{});
+    }
+    /// FIXME:
+    pub fn @"rem:"(self: i48, rhs: Number, interpreter: *Interpreter) Interpreter.Error!Number {
+        _ = self;
+        _ = rhs;
+        return interpreter.report_TODO("Integer >> rem:", .{});
+    }
+    pub fn @"&"(self: i48, rhs: i48) i48 {
+        return self & rhs;
+    }
+    pub fn @"<<"(self: i48, rhs: i48) i48 {
+        return std.math.shl(i48, self, rhs);
+    }
+    pub fn @">>>"(self: i48, rhs: i48) i48 {
+        return std.math.shr(i48, self, rhs);
+    }
+    pub fn @"bitXor:"(self: i48, rhs: i48) i48 {
+        return self ^ rhs;
+    }
+    pub fn sqrt(self: i48, interpreter: *Interpreter) Interpreter.Error!f64 {
+        if (self < 0) {
+            @branchHint(.cold);
+            interpreter.report_runtime_error("Tried to take a square root of a negative number: {d}.", .{self});
+            return Interpreter.Error.generic_runtime_error;
+        }
+        const as_float: f64 = @floatFromInt(self);
+        return std.math.sqrt(as_float);
+    }
+
+    // ========================= Random numbers =========================
+    /// FIXME:
+    pub fn atRandom(self: i48, interpreter: *Interpreter) Interpreter.Error!i48 {
+        _ = self;
+        return interpreter.report_TODO("Integer >> atRandom", .{});
+    }
+
+    // ========================= Comparing =========================
     pub fn @"="(self: i48, rhs: Number) bool {
         return self == switch (rhs) {
             .integer => |value| value,
@@ -330,7 +405,6 @@ pub const Integer = struct {
             },
         };
     }
-
     pub fn @"<"(self: i48, rhs: Number) bool {
         return switch (rhs) {
             .integer => |value| self < value,
@@ -338,39 +412,29 @@ pub const Integer = struct {
         };
     }
 
-    pub fn @"+"(self: i48, rhs: Number) Number {
-        return switch (rhs) {
-            .integer => |value| .{ .integer = self +% value },
-            .double => |value_as_f64| .{
-                .double = @as(f64, @floatFromInt(self)) + value_as_f64,
-            },
-        };
-    }
-
-    pub fn @"-"(self: i48, rhs: Number) Number {
-        return switch (rhs) {
-            .integer => |value| .{ .integer = self -% value },
-            .double => |value_as_f64| .{
-                .double = @as(f64, @floatFromInt(self)) - value_as_f64,
-            },
-        };
-    }
-
-    pub fn @"*"(self: i48, rhs: Number) Number {
-        return switch (rhs) {
-            .integer => |value| .{ .integer = self *% value },
-            .double => |value_as_f64| .{
-                .double = @as(f64, @floatFromInt(self)) * value_as_f64,
-            },
-        };
-    }
-
-    pub fn @"/"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
-        return @"/_on_numbers"(self, rhs_raw, interpreter);
-    }
-
+    // ========================= Converting =========================
     pub fn asString(self: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
         return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
+    }
+    pub fn as32BitSignedValue(self: i48) i48 {
+        const raw48: u48 = @bitCast(self);
+        const raw32: u32 = @truncate(raw48);
+        return @as(i32, @bitCast(raw32));
+    }
+    pub fn as32BitUnsignedValue(self: i48) i48 {
+        const raw48: u48 = @bitCast(self);
+        const raw32: u32 = @truncate(raw48);
+        return raw32;
+    }
+    pub fn asDouble(self: i48) f64 {
+        return @floatFromInt(self);
+    }
+};
+
+pub const @"Integer class" = struct {
+    pub fn @"fromString:"(_: IntegerClassPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const integer = std.fmt.parseInt(i48, string, 10) catch return VmObject.nil;
+        return try types.Integer.create_new(interpreter.heap_allocator, integer);
     }
 };
 
@@ -793,4 +857,14 @@ fn @"/_on_numbers"(lhs_raw: anytype, rhs_raw: Number, interpreter: *Interpreter)
         return Interpreter.Error.division_by_zero;
     }
     return @divFloor(lhs, rhs);
+}
+
+fn @"//_on_numbers"(lhs_raw: anytype, rhs_raw: Number) f64 {
+    const lhs: f64 = switch (@TypeOf(lhs_raw)) {
+        i48 => @floatFromInt(lhs_raw),
+        f64 => lhs_raw,
+        else => |Invalid| @compileError(std.fmt.comptimePrint("Invalid type: `{s}`", .{@typeName(Invalid)})),
+    };
+    const rhs = rhs_raw.as_f64();
+    return lhs / rhs;
 }

@@ -1,19 +1,100 @@
 Integer = (
-     + _ = primitive
-     - _ = primitive
-     * _ = primitive
-     / _ = primitive
-     asString = primitive
-     
+
+    "Arithmetic"
+    + argument  = primitive
+    - argument  = primitive
+    * argument  = primitive
+    / argument  = primitive
+    // argument = primitive
+    % argument  = primitive "modulo with sign of divisor"
+    rem: argument=primitive "modulo with sign of dividend"
+    & argument  = primitive
+    << argument = primitive
+    >>> argument= primitive
+    bitXor: argument = primitive
+    abs         = ( ^(self < 0) ifTrue: (0 - self) ifFalse: self )
+    sqrt        = primitive
+    negated     = ( ^0 - self )
+
+    raisedTo: exponent = (
+        "Raise the receiver to the given exponent.
+         Currently only positive integer exponents
+         are fully supported."
+        | output |
+        output := 1.
+        exponent asInteger
+          timesRepeat: [ output := output * self ].
+        ^ output
+    )
+
+    "Random numbers"
+    atRandom = primitive
+
     "Comparing"
     =  argument = primitive
     == argument = ( ^self = argument )
     ~= argument = ( ^(self = argument) not )
     <  argument = primitive
+    >  argument = ( ^(self >= argument) and: [ self <> argument ] )
     >= argument = ( ^(self < argument) not )
     <= argument = ( ^(self < argument) or: [ self = argument ] )
     negative    = ( ^self < 0 )
-    
-    "between: a and: b = ( ^(self > a) and: [ self < b ] )"
-    ">  argument = ( ^(self >= argument) and: [ self <> argument ] )"
+    between: a and: b = ( ^(self > a) and: [ self < b ] )
+
+    "Converting"
+    asString    = primitive
+    as32BitSignedValue   = primitive " returns an int, with the value that a signed 32-bit integer would have"
+    as32BitUnsignedValue = primitive " returns an int, with the value that a unsigned 32-bit integer would have"
+    asDouble    = primitive
+    asInteger   = ( ^self )
+
+    hashcode    = ( ^self )
+
+    "Iterating"
+    to: limit do: block = (
+        self to: limit by: 1 do: block
+    )
+
+    to: limit by: step do: block = (
+        | i |
+        i := self.
+        [ i <= limit ] whileTrue: [ block value: i. i := i + step ]
+    )
+
+    downTo: limit do: block = (
+        self downTo: limit by: 1 do: block
+    )
+
+    downTo: limit by: step do: block = (
+        | i |
+        i := self.
+        [ i >= limit ] whileTrue: [ block value: i. i := i - step ]
+    )
+
+    "More Iterations"
+    timesRepeat: block = (
+        1 to: self do: [ :i | block value ]
+    )
+
+    "Range Creation"
+    to: upper = (
+        | range |
+        range := Array new: upper - self + 1.
+        self to: upper do: [ :i | range at: i put: i ].
+        ^range
+    )
+
+    max: otherInt = (
+        (self < otherInt) ifTrue: [^otherInt] ifFalse: [^self].
+    )
+
+    min: otherInt = (
+        (self > otherInt) ifTrue: [^otherInt] ifFalse: [^self].
+    )
+
+
+    ----
+
+    fromString: aString = primitive
+
 )

@@ -146,6 +146,8 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "perform:",
     "perform:withArguments:",
     "Array class",
+    "Integer class",
+    "Double class",
 });
 
 const testing = struct {
