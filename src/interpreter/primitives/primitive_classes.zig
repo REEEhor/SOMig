@@ -2,39 +2,6 @@
 //! via the function `PrimitivesMethodsMap.init_from` in `primitives/primitives_methods_map`
 //! NOTE(epic-zig): the reflection used to extract this info is really nice :D
 
-const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-
-const unions = @import("../../unions.zig");
-
-const interning_module = @import("../../interning/__interning.zig");
-const SymbolId = interning_module.SymbolId;
-const SymbolsManager = interning_module.SymbolsManager;
-
-const helpers_module = @import("helpers.zig");
-const NilPlaceholder = helpers_module.NilPlaceholder;
-const SystemPlaceholder = helpers_module.SystemPlaceholder;
-const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
-const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
-const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
-const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
-
-const interpreter_module = @import("../__interpreter.zig");
-const Interpreter = interpreter_module.Interpreter;
-const Heap = interpreter_module.Heap;
-const BlockDefinition = interpreter_module.BlockDefinition;
-const MethodDefinition = interpreter_module.MethodDefinition;
-const types = interpreter_module.types;
-
-const class_definition_module = @import("../class_definition.zig");
-const ClassDefinition = class_definition_module.ClassDefinition;
-
-const vm_object_module = @import("../vm_object.zig");
-const VmObject = vm_object_module.VmObject;
-const HeapData = vm_object_module.HeapData;
-const Number = vm_object_module.Number;
-
 pub const Object = struct {
     pub fn class(self: VmObject, interpreter: *Interpreter) VmObject {
         const class_definition = interpreter.get_class_of(self);
@@ -432,13 +399,26 @@ pub const Integer = struct {
 };
 
 pub const @"Integer class" = struct {
-    pub fn @"fromString:"(_: IntegerClassPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const integer = std.fmt.parseInt(i48, string, 10) catch return VmObject.nil;
-        return try types.Integer.create_new(interpreter.heap_allocator, integer);
+    pub fn @"fromString:"(_: IntegerClassPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!i48 {
+        return std.fmt.parseInt(i48, string, 10) catch |err| {
+            interpreter.report_runtime_error("Could not convert '{s}' into an integer, because {s}.", .{
+                string, get_reason: {
+                    if (string.len == 0) {
+                        break :get_reason "the string is empty";
+                    }
+                    break :get_reason switch (err) {
+                        std.fmt.ParseIntError.InvalidCharacter => "the string contains an invalid character",
+                        std.fmt.ParseIntError.Overflow => "the integer is too large to fit into the internal representation of an integer",
+                    };
+                },
+            });
+            return Interpreter.Error.generic_runtime_error;
+        };
     }
 };
 
 pub const Double = struct {
+    // ========================= Arithmetic =========================
     pub fn @"+"(self: f64, rhs_raw: Number) f64 {
         const rhs: f64 = switch (rhs_raw) {
             .double => |value| value,
@@ -446,7 +426,6 @@ pub const Double = struct {
         };
         return self + rhs;
     }
-
     pub fn @"-"(self: f64, rhs_raw: Number) f64 {
         const rhs: f64 = switch (rhs_raw) {
             .double => |value| value,
@@ -454,7 +433,6 @@ pub const Double = struct {
         };
         return self - rhs;
     }
-
     pub fn @"*"(self: f64, rhs_raw: Number) f64 {
         const rhs: f64 = switch (rhs_raw) {
             .double => |value| value,
@@ -462,13 +440,75 @@ pub const Double = struct {
         };
         return self * rhs;
     }
-
+    pub fn @"//"(self: f64, rhs: Number) f64 {
+        return @"//_on_numbers"(self, rhs);
+    }
+    /// NOTE: This method is not technically defined in the standard library, but we can keep it here.
     pub fn @"/"(self: f64, rhs: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
         return @"/_on_numbers"(self, rhs, interpreter);
     }
+    /// FIXME:
+    pub fn @"%"(self: f64, rhs: Number, interpreter: *Interpreter) Interpreter.Error!f64 {
+        _ = self;
+        _ = rhs;
+        return interpreter.report_TODO("Double >> %", .{});
+    }
+    pub fn sqrt(self: f64) f64 {
+        return std.math.sqrt(self); // Produces NaN if `self < 0`
+    }
+    pub fn round(self: f64) f64 {
+        return std.math.round(self);
+    }
+    pub fn asInteger(self: f64, interpreter: *Interpreter) Interpreter.Error!i48 {
+        if (self > std.math.maxInt(i48)) {
+            interpreter.report_runtime_error("Could not convert the Double {d} into an integer (too big).", .{self});
+            return Interpreter.Error.generic_runtime_error;
+        }
+        if (self < std.math.minInt(i48)) {
+            interpreter.report_runtime_error("Could not convert the Double {d} into an integer (too small).", .{self});
+            return Interpreter.Error.generic_runtime_error;
+        }
+        return @intFromFloat(self);
+    }
+    pub fn cos(self: f64) f64 {
+        return std.math.cos(self);
+    }
+    pub fn sin(self: f64) f64 {
+        return std.math.sin(self);
+    }
 
+    // ========================= Comparing =========================
+    pub fn @"="(self: f64, other: Number) bool {
+        // WARN:
+        // Yes, this does check for strict bit equivalence, it's the user's fault if they are using this method.
+        return self == other.as_f64();
+    }
+    pub fn @"<"(self: f64, other: Number) bool {
+        return self < other.as_f64();
+    }
+
+    // ========================= Converting =========================
     pub fn asString(self: f64, interpreter: *Interpreter) Interpreter.Error!VmObject {
         return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
+    }
+};
+
+pub const @"Double class" = struct {
+    pub fn PositiveInfinity(_: DoubleClassPlaceholder) f64 {
+        return std.math.inf(f64);
+    }
+
+    /// NOTE:
+    /// This method returns float `NaN` in case of a parse error, which is not correct
+    /// according to 'original-som-repo/IntegrationTests/Tests/fromstring_double_err.som'
+    /// - in case of a parse error, it should actually crash the program.
+    ///
+    /// But it makes more sense to not crash the entire application and
+    /// the docs comment in 'original-som-repo/Smalltalk/Double.som'
+    /// (which is something like a standard library)
+    /// says that it actually SHOULD return `NaN`.
+    pub fn @"fromString:"(_: DoubleClassPlaceholder, string: []const u8) f64 {
+        return std.fmt.parseFloat(f64, string) catch std.math.nan(f64);
     }
 };
 
@@ -872,3 +912,36 @@ fn @"//_on_numbers"(lhs_raw: anytype, rhs_raw: Number) f64 {
     const rhs = rhs_raw.as_f64();
     return lhs / rhs;
 }
+
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+const unions = @import("../../unions.zig");
+
+const interning_module = @import("../../interning/__interning.zig");
+const SymbolId = interning_module.SymbolId;
+const SymbolsManager = interning_module.SymbolsManager;
+
+const helpers_module = @import("helpers.zig");
+const NilPlaceholder = helpers_module.NilPlaceholder;
+const SystemPlaceholder = helpers_module.SystemPlaceholder;
+const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
+const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
+const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
+const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
+
+const interpreter_module = @import("../__interpreter.zig");
+const Interpreter = interpreter_module.Interpreter;
+const Heap = interpreter_module.Heap;
+const BlockDefinition = interpreter_module.BlockDefinition;
+const MethodDefinition = interpreter_module.MethodDefinition;
+const types = interpreter_module.types;
+
+const class_definition_module = @import("../class_definition.zig");
+const ClassDefinition = class_definition_module.ClassDefinition;
+
+const vm_object_module = @import("../vm_object.zig");
+const VmObject = vm_object_module.VmObject;
+const HeapData = vm_object_module.HeapData;
+const Number = vm_object_module.Number;
