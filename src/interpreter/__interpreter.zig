@@ -1,7 +1,9 @@
 // pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
+
 pub const PRINT_PTR_MODULO: bool = true;
-pub const DEBUG_CLEAR_SCREEN: bool = true;
+pub const DEBUG_CLEAR_SCREEN: bool = false;
+pub const DEBUG_SKIP_BOOTSTRAP: bool = false;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -601,13 +603,20 @@ pub const Interpreter = struct {
 
     pub fn print_object(self: *Self, object: VmObject) Error!void {
         try self.print_object_no_newline(object);
-        std.debug.print("\x1b[0K", .{});
+        if (DEBUG_CLEAR_SCREEN) {
+            std.debug.print("\x1b[0K", .{});
+        }
         std.debug.print("\n", .{});
     }
 
     pub fn debug_print_stack(self: *Self) Error!void {
-        std.debug.print("\x1b[H", .{});
-        defer std.debug.print("\x1b[0J", .{});
+        if (DEBUG_CLEAR_SCREEN) {
+            std.debug.print("\x1b[H", .{});
+        }
+        defer if (DEBUG_CLEAR_SCREEN) {
+            std.debug.print("\x1b[0J", .{});
+        };
+
         std.debug.print("State of the stack:\n", .{});
         if (self.stack.frames_count() == 0) {
             std.debug.print("  (empty stack)", .{});
@@ -633,14 +642,17 @@ pub const Interpreter = struct {
         var next_frame_idx: usize = 1;
         while (next_frame_idx <= self.stack.frames_count()) : (next_frame_idx += 1) {
             const current_frame: Stack.Frame = self.stack.frames[next_frame_idx - 1];
-            const frame_format_string = "[{d:02} {s:<15} cons_base={d:03} ret_inst={d:03}] ";
+            const frame_format_string = "[{d:02} {s:<7} {s:<18} ret_inst={d:03}] ";
             const frame_args = .{
                 next_frame_idx - 1,
+                switch (current_frame.kind) {
+                    .method => |method| self.string_from_symbol(method.source_class.class_name),
+                    .block => |block| self.string_from_symbol(block.home_method().source_class.class_name),
+                },
                 switch (current_frame.kind) {
                     .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
                     .block => "block",
                 },
-                current_frame.constants_base_id().idx,
                 current_frame.after_return_instruction_id.idx,
             };
             const frame_length = std.fmt.count(frame_format_string, frame_args) + 2;

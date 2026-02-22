@@ -146,7 +146,7 @@ pub const Object = struct {
             .receiver = self,
             .method = method,
             .maybe_args = args,
-            .invoker_method = "perform:inSuperclass:",
+            .invoker_method = "perform:withArguments:inSuperclass:",
             .interpreter = interpreter,
         });
     }
@@ -513,27 +513,6 @@ pub const @"Double class" = struct {
 };
 
 pub const String = struct {
-    /// FIXME: this method should be defined in object, not here
-    pub fn println(self: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stdout.write(self);
-        _ = try interpreter.stdout.writeByte('\n');
-        try interpreter.stdout.flush();
-        return .{};
-    }
-
-    pub fn print(self: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stdout.write(self);
-        if (interpreter.do_flush_on_every_print) {
-            try interpreter.stdout.flush();
-        }
-        return .{};
-    }
-
-    pub fn asSymbol(self: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const symbol_id = (try interpreter.statics.symbols_manager.id_or_intern(self)).id;
-        return try types.Symbol.create_new(interpreter.heap_allocator, symbol_id);
-    }
-
     pub fn @"concatenate:"(self: []const u8, other: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
         return try types.String.create_new_fmt(
             interpreter.heap_allocator,
@@ -542,7 +521,54 @@ pub const String = struct {
         );
     }
 
-    pub fn @"primSubstringFrom:to:"(self: []const u8, from_idx_raw: i48, to_idx_raw: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
+    // ========================= Converting =========================
+    pub fn asSymbol(self: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const symbol_id = (try interpreter.statics.symbols_manager.id_or_intern(self)).id;
+        return try types.Symbol.create_new(interpreter.heap_allocator, symbol_id);
+    }
+    pub fn hashcode(self: []const u8) i48 {
+        const seed = 42;
+        const raw: u48 = @truncate(std.hash.Wyhash.hash(seed, self));
+        return @bitCast(raw);
+    }
+
+    // ========================= Info =========================
+    pub fn length(self: []const u8) i48 {
+        return @intCast(self.len);
+    }
+
+    // NOTE: All of the predicates here really return false for empty string...
+    // See: 'original-som-repo/Smalltalk/String.som'
+    // ========================= Predicates =========================
+    pub fn isWhiteSpace(self: []const u8) bool {
+        if (self.len == 0) return false;
+        for (self) |chr| if (!std.ascii.isWhitespace(chr)) return false;
+        return true;
+    }
+    pub fn isLetters(self: []const u8) bool {
+        if (self.len == 0) return false;
+        for (self) |chr| if (!std.ascii.isAlphabetic(chr)) return false;
+        return true;
+    }
+    pub fn isDigits(self: []const u8) bool {
+        if (self.len == 0) return false;
+        for (self) |chr| if (!std.ascii.isDigit(chr)) return false;
+        return true;
+    }
+
+    // ========================= Comparing =========================
+    /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
+    pub fn @"="(self: []const u8, other: []const u8) bool {
+        return std.mem.eql(u8, self, other);
+    }
+
+    // ========================= Substring implementation =========================
+    pub fn @"primSubstringFrom:to:"(
+        self: []const u8,
+        from_idx_raw: i48,
+        to_idx_raw: i48,
+        interpreter: *Interpreter,
+    ) Interpreter.Error!VmObject {
         const from_index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
             .accessee = "an instance of String",
             .length = self.len,
@@ -554,20 +580,11 @@ pub const String = struct {
             .access_index = to_idx_raw,
         });
         if (from_index > to_index) {
-            interpreter.report_runtime_error("Argument `from:` is {d}, which is bigger than `to:`, which is {d}", .{ from_index, to_index });
+            interpreter.report_runtime_error("Argument `from:` is {d}, which is bigger than `to:`, which is {d}.", .{ from_index, to_index });
             return Interpreter.Error.generic_runtime_error;
         }
         const substring: []const u8 = self[(from_index - 1)..(to_index)];
         return try types.String.create_new(interpreter.heap_allocator, substring);
-    }
-
-    /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
-    pub fn @"="(self: []const u8, other: []const u8) bool {
-        return std.mem.eql(u8, self, other);
-    }
-
-    pub fn length(self: []const u8) i48 {
-        return @intCast(self.len);
     }
 };
 

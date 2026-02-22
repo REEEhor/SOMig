@@ -27,23 +27,23 @@ const ErrorReporter = reporter_module.ErrorReporter;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    const args: [][:0]u8 = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    // const args: [][:0]u8 = try std.process.argsAlloc(allocator);
+    // defer std.process.argsFree(allocator, args);
 
-    if (args.len == 3 and std.mem.eql(u8, args[1], "-lex")) {
-        try lex(allocator, args);
-        return;
-    }
+    // if (args.len == 3 and std.mem.eql(u8, args[1], "-lex")) {
+    //     try lex(allocator, args);
+    //     return;
+    // }
 
-    if (args.len == 3 and std.mem.eql(u8, args[1], "-parse")) {
-        try parse(allocator, args);
-        return;
-    }
+    // if (args.len == 3 and std.mem.eql(u8, args[1], "-parse")) {
+    //     try parse(allocator, args);
+    //     return;
+    // }
 
-    std.debug.print(
-        "This will be an amazing SOMig project!\n\nUsage (so far):\n\t- `somig -lex <path/to/file.som>` | prints tokens and exits\n\n",
-        .{},
-    );
+    // std.debug.print(
+    //     "This will be an amazing SOMig project!\n\nUsage (so far):\n\t- `somig -lex <path/to/file.som>` | prints tokens and exits\n\n",
+    //     .{},
+    // );
 
     try playground(allocator);
 }
@@ -111,7 +111,7 @@ fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 }
 
 fn playground(allocator: std.mem.Allocator) !void {
-    const buffers_length = 0;
+    const buffers_length = 1024;
 
     // Setup stdout
     var stdout_buffer: [buffers_length]u8 = undefined;
@@ -251,24 +251,30 @@ fn playground(allocator: std.mem.Allocator) !void {
         try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
     }
 
-    const program_arguments: VmObject = get_args: {
-        // TODO: handle this properly, it should be arguments from the console
-        var args_array: [1]VmObject = undefined;
-        args_array[0] = try types.Symbol.create_new(statics.allocator, ((try statics.symbols_manager.id_or_intern("Main")).id));
-        break :get_args try types.Array.create_new(statics.allocator, &args_array);
-    };
-    const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
-        interpreter.report_runtime_error("The class `System` does not have an `initialize:` method, which is expected.", .{});
-        std.process.exit(1);
-    };
-    try interpreter.push_object(program_arguments);
-    try interpreter.push_object(interpreter.singletons.system);
-    try interpreter.call_method(initialize_method);
-    try interpreter.run();
+    if (!interpreter_module.DEBUG_SKIP_BOOTSTRAP) {
+        const program_arguments: VmObject = get_args: {
+            // TODO: handle this properly, it should be arguments from the console
+            var args_array: [1]VmObject = undefined;
+            args_array[0] = try types.Symbol.create_new(statics.allocator, ((try statics.symbols_manager.id_or_intern("Main")).id));
+            break :get_args try types.Array.create_new(statics.allocator, &args_array);
+        };
+        const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
+            interpreter.report_runtime_error("The class `System` does not have an `initialize:` method, which is expected.", .{});
+            std.process.exit(1);
+        };
+        try interpreter.push_object(program_arguments);
+        try interpreter.push_object(interpreter.singletons.system);
+        try interpreter.call_method(initialize_method);
+        try interpreter.run();
+    } else {
+        const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
+        const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
+        const main_object: VmObject = try types.GenericObject.create_new(interpreter.heap_allocator, main_class);
+        try interpreter.push_object(main_object);
+        try interpreter.call_method(run_method);
+        try interpreter.run();
+    }
 
-    // const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
-    // const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-    // const main_object: VmObject = try types.GenericObject.create_new(interpreter.heap_allocator, main_class);
     // // Dump the bytecode
     // try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
     // try codegen.print_bytecode(

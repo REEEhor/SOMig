@@ -77,7 +77,7 @@ Main = (
         '---' println.
         'Big loop...' print.
         index := 0.
-        [ index = 1000 ] whileFalse: [
+        [ index = 300 ] whileFalse: [
             index := index + 1. 
         ].
         'done. Counted to: ' print. index println.
