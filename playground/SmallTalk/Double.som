@@ -1,7 +1,0 @@
-Double = (
-      + _ = primitive
-      - _ = primitive
-      * _ = primitive
-      / _ = primitive
-      asString = primitive
-)

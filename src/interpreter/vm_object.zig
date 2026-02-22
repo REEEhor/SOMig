@@ -600,7 +600,7 @@ pub const types = struct {
 
         pub fn home_method(self: *Block) *const MethodDefinition {
             var it_frame = self.home_frame;
-            while (true) switch (self.home_frame.kind) {
+            while (true) switch (it_frame.kind) {
                 .method => |method| return method,
                 .block => |block| it_frame = block.home_frame,
             };

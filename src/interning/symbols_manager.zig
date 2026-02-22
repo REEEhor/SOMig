@@ -116,6 +116,7 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Class class",
     "Metaclass",
     "Metaclass class",
+    "initialize:",
 
     // Rest of the primitives
     "Nil",

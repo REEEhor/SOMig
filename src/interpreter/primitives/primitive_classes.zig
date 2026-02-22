@@ -152,11 +152,11 @@ pub const Object = struct {
         });
     }
 
-    pub fn @"perform:inSuperclass:withArguments:"(
+    pub fn @"perform:withArguments:inSuperclass:"(
         self: VmObject,
         method_selector: SymbolId,
-        super_class: *const ClassDefinition,
         args: VmObject,
+        super_class: *const ClassDefinition,
         interpreter: *Interpreter,
     ) Interpreter.Error!void {
         try check_class_is_actually_a_superclass(.{
@@ -494,7 +494,7 @@ pub const String = struct {
         return try types.Symbol.create_new(interpreter.heap_allocator, symbol_id);
     }
 
-    pub fn @"concatWith:"(self: []const u8, other: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+    pub fn @"concatenate:"(self: []const u8, other: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
         return try types.String.create_new_fmt(
             interpreter.heap_allocator,
             "{s}{s}",
@@ -524,6 +524,10 @@ pub const String = struct {
     /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
     pub fn @"="(self: []const u8, other: []const u8) bool {
         return std.mem.eql(u8, self, other);
+    }
+
+    pub fn length(self: []const u8) i48 {
+        return @intCast(self.len);
     }
 };
 

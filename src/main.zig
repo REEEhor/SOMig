@@ -17,6 +17,8 @@ const interpreter_module = @import("interpreter/__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
 const Statics = interpreter_module.Statics;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
+const types = interpreter_module.types;
+const VmObject = interpreter_module.VmObject;
 
 const lexer_module = @import("frontend/lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -145,7 +147,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     var source_code_files = codegen.SourceCodeFiles{
         .cached_source_filepaths = codegen.SourceCodeFiles.Map.empty,
         .arena = source_code_files_arena,
-        .root_filepath = "playground/SmallTalk",
+        .root_filepath = "playground/",
     };
 
     // // Print bytecode
@@ -161,7 +163,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     // Allocate stack
     const frames = try allocator.alloc(interpreter_module.Stack.Frame, 1000);
     defer allocator.free(frames);
-    const objects = try allocator.alloc(interpreter_module.VmObject, 100);
+    const objects = try allocator.alloc(interpreter_module.VmObject, 200);
     defer allocator.free(objects);
 
     // Setup interpreter
@@ -235,9 +237,9 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Load singletons
     {
-        const true_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
-        const false_object = try interpreter_module.types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
-        const system_object = try interpreter_module.types.System.crate_new(statics.allocator);
+        const true_object = try types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
+        const false_object = try types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
+        const system_object = try types.System.crate_new(statics.allocator);
         interpreter.singletons = .{
             .true_object = true_object,
             .false_object = false_object,
@@ -246,29 +248,44 @@ fn playground(allocator: std.mem.Allocator) !void {
         try interpreter.globals.put(SymbolsManager.comptime_id_of("system"), system_object);
         try interpreter.globals.put(SymbolsManager.comptime_id_of("true"), true_object);
         try interpreter.globals.put(SymbolsManager.comptime_id_of("false"), false_object);
-        try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), interpreter_module.VmObject.nil);
+        try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
     }
 
-    const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
-    const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-    const main_object: interpreter_module.VmObject = try interpreter_module.types.GenericObject.create_new(interpreter.heap_allocator, main_class);
-    // Dump the bytecode
-    try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
-    try codegen.print_bytecode(
-        &statics.symbols_manager,
-        &statics.constants_manager,
-        run_method.body.user_land.constants_base_id,
-        run_method.body.user_land.bytecode,
-        stdout,
-        .{},
-    );
-    try stdout.print("\n", .{});
-
-    // Run the program
-    try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
-    try interpreter.push_object(main_object);
-    try interpreter.call_method(run_method);
+    const program_arguments: VmObject = get_args: {
+        // TODO: handle this properly, it should be arguments from the console
+        var args_array: [1]VmObject = undefined;
+        args_array[0] = try types.Symbol.create_new(statics.allocator, ((try statics.symbols_manager.id_or_intern("Main")).id));
+        break :get_args try types.Array.create_new(statics.allocator, &args_array);
+    };
+    const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
+        interpreter.report_runtime_error("The class `System` does not have an `initialize:` method, which is expected.", .{});
+        std.process.exit(1);
+    };
+    try interpreter.push_object(program_arguments);
+    try interpreter.push_object(interpreter.singletons.system);
+    try interpreter.call_method(initialize_method);
     try interpreter.run();
+
+    // const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
+    // const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
+    // const main_object: VmObject = try types.GenericObject.create_new(interpreter.heap_allocator, main_class);
+    // // Dump the bytecode
+    // try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
+    // try codegen.print_bytecode(
+    //     &statics.symbols_manager,
+    //     &statics.constants_manager,
+    //     run_method.body.user_land.constants_base_id,
+    //     run_method.body.user_land.bytecode,
+    //     stdout,
+    //     .{},
+    // );
+    // try stdout.print("\n", .{});
+
+    // // Run the program
+    // try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
+    // try interpreter.push_object(main_object);
+    // try interpreter.call_method(run_method);
+    // try interpreter.run();
 }
 
 // Forcing for `zig build test` to run tests in all files that

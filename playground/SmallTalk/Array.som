@@ -1,5 +1,0 @@
-Array = (
-    at: index            = primitive
-    at: index put: value = primitive
-    length               = primitive
-)

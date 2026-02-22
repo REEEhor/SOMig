@@ -21,7 +21,7 @@ Main = (
         (42) println.
         (5 + 3) println.
         (1000.0 - 0.01) println.
-        ('Test of ' concatWith: 'concat strings') println.
+        ('Test of ' concatenate: 'concat strings') println.
         'Number is: ' + 42 println.
         ('I want ' + 98 + ' ice-creams.') println.
         "(10.0 // 0.0) println."        "TODO: uncomment this"
@@ -58,19 +58,6 @@ Main = (
         self loop_example.
         
         self fibonacci_example.
-    
-        self load_file_example.
-    )
-
-    load_file_example = (
-        | some_file filepath |
-        '\n== Load file example ==' println.
-        
-        filepath := 'playground/SmallTalk/Nil.som'.
-        some_file := (system loadFile: filepath).
-        
-        'Source code of the `Nil` class:' println.
-        some_file println.
     )
 
     loop_example = (
@@ -124,7 +111,7 @@ Main = (
    "defines the fib: method with the argument n"
     fib: n = (
         ^ n <= 1
-            ifTrue:  [ 1 ]
+            ifTrue:  1
             ifFalse: [ (self fib: (n - 1)) + (self fib: (n - 2)) ]
     )
     

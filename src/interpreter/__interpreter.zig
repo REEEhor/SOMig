@@ -1,6 +1,7 @@
 // pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
 pub const PRINT_PTR_MODULO: bool = true;
+pub const DEBUG_CLEAR_SCREEN: bool = true;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -259,6 +260,7 @@ pub const Interpreter = struct {
     stack: Stack,
 
     debug_frame_to_initialised_objects_mapping: if (DO_DEBUG_TRACE) std.DynamicBitSetUnmanaged else void = if (DO_DEBUG_TRACE) .{} else {},
+    debug_max_set_object: if (DO_DEBUG_TRACE) usize else void = if (DO_DEBUG_TRACE) 0 else {},
 
     const Self = @This();
 
@@ -530,72 +532,67 @@ pub const Interpreter = struct {
 
     pub fn print_object_no_newline(self: *Self, object: VmObject) Error!void {
         if (PRINT_PTR_MODULO) {
-            try self.stdout.print(" [{d:03}] ", .{@intFromPtr(object.data) % 999});
+            std.debug.print(" [{d:03}] ", .{@intFromPtr(object.data) % 999});
         }
         switch (object.kind()) {
-            .integer => |int| try self.stdout.print("{d}", .{int.header.value}),
-            .double => |double| try self.stdout.print("{d}", .{double.value}),
+            .integer => |int| std.debug.print("{d}", .{int.header.value}),
+            .double => |double| std.debug.print("{d}", .{double.value}),
             .string => |string| {
-                try self.stdout.print("'", .{});
+                std.debug.print("'", .{});
                 try codegen_module.print_escaped_string(self.stdout, string.contents());
-                try self.stdout.print("'", .{});
+                std.debug.print("'", .{});
             },
             .generic_object => |generic_object| {
                 const class_name: SymbolId = generic_object.class.class_name;
                 switch (class_name.idx) {
-                    SymbolsManager.comptime_id_of("True").idx => try self.stdout.print("true", .{}),
-                    SymbolsManager.comptime_id_of("False").idx => try self.stdout.print("false", .{}),
+                    SymbolsManager.comptime_id_of("True").idx => std.debug.print("true", .{}),
+                    SymbolsManager.comptime_id_of("False").idx => std.debug.print("false", .{}),
                     else => {
                         const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                        try self.stdout.print("Instance of class: '{s}'", .{class_name_string});
+                        std.debug.print("Instance of class: '{s}'", .{class_name_string});
                     },
                 }
             },
             .nil => {
-                try self.stdout.print("nil", .{});
+                std.debug.print("nil", .{});
             },
             .class => |class| {
                 const class_name: SymbolId = class.represented_class.class_name;
                 const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                try self.stdout.print("Instance of class: '{s} class'", .{class_name_string});
+                std.debug.print("Instance of class: '{s} class'", .{class_name_string});
             },
             .array => |array| {
                 const items: []VmObject = array.get_items();
-                try self.stdout.print("Array: #(", .{});
+                std.debug.print("Array: #(", .{});
                 for (items, 0..) |item, idx| {
-                    if (idx != 0) try self.stdout.print(", ", .{});
+                    if (idx > 1) {
+                        std.debug.print("... {d} more", .{items.len - idx});
+                        break;
+                    }
+                    if (idx != 0) std.debug.print(", ", .{});
                     try self.print_object_no_newline(item);
                 }
-                try self.stdout.print(")", .{});
+                std.debug.print(")", .{});
             },
             .symbol => |symbol| {
                 const symbol_id: SymbolId = symbol.header.symbol_id;
                 const symbol_string = self.statics.symbols_manager.symbol_with_id(symbol_id);
-                try self.stdout.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
+                std.debug.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
             },
             .block => |block| {
-                try self.stdout.print("block esc: {s} home: {s} self:", .{
-                    if (block.header.has_escaped_home_context) "true " else "false", switch (block.home_frame.kind) {
-                        .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
-                        .block => "(some block)",
-                    },
+                std.debug.print("block esc:{s} from: ", .{
+                    if (block.header.has_escaped_home_context) "true " else "false",
                 });
-                const home_frame_self = block.home_frame.self_object_ptr().*;
-                switch (home_frame_self.kind()) {
-                    .block => |self_block| {
-                        if (self_block == block) {
-                            try self.stdout.print(" (the same block)", .{});
-                        } else {
-                            try self.print_object_no_newline(home_frame_self);
-                        }
-                    },
-                    else => {
-                        try self.print_object_no_newline(home_frame_self);
-                    },
-                }
+                try self.print_object_no_newline(VmObject.from(block.home_method().as_vm_object));
             },
             .system => {
-                try self.stdout.print("system_singleton", .{});
+                std.debug.print("system_singleton", .{});
+            },
+            .method => |method| {
+                std.debug.print("Method '{s}' from '{s}'", .{
+                    self.string_from_symbol(method.method().method_name),
+                    self.string_from_symbol(method.method().source_class.class_name),
+                });
             },
             .empty_heap_segment => unreachable,
             .frame_header => unreachable,
@@ -604,11 +601,13 @@ pub const Interpreter = struct {
 
     pub fn print_object(self: *Self, object: VmObject) Error!void {
         try self.print_object_no_newline(object);
-        try self.stdout.print("\n", .{});
-        try self.stdout.flush();
+        std.debug.print("\x1b[0K", .{});
+        std.debug.print("\n", .{});
     }
 
     pub fn debug_print_stack(self: *Self) Error!void {
+        std.debug.print("\x1b[H", .{});
+        defer std.debug.print("\x1b[0J", .{});
         std.debug.print("State of the stack:\n", .{});
         if (self.stack.frames_count() == 0) {
             std.debug.print("  (empty stack)", .{});
@@ -798,6 +797,7 @@ pub const Interpreter = struct {
     pub fn push_object(self: *Self, object: VmObject) Error!void {
         if (self.stack.objects.len + 1 > self.stack.max_objects_len) {
             @branchHint(.cold);
+            self.report_runtime_error("Stack overflow (too many objects)! :D", .{});
             return Error.object_stack_overflow;
         }
         const object_index = self.stack.objects.len;
@@ -806,6 +806,12 @@ pub const Interpreter = struct {
 
         if (DO_DEBUG_TRACE) {
             self.debug_frame_to_initialised_objects_mapping.set(object_index);
+            if (self.debug_max_set_object < self.stack.objects.len) {
+                self.debug_max_set_object = self.stack.objects.len;
+                if (DEBUG_CLEAR_SCREEN) {
+                    std.debug.print("\x1b[2J", .{});
+                }
+            }
         }
     }
 
