@@ -677,25 +677,25 @@ pub const System = struct {
 
     // ========================= Printing =========================
     pub fn printNewline(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stdout.write(newline);
+        _ = try interpreter.stdout.writeAll(newline);
         try interpreter.stdout.flush();
         return .{};
     }
     pub fn @"printString:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stdout.write(string);
+        _ = try interpreter.stdout.writeAll(string);
         if (interpreter.do_flush_on_every_print) {
             try interpreter.stdout.flush();
         }
         return .{};
     }
     pub fn @"errorPrintln:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stderr.write(string);
-        _ = try interpreter.stderr.write(newline);
+        _ = try interpreter.stderr.writeAll(string);
+        _ = try interpreter.stderr.writeAll(newline);
         try interpreter.stderr.flush();
         return .{};
     }
     pub fn @"errorPrint:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = try interpreter.stderr.write(string);
+        _ = try interpreter.stderr.writeAll(string);
         if (interpreter.do_flush_on_every_print) {
             try interpreter.stderr.flush();
         }

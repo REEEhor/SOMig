@@ -111,7 +111,7 @@ fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
 }
 
 fn playground(allocator: std.mem.Allocator) !void {
-    const buffers_length = 1024;
+    const buffers_length = 256;
 
     // Setup stdout
     var stdout_buffer: [buffers_length]u8 = undefined;
