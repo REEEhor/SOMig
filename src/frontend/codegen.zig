@@ -1,4 +1,5 @@
 //! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String`
+//! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -1213,6 +1214,11 @@ pub const BytecodeGenerator = struct {
             self.reporter.add_note(.{ .pos = position_of_parent_declaration }, "The parent is defined here.", .{});
             return CompileError.could_not_find_method_in_parent;
         };
+        const local_self = self.lexical_scope_stack.lookup_variable(SymbolsManager.comptime_id_of("self")).local_or_method_argument;
+        try self.add_instruction(Instruction{ .load_local = .{
+            .required_frame_up_steps = local_self.scope_depth_difference,
+            .local_id = local_self.local_variable_id,
+        } });
         try self.add_instruction(Instruction{
             .resolved_method_call = .{ .method_ptr = SmallPtr(*const MethodDefinition).new(method_ptr) },
         });

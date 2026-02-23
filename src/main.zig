@@ -265,14 +265,24 @@ fn playground(allocator: std.mem.Allocator) !void {
         try interpreter.push_object(program_arguments);
         try interpreter.push_object(interpreter.singletons.system);
         try interpreter.call_method(initialize_method);
-        try interpreter.run();
+        interpreter.run() catch |err| {
+            interpreter.stderr.flush() catch {};
+            interpreter.stdout.flush() catch {};
+            interpreter.debug_print_stack() catch {};
+            return err;
+        };
     } else {
         const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
         const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
         const main_object: VmObject = try types.GenericObject.create_new(interpreter.heap_allocator, main_class);
         try interpreter.push_object(main_object);
         try interpreter.call_method(run_method);
-        try interpreter.run();
+        interpreter.run() catch |err| {
+            interpreter.stderr.flush() catch {};
+            interpreter.stdout.flush() catch {};
+            interpreter.debug_print_stack() catch {};
+            return err;
+        };
     }
 
     // // Dump the bytecode

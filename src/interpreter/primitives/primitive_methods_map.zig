@@ -246,9 +246,9 @@ pub const PrimitiveMethodsMap = struct {
                             return invalid_argument(interpreter, som_parameter_idx, "System");
                         },
 
-                        ArrayClassPlaceholder => try pop_specific_class("Array class", ArrayClassPlaceholder, som_parameter_idx, interpreter),
-                        IntegerClassPlaceholder => try pop_specific_class("Integer class", IntegerClassPlaceholder, som_parameter_idx, interpreter),
-                        DoubleClassPlaceholder => try pop_specific_class("Double class", DoubleClassPlaceholder, som_parameter_idx, interpreter),
+                        ArrayClassPlaceholder => try pop_specific_class("Array", ArrayClassPlaceholder, som_parameter_idx, interpreter),
+                        IntegerClassPlaceholder => try pop_specific_class("Integer", IntegerClassPlaceholder, som_parameter_idx, interpreter),
+                        DoubleClassPlaceholder => try pop_specific_class("Double", DoubleClassPlaceholder, som_parameter_idx, interpreter),
 
                         VmObject => interpreter.pop_object(),
 

@@ -3,7 +3,7 @@ pub const DO_DEBUG_TRACE: bool = false;
 
 pub const PRINT_PTR_MODULO: bool = true;
 pub const DEBUG_CLEAR_SCREEN: bool = false;
-pub const DEBUG_SKIP_BOOTSTRAP: bool = false;
+pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -244,7 +244,7 @@ pub const Interpreter = struct {
     /// TODO: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
     /// TODO: put this into an argument and maybe set it to `false` by default
-    nil_out_items_of_new_array: bool = false,
+    nil_out_items_of_new_array: bool = true,
 
     singletons: struct {
         true_object: VmObject,
@@ -541,7 +541,8 @@ pub const Interpreter = struct {
             .double => |double| std.debug.print("{d}", .{double.value}),
             .string => |string| {
                 std.debug.print("'", .{});
-                try codegen_module.print_escaped_string(self.stdout, string.contents());
+                try codegen_module.print_escaped_string(self.stderr, string.contents());
+                try self.stderr.flush();
                 std.debug.print("'", .{});
             },
             .generic_object => |generic_object| {
@@ -568,7 +569,7 @@ pub const Interpreter = struct {
                 std.debug.print("Array: #(", .{});
                 for (items, 0..) |item, idx| {
                     if (idx > 1) {
-                        std.debug.print("... {d} more", .{items.len - idx});
+                        std.debug.print(", .. {d} more ", .{items.len - idx});
                         break;
                     }
                     if (idx != 0) std.debug.print(", ", .{});
@@ -856,8 +857,11 @@ pub const Interpreter = struct {
             .primitive => |primitive_method| {
                 const result_object: ?VmObject = primitive_method(self) catch |err| {
                     self.report_info(
-                        "Error happened in the primitive method `{s}`", // TODO: add the classname here once we can do `method.class`
-                        .{self.statics.symbols_manager.symbol_with_id(method.method_name)},
+                        "Error happened in the primitive method `{s}` defined in class `{s}`.",
+                        .{
+                            self.string_from_symbol(method.method_name),
+                            self.string_from_symbol(method.source_class.class_name),
+                        },
                     ) catch {};
                     return err;
                 };
