@@ -115,7 +115,7 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Setup stdout
     var stdout_buffer: [buffers_length]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     var stdout: *std.io.Writer = &stdout_writer.interface;
     defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
 
