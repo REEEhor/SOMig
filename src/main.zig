@@ -259,7 +259,7 @@ fn playground(allocator: std.mem.Allocator) !void {
             break :get_args try types.Array.create_new(statics.allocator, &args_array);
         };
         const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
-            interpreter.report_runtime_error("The class `System` does not have an `initialize:` method, which is expected.", .{});
+            interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
             std.process.exit(1);
         };
         try interpreter.push_object(program_arguments);
