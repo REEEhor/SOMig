@@ -21,9 +21,12 @@ const SymbolsManager = interning_module.SymbolsManager;
 
 // TODO(speed): NaN tagging, we should be able to do:
 //                 - pointers to `ObjectHeader`
-//                 - booleans (false, true)
-//                 - nil
+//                 - singletons:
+//                      - booleans (false, true)
+//                      - the `system` singleton (it does not store any state, everything is in the `Interpreter` Zig struct)
+//                      - nil
 //                 - i48 numbers
+//                 - `Double`s (of course xd)
 //                 - maybe small string optimisation?
 pub const VmObject = struct {
     data: ?*OpaqueHeader,
@@ -98,12 +101,12 @@ pub const VmObject = struct {
         const data = self.data orelse return null;
         switch (data.tag) {
             .symbol => {
-                const symbol_object = data.unchecked_cast_to(.symbol);
+                const symbol_object = data.asserted_cast_to(.symbol);
                 const symbol_id: SymbolId = symbol_object.header.symbol_id;
                 return symbols_manager.symbol_with_id(symbol_id);
             },
             .string => {
-                const string_object = data.unchecked_cast_to(.string);
+                const string_object = data.asserted_cast_to(.string);
                 return string_object.contents();
             },
             else => return null,
@@ -114,10 +117,10 @@ pub const VmObject = struct {
         const data = self.data orelse return null;
         return switch (data.tag) {
             .integer => .{
-                .integer = data.unchecked_cast_to(.integer).header.value,
+                .integer = data.asserted_cast_to(.integer).header.value,
             },
             .double => .{
-                .double = data.unchecked_cast_to(.double).value,
+                .double = data.asserted_cast_to(.double).value,
             },
             else => return null,
         };
@@ -128,11 +131,11 @@ pub const VmObject = struct {
         const data = self.data orelse return empty;
         switch (data.tag) {
             .generic_object => {
-                const object = data.unchecked_cast_to(.generic_object);
+                const object = data.asserted_cast_to(.generic_object);
                 return object.get_fields();
             },
             .class => {
-                const class = data.unchecked_cast_to(.class);
+                const class = data.asserted_cast_to(.class);
                 return class.get_class_fields();
             },
             else => return empty,
@@ -162,6 +165,7 @@ pub const Number = union(enum) {
 /// Defined separatelly, because of dependency loop error.
 /// It is probably caused by payloads of `Kind`, which refer to the `Tag`.
 /// For example `Kind.string` has payload of `*types.Integer` which contains a `Tag`.
+/// TODO: consider not define `SomeKind.Header.tag = .some_kind` right in the header and rather do a function that returns the kind
 pub const Tag = enum(u8) {
     integer,
     double,
@@ -209,11 +213,11 @@ pub const Kind = union(Tag) {
 };
 
 /// Header which is at the beginning of every heap allocated segment (or a free segment that is on the heap).
-/// Each runtime objects must contain a header at their beginning which can be casted to this struct.
+/// All runtime objects must contain a header at their beginning which can be casted to this struct.
 pub const OpaqueHeader = packed struct(u64) {
     tag: Tag,
     is_marked: bool,
-    /// Other objects can reuse this field to store some information
+    /// Other objects can reuse the spot of this field to store additional info (usualy used for the total size of the object)
     _padding: u55,
 
     pub fn kind(header: *OpaqueHeader) Kind {
@@ -230,7 +234,8 @@ pub const OpaqueHeader = packed struct(u64) {
         };
     }
 
-    pub fn unchecked_cast_to(header: *OpaqueHeader, comptime tag: Tag) @FieldType(Kind, @tagName(tag)) {
+    pub fn asserted_cast_to(header: *OpaqueHeader, comptime tag: Tag) @FieldType(Kind, @tagName(tag)) {
+        assert(header.tag == tag);
         return @ptrCast(header);
     }
 };

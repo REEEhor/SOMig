@@ -48,6 +48,7 @@ pub const VmObject = vm_object_module.VmObject;
 pub const HeapData = vm_object_module.HeapData;
 pub const types = vm_object_module.types;
 pub const FrameOnHeap = vm_object_module.FrameOnHeap;
+pub const OpaqueHeader = vm_object_module.OpaqueHeader;
 
 const primitives_module = @import("primitives/__primitives.zig");
 pub const primitives = primitives_module.primitive_classes;
@@ -895,10 +896,10 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
-        // TODO(consultation): what to do here? Can we use `.kind()` here?
-        return switch (object.kind()) {
-            .class => |class| class.class_of_represented_class,
-            .generic_object => |generic_object| generic_object.class,
+        const opaque_header_ptr: *OpaqueHeader = object.data orelse return self.builtin_class_definitions.nil.?;
+        return switch (opaque_header_ptr.tag) {
+            .class => opaque_header_ptr.asserted_cast_to(.class).class_of_represented_class,
+            .generic_object => opaque_header_ptr.asserted_cast_to(.generic_object).class,
 
             .integer => self.builtin_class_definitions.integer.?,
             .double => self.builtin_class_definitions.double.?,
@@ -908,11 +909,14 @@ pub const Interpreter = struct {
             .symbol => self.builtin_class_definitions.symbol.?,
             .system => self.builtin_class_definitions.system.?,
 
-            .block => |block| self.builtin_class_definitions.block_from_number_of_non_self_arguments(
-                block.block_definition.number_of_aditional_args,
-            ).?,
-
-            .method => |method| blk: {
+            .block => blk: {
+                const block = opaque_header_ptr.asserted_cast_to(.block);
+                break :blk self.builtin_class_definitions.block_from_number_of_non_self_arguments(
+                    block.block_definition.number_of_aditional_args,
+                ).?;
+            },
+            .method => blk: {
+                const method = opaque_header_ptr.asserted_cast_to(.method);
                 if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive.?;
                 break :blk self.builtin_class_definitions.method.?;
             },

@@ -1,4 +1,7 @@
 //! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String`
+//! FIXME: Check if empty blocks actually return `nil`.
+//! FIXME: Make method implicit return `self` and not `nil`.
+//! FIXME: Check if we are creating an error out of exit being non-last expression
 //! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 
 const std = @import("std");
