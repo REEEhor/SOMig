@@ -97,6 +97,15 @@ pub const Heap = struct {
     pub fn allocate(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
         return try allocate_heap_data(self.arena.allocator(), header);
     }
+
+    // FIXME(GC):
+    pub fn start_gc_no_interrupt_section(self: *Self) void {
+        _ = self;
+    }
+    // FIXME(GC):
+    pub fn end_gc_no_interrupt_section(self: *Self) void {
+        _ = self;
+    }
 };
 
 pub const Stack = struct {

@@ -20,7 +20,7 @@ pub fn get_method_arity_from_selector(selector: []const u8) u32 {
     if (last_char == ':') {
         // Keyword selector
         const number_of_colons = std.mem.count(u8, selector, ":");
-        return number_of_colons + 1;
+        return @intCast(number_of_colons + 1);
     }
 
     // Unary selector

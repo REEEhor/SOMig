@@ -169,13 +169,11 @@ pub const PrimitiveMethodsMap = struct {
         return struct {
             fn primitive_method_implementation(interpreter: *Interpreter) Interpreter.Error!?VmObject {
                 // Pop arguments from the `interpreter`s stack, assert that they are the correct type and
-                // put them into this `arguments` variable
+                // put them into this `arguments` variable.
                 var arguments: Arguments = undefined;
                 comptime var som_parameter_idx = 0;
                 inline for (function_info.params, 0..) |parameter, inner_function_parameter_idx| {
                     const Parameter = parameter.type.?;
-                    // FIXME: FIGURE OUT WHAT TO DO HERE ONCE GC IS IMPLEMENTED! The objects probably have to out-life the primitive method call
-                    // NOTE: So maybe don't pop them off the stack? Maybe turn off GC for this moment (that actually might not be nice, if we crate a lot of objects in primitive methods).
                     const argument: Parameter = switch (Parameter) {
                         NilPlaceholder => if (interpreter.pop_object().as(.nil) != null) .{} else {
                             return invalid_argument(interpreter, som_parameter_idx, "primitive Nil");

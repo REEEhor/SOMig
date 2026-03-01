@@ -223,6 +223,7 @@ fn failed_finding_method(method_selector: SymbolId, class_definition: *const Cla
 
 pub const Class = struct {
     pub fn new(class: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // NOTE(GC): We don't need GC protection here, because the `class` argument is from the static region.
         return try types.GenericObject.create_new(interpreter.heap_allocator, class);
     }
 
@@ -237,7 +238,19 @@ pub const Class = struct {
 
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const field_names: []SymbolId = self.identifiers_of_instance_variables;
+
         const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, field_names.len);
+
+        // TODO(consultation): Until we have NaN-boxed `Symbol` (so that it does not require allocation), I don't how how else I would do this.
+        //                     We could also "query" remaining capacity, because `Symbol` is just `Header` sized.
+        // NOTE(GC):
+        //      We have to turn off the GC here, because we cannot easily (or "possibly") mark the created array
+        //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
+        //      If we ever have NaN boxing for `types.Symbol`, we can remove this,
+        //      since `types.Symbol.create_new(..)` will not trigger a heap allocation.
+        interpreter.heap.start_gc_no_interrupt_section();
+        defer interpreter.heap.end_gc_no_interrupt_section();
+
         for (array.get_items(), field_names) |*item, field_name| {
             item.* = try types.Symbol.create_new(interpreter.heap_allocator, field_name);
         }
@@ -251,6 +264,9 @@ pub const Class = struct {
             if (method_definition.source_class == self) non_inherited_methods_count += 1;
         }
 
+        // NOTE(GC):
+        //      We don't have to turn GC off here, because after creating the result object,
+        //      we will not allocate anything else (the methods are already created objects).
         const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, non_inherited_methods_count);
         const methods_slice = array.get_items();
         var result_array_index: usize = 0;
@@ -357,6 +373,7 @@ pub const Integer = struct {
 
     // ========================= Converting =========================
     pub fn asString(self: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // NOTE(GC): We don't have to protect `self` from GC, since `self: i48` is passed by value.
         return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
     }
     pub fn as32BitSignedValue(self: i48) i48 {
@@ -465,6 +482,7 @@ pub const Double = struct {
 
     // ========================= Converting =========================
     pub fn asString(self: f64, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // NOTE(GC): We don't have to protect `self` from GC, since `self: f64` is passed by value.
         return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
     }
 };
@@ -490,6 +508,12 @@ pub const @"Double class" = struct {
 
 pub const String = struct {
     pub fn @"concatenate:"(self: []const u8, other: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        // NOTE(GC):
+        //      We have to mark the arguments of this function as roots,
+        //      otherwise the contenst of `self` and `other` could get deallocated.
+        const p = protect_args_from_gc(@src(), interpreter);
+        defer p.end_protection_from_gc(@src(), interpreter);
+
         return try types.String.create_new_fmt(
             interpreter.heap_allocator,
             "{s}{s}",
@@ -559,7 +583,15 @@ pub const String = struct {
             interpreter.report_runtime_error("Argument `from:` is {d}, which is bigger than `to:`, which is {d}.", .{ from_index, to_index });
             return Interpreter.Error.generic_runtime_error;
         }
+
         const substring: []const u8 = self[(from_index - 1)..(to_index)];
+
+        // NOTE(GC):
+        //     We have to protect the contents of `substring` from getting collected,
+        //     because `String.create_*` might trigger GC. We have to protect
+        //     the object `self`, since that the `substring` originates from it.
+        const p = protect_args_from_gc(@src(), interpreter);
+        defer p.end_protection_from_gc(@src(), interpreter);
         return try types.String.create_new(interpreter.heap_allocator, substring);
     }
 };
@@ -598,9 +630,11 @@ pub const Array = struct {
 
 pub const @"Array class" = struct {
     pub fn @"new:"(_: ArrayClassPlaceholder, length: usize, interpreter: *Interpreter) Interpreter.Error!*types.Array {
+        // NOTE(GC):
+        //     We don't need GC protection here, because after `Array.create_*`, we don't allocate.
         const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, length);
         if (interpreter.nil_out_items_of_new_array) {
-            for (array.get_items()) |*item| item.* = VmObject.nil;
+            for (array.get_items()) |*item| item.* = VmObject.nil; // This does not cause an allocation
         }
         return array;
     }
@@ -626,6 +660,8 @@ pub const System = struct {
         defer file.close();
 
         const file_size = (file.stat() catch return VmObject.nil).size;
+
+        // NOTE(GC): We don't need GC protection here, because after `String.create_*`, no allocations are done.
         const string_object: *types.String = try types.String.create_with_undefined_contents(
             interpreter.heap_allocator,
             std.math.cast(i48, file_size) orelse return VmObject.nil,
@@ -837,7 +873,7 @@ pub const Primitive = struct {
 
 pub const Block = struct {
     pub fn value(self: *types.Block, interpreter: *Interpreter) Interpreter.Error!void {
-        return try block_value_method(self, interpreter);
+        try block_value_method(self, interpreter);
     }
 
     pub fn restart(_: *types.Block, interpreter: *Interpreter) void {
@@ -848,14 +884,14 @@ pub const Block = struct {
 
 pub const Block1 = struct {
     pub fn value(self: *types.Block, interpreter: *Interpreter) Interpreter.Error!void {
-        return try block_value_method(self, interpreter);
+        try block_value_method(self, interpreter);
     }
 };
 
 pub const Block2 = struct {
     pub fn @"value:"(self: *types.Block, argument: VmObject, interpreter: *Interpreter) Interpreter.Error!void {
         try interpreter.push_object(argument);
-        return try block_value_method(self, interpreter);
+        try block_value_method(self, interpreter);
     }
 };
 
@@ -865,7 +901,7 @@ pub const Block3 = struct {
         // So the call is valid according to the calling convention!
         try interpreter.push_object(argument2);
         try interpreter.push_object(argument1);
-        return try block_value_method(self, interpreter);
+        try block_value_method(self, interpreter);
     }
 };
 
@@ -903,6 +939,20 @@ fn @"//_on_numbers"(lhs_raw: anytype, rhs_raw: Number) f64 {
     };
     const rhs = rhs_raw.as_f64();
     return lhs / rhs;
+}
+
+const GcAllArgsProtector = struct {
+    fn end_protection_from_gc(_: GcAllArgsProtector, comptime location: std.builtin.SourceLocation, interpreter: *Interpreter) void {
+        const args_to_protect = helpers_module.get_method_arity_from_selector(location.fn_name);
+        assert(interpreter.stack.objects.len >= args_to_protect);
+        interpreter.stack.objects.len -= args_to_protect;
+    }
+};
+fn protect_args_from_gc(comptime location: std.builtin.SourceLocation, interpreter: *Interpreter) GcAllArgsProtector {
+    const args_to_protect = comptime helpers_module.get_method_arity_from_selector(location.fn_name);
+    assert(interpreter.stack.max_objects_len >= interpreter.stack.objects.len + args_to_protect);
+    interpreter.stack.objects.len += args_to_protect;
+    return .{};
 }
 
 const std = @import("std");
