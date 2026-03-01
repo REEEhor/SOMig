@@ -49,6 +49,10 @@ pub const HeapData = vm_object_module.HeapData;
 pub const types = vm_object_module.types;
 pub const FrameOnHeap = vm_object_module.FrameOnHeap;
 pub const OpaqueHeader = vm_object_module.OpaqueHeader;
+pub const EmptyHeapSegment = vm_object_module.EmptyHeapSegment;
+pub const object_alignment_in_bytes = vm_object_module.object_alignment_in_bytes;
+pub const pointer_after = vm_object_module.pointer_after;
+pub const slice_after = vm_object_module.slice_after;
 
 const primitives_module = @import("primitives/__primitives.zig");
 pub const primitives = primitives_module.primitive_classes;
@@ -88,23 +92,190 @@ pub const Statics = struct {
     }
 };
 
-// TODO: implement a GC so that we also deallocate stuff
-// TODO: consider making this heap take in just a `[]align(@alignOf(HeapData.Header))u8` instead of the allocator
 pub const Heap = struct {
-    arena: std.heap.ArenaAllocator,
+    backing_allocator: std.mem.Allocator,
+    buffer_list_head: ?*BufferHeader = null,
+
+    /// WARN: Only `.header.next_empty_segment` of this field should ever be accessed.
+    ///
+    /// The `.header.next_empty_segment` represents an optional head of the free list of the heap.
+    ///
+    /// This field represents a non-existant empty heap segment which points to the
+    /// *actual* optional first empty segment, which is *actually on the heap*.
+    ///
+    /// We do this shenanigan because we sometimes need a pointer of the previous item to its next item,
+    /// for example in a linked-list iteration with a manipulation of the linked-list.
+    /// We would use `*?*EmptyHeapSegment` in such scenarios, but that is not viable,
+    /// since we store `?*EmptyHeapSegment` in `SmallPtr(?*EmptyHeapSegment)` inside packed structs,
+    /// so it is not possible to take pointers to such items.
+    ///
+    free_list_dummy_before_head: EmptyHeapSegment = .{
+        .header = .{ .size_kind = undefined, .next_empty_segment = .new(null) },
+    },
+    gc_is_turned_off: bool = false,
+
+    minimum_number_of_pages_per_buffer: usize = 1,
+
+    /// Does not include `BufferHeader` in buffers
+    total_managed_memory_in_bytes: usize = 0,
+    /// Total number of bytes in the free list.
+    total_free_memory_in_bytes: usize = 0,
+    gc_trigger_percentage: usize = 90,
 
     const Self = @This();
-    pub fn allocate(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
-        return try allocate_heap_data(self.arena.allocator(), header);
+
+    pub const BufferHeader = struct {
+        next_buffer: ?*BufferHeader,
+        size_without_header: usize,
+
+        pub fn slice_without_header(header: *BufferHeader) []u8 {
+            return slice_after(header, u8, header.size_without_header);
+        }
+        pub fn slice_containing_header(header: *BufferHeader) []u8 {
+            const total_size = header.size_without_header + @sizeOf(BufferHeader);
+            return @as([*]u8, @ptrCast(header))[0..total_size];
+        }
+    };
+
+    /// TODO(consultation): Maybe we could put argument of the required bytes into GC so that if it allocates a buffer, we know how much space we need for it.
+    /// `required_bytes` does NOT have to be aligned to `object_alignment_in_bytes`.
+    pub fn allocate(self: *Self, required_bytes: usize) Allocator.Error!*OpaqueHeader {
+        var ran_gc = false;
+
+        // Run GC if there is too much stuff allocated.
+        if (self.is_gc_percentage_exceeded()) {
+            ran_gc = true;
+            try self.run_garbage_collection();
+        }
+
+        // Try to firstly allocate from the free list
+        if (self.try_allocating_in_the_free_list(required_bytes)) |new_header| {
+            return new_header;
+        }
+
+        // Free list failed, try it again, but now after we run GC.
+        // (Only if we didn't run GC before, otherwise it wouldn't help to run it again)
+        if (!ran_gc) {
+            try self.run_garbage_collection();
+            if (self.try_allocating_in_the_free_list(required_bytes)) |new_header| {
+                return new_header;
+            }
+        }
+
+        // There is no empty segment in the free list that is big enough,
+        // we have to add a new buffer:
+        try self.add_empty_buffer(.{ .minimum_required_bytes = required_bytes });
+
+        // There is now a new empty buffer at the beginning
+        // of the free list in the size that we need (or bigger).
+        //
+        // So allocating from the free list should not fail now.
+        // It should also be quick, since the first item is the buffer that we want.
+        return self.try_allocating_in_the_free_list(required_bytes).?;
     }
 
-    // FIXME(GC):
-    pub fn start_gc_no_interrupt_section(self: *Self) void {
-        _ = self;
+    pub fn deinit(self: *Self) void {
+        var maybe_current_buffer: ?*BufferHeader = self.buffer_list_head;
+        while (maybe_current_buffer) |current_buffer| {
+            const next = current_buffer.next_buffer;
+            defer maybe_current_buffer = next;
+            self.backing_allocator.free(current_buffer.slice_containing_header());
+        }
     }
-    // FIXME(GC):
+
+    pub fn start_gc_no_interrupt_section(self: *Self) void {
+        assert(!self.gc_is_turned_off);
+        self.gc_is_turned_off = true;
+    }
     pub fn end_gc_no_interrupt_section(self: *Self) void {
+        assert(self.gc_is_turned_off);
+        self.gc_is_turned_off = false;
+    }
+
+    fn add_empty_buffer(self: *Self, params: struct { minimum_required_bytes: usize }) Allocator.Error!void {
+        const new_buffer_size = align_to_page_size(@max(
+            params.minimum_required_bytes + @sizeOf(BufferHeader),
+            self.minimum_buffer_size_including_header(),
+        ));
+        const size_of_created_space = new_buffer_size - @sizeOf(BufferHeader);
+
+        const new_buffer: *BufferHeader = @ptrCast(try self.backing_allocator.alignedAlloc(
+            u8,
+            std.mem.Alignment.of(@alignOf(BufferHeader)),
+            new_buffer_size,
+        ));
+        new_buffer.* = BufferHeader{
+            .size_without_header = size_of_created_space,
+            .next_buffer = self.buffer_list_head,
+        };
+        self.buffer_list_head = new_buffer;
+        self.total_managed_memory_in_bytes += size_of_created_space;
+
+        const new_empty_segment = EmptyHeapSegment.create_from(.{
+            .spot_to_free = new_buffer.slice_without_header().ptr,
+            .length_in_bytes = size_of_created_space,
+            .next_empty_segment = self.free_list_dummy_before_head.header.next_empty_segment.pointee(),
+        });
+        self.free_list_dummy_before_head.header.next_empty_segment = .new(new_empty_segment);
+    }
+    fn run_garbage_collection(self: *Self) Allocator.Error!void {
         _ = self;
+        std.debug.panic("TODO: garbage collection :)", .{});
+
+        // TODO: don't forget to check `self.is_gc_percentage_exceeded()`
+        //  Because if it is, we should allocate a new header that has a size
+        //  that exceeds the gc trigger percentage.
+        //
+        // TODO: don't forget to check `self.is_gc_percentage_exceeded()`
+        //  It might be worth it to also pass in the potential size of this
+        //  buffer. Since we usually run GC inside `Heap.allocate(..)`,
+        //  it means that we are looking for a new spot anyway.
+    }
+
+    fn minimum_buffer_size_including_header(self: Self) usize {
+        return self.minimum_number_of_pages_per_buffer * std.heap.pageSize();
+    }
+
+    fn align_to_page_size(addr: usize) usize {
+        return std.mem.alignForward(usize, addr, std.heap.pageSize());
+    }
+
+    fn is_gc_percentage_exceeded(self: Self) bool {
+        const taken = self.total_managed_memory_in_bytes - self.total_free_memory_in_bytes;
+        const total = self.total_managed_memory_in_bytes;
+        const percentage = self.gc_trigger_percentage;
+        //
+        //    taken          percentage
+        //  ---------  >=  ---------------    / × 100 × total
+        //    total             100
+        //              |
+        //              V
+        //  100 × taken >=  total × percentage
+        //
+        //
+        return 100 * taken >= total * percentage;
+    }
+
+    fn try_allocating_in_the_free_list(self: *Self, unaligned_bytes_required: usize) ?*OpaqueHeader {
+        // NOTE:
+        //  `total_free_memory_in_bytes` is always aligned, so comparing aligned and unaligned values is okay via `<`
+        if (self.total_free_memory_in_bytes < unaligned_bytes_required) return null;
+
+        // Now go through the free list and try to find an empty segment which we allocate into.
+        var previous_segment: *EmptyHeapSegment = &self.free_list_imaginary_before_head;
+        while (previous_segment.header.next_empty_segment.pointee()) |free_segment| {
+            defer previous_segment = free_segment;
+
+            const alloc_result = free_segment.try_allocate_from(.{
+                .unaligned_bytes_required = unaligned_bytes_required,
+            }) orelse continue;
+
+            self.total_free_memory_in_bytes -= alloc_result.total_bytes_allocated;
+            previous_segment.header.next_empty_segment = .new(alloc_result.new_empty_segment);
+            return alloc_result.allocated_header;
+        }
+
+        return null;
     }
 };
 

@@ -240,11 +240,14 @@ pub const OpaqueHeader = packed struct(u64) {
     }
 };
 
+/// All heap allocated objects must have this alignment
+pub const object_alignment_in_bytes = 8;
+
 comptime {
     // Simplifies a lot of things (especially the alignment).
     // It is far easier to allocate header and then other fields after it for example.
     assert(@sizeOf(OpaqueHeader) == 8);
-    assert(@alignOf(OpaqueHeader) == 8);
+    assert(@alignOf(OpaqueHeader) == object_alignment_in_bytes);
 }
 
 fn allocate_heap_data(
@@ -272,7 +275,13 @@ fn allocate_heap_data(
     return ptr;
 }
 
-fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []Item {
+pub fn pointer_after(object_ptr: anytype, comptime Item: type) *Item {
+    const Object = @typeInfo(@TypeOf(object_ptr)).pointer.child;
+    const address = @intFromPtr(object_ptr) + @sizeOf(Object);
+    return @ptrFromInt(address);
+}
+
+pub fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []Item {
     const Object = @typeInfo(@TypeOf(object_ptr)).pointer.child;
     const address = @intFromPtr(object_ptr) + @sizeOf(Object);
     const ptr: [*]Item = @ptrFromInt(address);
@@ -768,5 +777,143 @@ pub const FrameOnHeap = struct {
         frame_ptr.base_ptr = new_locals.ptr;
 
         return frame_ptr;
+    }
+};
+
+/// Represents an empty spot in the heap.
+///
+/// Actual memory layout of this struct is:
+/// ```zig
+///     header: EmptyHeapSegment.Header,
+///     segment_size_in_bytes: switch(self.header.size_kind) {
+///         .big => u64,
+///         .small => void,
+///     }
+///     empty_space: [bytes_after_header_and_maybe_u64]u8,
+/// ```
+pub const EmptyHeapSegment = extern struct {
+    header: Header,
+
+    comptime {
+        assert(@sizeOf(@This()) == 8);
+    }
+
+    pub const Header = packed struct(u64) {
+        tag: Tag = tag,
+
+        /// The `OpaqueHeader` has a flag here for marking of objects for (not) GC,
+        /// we want to ignore to not cause badly-trackable bugs.
+        _ignorred_gc_flag: bool = undefined,
+        size_kind: enum(u1) {
+            /// This `EmptyHeapSegment` is the size of a single `OpaqueHeader` (64 bits).
+            small,
+            /// This `EmptyHeapSegment` contains a u64 after the header,
+            /// which describes how many bytes are free after the header.
+            big,
+        },
+        _padding: u6 = undefined,
+        next_empty_segment: SmallPtr(?*EmptyHeapSegment),
+    };
+    pub const tag = .empty_heap_segment;
+
+    const Self = @This();
+
+    pub fn create_from(params: struct {
+        spot_to_free: *align(object_alignment_in_bytes) anyopaque,
+        length_in_bytes: u64,
+        next_empty_segment: ?*EmptyHeapSegment,
+    }) *EmptyHeapSegment {
+        assert(params.length_in_bytes >= @sizeOf(OpaqueHeader));
+
+        // We do this align forward in case of unaligned end of an object.
+        // For example a string:
+        //
+        // Required alignment boundaries: v           v           v             ...
+        //                                |   Header  |"hi"<empty>| next Header ...
+        //                                                ^       ^
+        //                                                |       |
+        // Reported end (start+size)                      |       |
+        // by the string object __________________________/       |
+        //                                                        |
+        // Logical end of space taken by the object ______________/
+        //
+        const length_in_bytes = std.mem.alignForward(u64, params.length_in_bytes, object_alignment_in_bytes);
+        const self: *EmptyHeapSegment = params.spot_to_free;
+
+        switch (length_in_bytes) {
+            @sizeOf(Header) => self.header = Header{
+                .size_kind = .small,
+                .next_empty_segment = SmallPtr(?*EmptyHeapSegment).new(params.next_empty_segment),
+            },
+            else => |total_size| {
+                self.header = Header{
+                    .size_kind = .big,
+                    .next_empty_segment = SmallPtr(?*EmptyHeapSegment).new(params.next_empty_segment),
+                };
+                self.after_header_size_ptr().* = total_size;
+            },
+        }
+
+        return self;
+    }
+
+    /// Makes the empty heap segment longer.
+    ///
+    /// Parameter `bytes_to_add` must be a multiple of `object_alignment_in_bytes`.
+    pub fn prolong_by_aligned_bytes(self: *Self, bytes_to_add: usize) void {
+        if (bytes_to_add == 0) return;
+        assert(bytes_to_add % object_alignment_in_bytes == 0);
+
+        const old_size = self.size_in_bytes();
+        self.header.size_kind = .big; // We know that any non-zero enlargement results in a `.big` empty segment
+        self.after_header_size_ptr().* = old_size + bytes_to_add;
+    }
+
+    pub const AllocateFromResult = struct {
+        allocated_header: *OpaqueHeader,
+        new_empty_segment: ?*EmptyHeapSegment,
+        total_bytes_allocated: usize,
+    };
+    pub fn try_allocate_from(self: *Self, params: struct { unaligned_bytes_required: usize }) ?AllocateFromResult {
+        const available_bytes = self.size_in_bytes();
+        const bytes_required = std.mem.alignForward(params.unaligned_bytes_required);
+        if (available_bytes < bytes_required) return null;
+
+        const allocated_segment: *OpaqueHeader = @ptrCast(self);
+        if (available_bytes == bytes_required) return .{
+            .allocated_header = allocated_segment,
+            .new_empty_segment = self.header.next_empty_segment.pointee(),
+            .total_bytes_allocated = bytes_required,
+        };
+
+        const new_empty_segment: *EmptyHeapSegment = @ptrFromInt(@intFromPtr(self) + bytes_required);
+        const new_segment_size = available_bytes - bytes_required;
+        assert(new_segment_size % object_alignment_in_bytes == 0);
+        assert(new_empty_segment == EmptyHeapSegment.create_from(.{
+            .spot_to_free = new_empty_segment,
+            .length_in_bytes = available_bytes - bytes_required,
+            .next_empty_segment = self.header.next_empty_segment.pointee(),
+        }));
+
+        return .{
+            .allocated_header = allocated_segment,
+            .new_empty_segment = new_empty_segment,
+            .total_bytes_allocated = bytes_required,
+        };
+    }
+
+    pub fn size_in_bytes(self: *const Self) usize {
+        switch (self.header.size_kind) {
+            .small => return @sizeOf(Header),
+            .big => {
+                const total_size = self.after_header_size_ptr().*;
+                return total_size;
+            },
+        }
+    }
+
+    pub fn after_header_size_ptr(self: *const Self) *u64 {
+        assert(self.header.size_kind == .big);
+        return pointer_after(self, u64);
     }
 };
