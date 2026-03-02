@@ -224,7 +224,7 @@ fn failed_finding_method(method_selector: SymbolId, class_definition: *const Cla
 pub const Class = struct {
     pub fn new(class: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         // NOTE(GC): We don't need GC protection here, because the `class` argument is from the static region.
-        return try types.GenericObject.create_new(interpreter.heap_allocator, class);
+        return try types.GenericObject.create_new(&interpreter.heap, class);
     }
 
     pub fn name(self: *const ClassDefinition) SymbolId {
@@ -239,7 +239,7 @@ pub const Class = struct {
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const field_names: []SymbolId = self.identifiers_of_instance_variables;
 
-        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, field_names.len);
+        const array = try types.Array.create_with_undefined_items(&interpreter.heap, field_names.len);
 
         // TODO(consultation): Until we have NaN-boxed `Symbol` (so that it does not require allocation), I don't how how else I would do this.
         //                     We could also "query" remaining capacity, because `Symbol` is just `Header` sized.
@@ -252,7 +252,7 @@ pub const Class = struct {
         defer interpreter.heap.end_gc_no_interrupt_section();
 
         for (array.get_items(), field_names) |*item, field_name| {
-            item.* = try types.Symbol.create_new(interpreter.heap_allocator, field_name);
+            item.* = try types.Symbol.create_new(&interpreter.heap, field_name);
         }
         return VmObject.from(array);
     }
@@ -267,7 +267,7 @@ pub const Class = struct {
         // NOTE(GC):
         //      We don't have to turn GC off here, because after creating the result object,
         //      we will not allocate anything else (the methods are already created objects).
-        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, non_inherited_methods_count);
+        const array = try types.Array.create_with_undefined_items(&interpreter.heap, non_inherited_methods_count);
         const methods_slice = array.get_items();
         var result_array_index: usize = 0;
         for (all_method_definitions) |method_definition| {
@@ -374,7 +374,7 @@ pub const Integer = struct {
     // ========================= Converting =========================
     pub fn asString(self: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
         // NOTE(GC): We don't have to protect `self` from GC, since `self: i48` is passed by value.
-        return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
+        return try types.String.create_new_fmt(&interpreter.heap, "{d}", .{self});
     }
     pub fn as32BitSignedValue(self: i48) i48 {
         const raw48: u48 = @bitCast(self);
@@ -483,7 +483,7 @@ pub const Double = struct {
     // ========================= Converting =========================
     pub fn asString(self: f64, interpreter: *Interpreter) Interpreter.Error!VmObject {
         // NOTE(GC): We don't have to protect `self` from GC, since `self: f64` is passed by value.
-        return try types.String.create_new_fmt(interpreter.heap_allocator, "{d}", .{self});
+        return try types.String.create_new_fmt(&interpreter.heap, "{d}", .{self});
     }
 };
 
@@ -515,7 +515,7 @@ pub const String = struct {
         defer p.end_protection_from_gc(@src(), interpreter);
 
         return try types.String.create_new_fmt(
-            interpreter.heap_allocator,
+            &interpreter.heap,
             "{s}{s}",
             .{ self, other },
         );
@@ -524,7 +524,7 @@ pub const String = struct {
     // ========================= Converting =========================
     pub fn asSymbol(self: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const symbol_id = (try interpreter.statics.symbols_manager.id_or_intern(self)).id;
-        return try types.Symbol.create_new(interpreter.heap_allocator, symbol_id);
+        return try types.Symbol.create_new(&interpreter.heap, symbol_id);
     }
     pub fn hashcode(self: []const u8) i48 {
         const seed = 42;
@@ -592,14 +592,14 @@ pub const String = struct {
         //     the object `self`, since that the `substring` originates from it.
         const p = protect_args_from_gc(@src(), interpreter);
         defer p.end_protection_from_gc(@src(), interpreter);
-        return try types.String.create_new(interpreter.heap_allocator, substring);
+        return try types.String.create_new(&interpreter.heap, substring);
     }
 };
 
 pub const Symbol = struct {
     pub fn asString(self: SymbolId, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const symbol_as_string: []const u8 = interpreter.statics.symbols_manager.symbol_with_id(self);
-        return try types.String.create_new(interpreter.heap_allocator, symbol_as_string);
+        return try types.String.create_new(&interpreter.heap, symbol_as_string);
     }
 };
 
@@ -632,7 +632,7 @@ pub const @"Array class" = struct {
     pub fn @"new:"(_: ArrayClassPlaceholder, length: usize, interpreter: *Interpreter) Interpreter.Error!*types.Array {
         // NOTE(GC):
         //     We don't need GC protection here, because after `Array.create_*`, we don't allocate.
-        const array = try types.Array.create_with_undefined_items(interpreter.heap_allocator, length);
+        const array = try types.Array.create_with_undefined_items(&interpreter.heap, length);
         if (interpreter.nil_out_items_of_new_array) {
             for (array.get_items()) |*item| item.* = VmObject.nil; // This does not cause an allocation
         }
@@ -663,7 +663,7 @@ pub const System = struct {
 
         // NOTE(GC): We don't need GC protection here, because after `String.create_*`, no allocations are done.
         const string_object: *types.String = try types.String.create_with_undefined_contents(
-            interpreter.heap_allocator,
+            &interpreter.heap,
             std.math.cast(i48, file_size) orelse return VmObject.nil,
         );
         var reader = file.reader(string_object.contents());

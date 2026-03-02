@@ -19,6 +19,7 @@ const Statics = interpreter_module.Statics;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
 const types = interpreter_module.types;
 const VmObject = interpreter_module.VmObject;
+const Heap = interpreter_module.Heap;
 
 const lexer_module = @import("frontend/lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -169,7 +170,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     // Setup interpreter
     var interpreter = Interpreter.new(
         // TODO: use a different allocator for heap, globals
-        interpreter_allocator,
+        Heap{ .backing_allocator = allocator },
         interpreter_allocator,
         stdout,
         stdout,
@@ -179,7 +180,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         objects,
         frames,
     );
-    interpreter.heap_allocator = interpreter.heap.arena.allocator();
+    defer interpreter.heap.deinit();
+    try interpreter.heap.reserve_at_least(.{ .total_minimum_number_of_bytes = 1024 * 1024 });
 
     // Setup the base class hiearchy
     // TODO: assert correct hiearchy (meaning the classes actually point to each other)
@@ -237,9 +239,9 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Load singletons
     {
-        const true_object = try types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.true.?);
-        const false_object = try types.GenericObject.create_new(statics.allocator, interpreter.builtin_class_definitions.false.?);
-        const system_object = try types.System.crate_new(statics.allocator);
+        const true_object = try types.GenericObject.create_new(&statics, interpreter.builtin_class_definitions.true.?);
+        const false_object = try types.GenericObject.create_new(&statics, interpreter.builtin_class_definitions.false.?);
+        const system_object = try types.System.create_new(&statics);
         interpreter.singletons = .{
             .true_object = true_object,
             .false_object = false_object,
@@ -255,8 +257,8 @@ fn playground(allocator: std.mem.Allocator) !void {
         const program_arguments: VmObject = get_args: {
             // TODO: handle this properly, it should be arguments from the console
             var args_array: [1]VmObject = undefined;
-            args_array[0] = try types.Symbol.create_new(statics.allocator, ((try statics.symbols_manager.id_or_intern("Main")).id));
-            break :get_args try types.Array.create_new(statics.allocator, &args_array);
+            args_array[0] = try types.Symbol.create_new(&statics, ((try statics.symbols_manager.id_or_intern("Main")).id));
+            break :get_args try types.Array.create_new(&statics, &args_array);
         };
         const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
             interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
@@ -274,7 +276,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     } else {
         const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
         const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-        const main_object: VmObject = try types.GenericObject.create_new(interpreter.heap_allocator, main_class);
+        const main_object: VmObject = try types.GenericObject.create_new(&interpreter.heap, main_class);
         try interpreter.push_object(main_object);
         try interpreter.call_method(run_method);
         interpreter.run() catch |err| {

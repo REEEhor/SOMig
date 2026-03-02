@@ -284,7 +284,7 @@ pub const PrimitiveMethodsMap = struct {
                 };
 
                 // Cast the result into a `VmObject`
-                const heap = interpreter.heap_allocator;
+                const heap = &interpreter.heap;
                 return switch (ReturnType) {
                     VmObject => result,
                     NilPlaceholder => VmObject.nil,

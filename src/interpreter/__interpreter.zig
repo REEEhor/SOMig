@@ -128,7 +128,7 @@ pub const Heap = struct {
         next_buffer: ?*BufferHeader,
         size_without_header: usize,
 
-        pub fn slice_without_header(header: *BufferHeader) []u8 {
+        pub fn slice_without_header(header: *BufferHeader) []align(8) u8 {
             return slice_after(header, u8, header.size_without_header);
         }
         pub fn slice_containing_header(header: *BufferHeader) []u8 {
@@ -183,6 +183,12 @@ pub const Heap = struct {
         }
     }
 
+    pub fn reserve_at_least(self: *Self, params: struct { total_minimum_number_of_bytes: usize }) Allocator.Error!void {
+        const to_allocate = params.total_minimum_number_of_bytes -| self.total_free_memory_in_bytes;
+        if (to_allocate == 0) return;
+        try self.add_empty_buffer(.{ .minimum_required_bytes = to_allocate });
+    }
+
     pub fn start_gc_no_interrupt_section(self: *Self) void {
         assert(!self.gc_is_turned_off);
         self.gc_is_turned_off = true;
@@ -201,7 +207,7 @@ pub const Heap = struct {
 
         const new_buffer: *BufferHeader = @ptrCast(try self.backing_allocator.alignedAlloc(
             u8,
-            std.mem.Alignment.of(@alignOf(BufferHeader)),
+            std.mem.Alignment.of(BufferHeader),
             new_buffer_size,
         ));
         new_buffer.* = BufferHeader{
@@ -210,6 +216,7 @@ pub const Heap = struct {
         };
         self.buffer_list_head = new_buffer;
         self.total_managed_memory_in_bytes += size_of_created_space;
+        self.total_free_memory_in_bytes += size_of_created_space;
 
         const new_empty_segment = EmptyHeapSegment.create_from(.{
             .spot_to_free = new_buffer.slice_without_header().ptr,
@@ -246,14 +253,14 @@ pub const Heap = struct {
         const percentage = self.gc_trigger_percentage;
         //
         //    taken          percentage
-        //  ---------  >=  ---------------    / × 100 × total
+        //  ---------  >  ---------------    / × 100 × total
         //    total             100
         //              |
         //              V
-        //  100 × taken >=  total × percentage
+        //  100 × taken >  total × percentage
         //
         //
-        return 100 * taken >= total * percentage;
+        return 100 * taken > total * percentage;
     }
 
     fn try_allocating_in_the_free_list(self: *Self, unaligned_bytes_required: usize) ?*OpaqueHeader {
@@ -262,7 +269,7 @@ pub const Heap = struct {
         if (self.total_free_memory_in_bytes < unaligned_bytes_required) return null;
 
         // Now go through the free list and try to find an empty segment which we allocate into.
-        var previous_segment: *EmptyHeapSegment = &self.free_list_imaginary_before_head;
+        var previous_segment: *EmptyHeapSegment = &self.free_list_dummy_before_head;
         while (previous_segment.header.next_empty_segment.pointee()) |free_segment| {
             defer previous_segment = free_segment;
 
@@ -465,7 +472,7 @@ pub const Interpreter = struct {
     } || Allocator.Error || Writer.Error;
 
     pub fn new(
-        allocator_for_heap: Allocator,
+        heap: Heap,
         allocator_for_globals: Allocator,
         stdout: *Writer,
         stderr: *Writer,
@@ -480,7 +487,7 @@ pub const Interpreter = struct {
             .stdout = stdout,
             .stderr = stderr,
             .statics = statics,
-            .heap = Heap{ .arena = std.heap.ArenaAllocator.init(allocator_for_heap) },
+            .heap = heap,
             .heap_allocator = undefined,
             .timer = null,
             .primitive_methods = primitive_methods,
@@ -596,7 +603,8 @@ pub const Interpreter = struct {
                     const items: []VmObject = self.stack.objects[items_start_idx..len];
 
                     // Create the array object
-                    const array_object: VmObject = try types.Array.create_new(self.heap_allocator, items);
+                    const array_object: VmObject = try types.Array.create_new(&self.heap, items);
+                    // NOTE(GC): It is important to not trigger a GC until we put `array_object` on the stack below
 
                     // Pop all the objects that were copied into the new array
                     const old_stack_len = self.stack.objects.len;
@@ -625,7 +633,7 @@ pub const Interpreter = struct {
                 // //  TODO: once we implent `.set_global`, we need to ensure, that check if assigned object is block and add it to the escaped blocks
                 // },
                 .load_symbol => |symbol_id| {
-                    const object: VmObject = try types.Symbol.create_new(self.heap_allocator, symbol_id);
+                    const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
                     try self.push_object(object);
                 },
                 .duplicate => {
@@ -635,12 +643,11 @@ pub const Interpreter = struct {
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
                     const constant = self.statics.constants_manager.get_constant(constant_id);
-                    const allocator = self.heap.arena.allocator();
                     const object: VmObject = switch (constant) {
-                        .integer => |value| try types.Integer.create_new(self.heap.arena.allocator(), value),
-                        .float => |value| try types.Double.create_new(allocator, value),
-                        .string => |value| try types.String.create_new(allocator, value),
-                        .block => |block_info| try types.Block.create_new(allocator, block_info, self.top_frame()),
+                        .integer => |value| try types.Integer.create_new(&self.heap, value),
+                        .float => |value| try types.Double.create_new(&self.heap, value),
+                        .string => |value| try types.String.create_new(&self.heap, value),
+                        .block => |block_info| try types.Block.create_new(&self.heap, block_info, self.top_frame()),
                     };
                     try self.push_object(object);
                 },
@@ -933,7 +940,7 @@ pub const Interpreter = struct {
         var number_of_escaped_blocks: if (DO_DEBUG_TRACE) i32 else void = if (DO_DEBUG_TRACE) 0 else {};
         if (self.top_frame().escaped_blocks_list_head) |first_escaped_block| {
             const heap_frame: *Stack.Frame = try FrameOnHeap.reallocate_frame_to_heap(
-                self.heap_allocator,
+                &self.heap,
                 self.top_frame().*,
             );
             switch (self.top_frame().kind) {

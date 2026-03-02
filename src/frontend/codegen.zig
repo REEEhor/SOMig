@@ -656,7 +656,7 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        const class_as_som_object: VmObject = try object_types.Class.create_new(statics.allocator, .{
+        const class_as_som_object: VmObject = try object_types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
         });
@@ -677,7 +677,7 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        const class_as_som_object: VmObject = try object_types.Class.create_new(statics.allocator, .{
+        const class_as_som_object: VmObject = try object_types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = class_portion_definition,
         });
@@ -844,7 +844,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .source_class = compiled_class,
                     .as_vm_object = undefined,
                 };
-                _ = try object_types.Method.create_new(statics.allocator, new_method_ptr);
+                _ = try object_types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
@@ -880,7 +880,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .source_class = compiled_class,
                     .as_vm_object = undefined,
                 };
-                _ = try object_types.Method.create_new(statics.allocator, new_method_ptr);
+                _ = try object_types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },

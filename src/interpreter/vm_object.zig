@@ -1,7 +1,6 @@
 //! TODO: make this simpler
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BuiltinClassType = @import("__interpreter.zig").BuiltinClassType;
 
@@ -9,6 +8,8 @@ const interpreter_module = @import("__interpreter.zig");
 const ClassDefinition = interpreter_module.ClassDefinition;
 const Stack = interpreter_module.Stack;
 const MethodDefinition = interpreter_module.MethodDefinition;
+const Heap = interpreter_module.Heap;
+const Statics = interpreter_module.Statics;
 
 const SmallPtr = @import("small_ptr.zig").SmallPtr;
 
@@ -251,9 +252,9 @@ comptime {
 }
 
 fn allocate_heap_data(
-    allocator: Allocator,
+    allocator: anytype,
     header: anytype,
-) Allocator.Error!*@TypeOf(header) {
+) std.mem.Allocator.Error!*@TypeOf(header) {
     comptime {
         const info = @typeInfo(@TypeOf(header)).@"struct";
         assert(info.layout == .@"packed");
@@ -267,10 +268,26 @@ fn allocate_heap_data(
         assert(std.meta.hasFn(@TypeOf(header), "object_size_in_bytes"));
     }
 
-    const alignment = comptime std.mem.Alignment.fromByteUnits(@alignOf(OpaqueHeader));
-    const byte_size: usize = header.object_size_in_bytes();
-    const bytes_ptr = try allocator.alignedAlloc(u8, alignment, byte_size);
-    const ptr: *@TypeOf(header) = @ptrCast(bytes_ptr);
+    const AllocatorType = @TypeOf(allocator);
+    const ptr: *@TypeOf(header) = sw: switch (AllocatorType) {
+        *Heap => {
+            const heap: *Heap = allocator;
+            const opaque_header: *OpaqueHeader = try heap.allocate(header.object_size_in_bytes());
+            break :sw @ptrCast(opaque_header);
+        },
+        *Statics => {
+            const statics: *Statics = allocator;
+            const static_allocator = statics.allocator;
+            const alignment = comptime std.mem.Alignment.fromByteUnits(@alignOf(OpaqueHeader));
+            const byte_size: usize = header.object_size_in_bytes();
+            const bytes_ptr = try static_allocator.alignedAlloc(u8, alignment, byte_size);
+            break :sw @ptrCast(bytes_ptr);
+        },
+        else => |Invalid| @compileError(std.fmt.comptimePrint(
+            "Invalid type for an allocator: `{s}`",
+            .{@typeName(Invalid)},
+        )),
+    };
     ptr.* = header;
     return ptr;
 }
@@ -281,10 +298,10 @@ pub fn pointer_after(object_ptr: anytype, comptime Item: type) *Item {
     return @ptrFromInt(address);
 }
 
-pub fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []Item {
+pub fn slice_after(object_ptr: anytype, comptime Item: type, length: usize) []align(@alignOf(@TypeOf(object_ptr))) Item {
     const Object = @typeInfo(@TypeOf(object_ptr)).pointer.child;
     const address = @intFromPtr(object_ptr) + @sizeOf(Object);
-    const ptr: [*]Item = @ptrFromInt(address);
+    const ptr: [*]align(@alignOf(Object)) Item = @ptrFromInt(address);
     return ptr[0..length];
 }
 pub const types = struct {
@@ -305,7 +322,7 @@ pub const types = struct {
 
         pub const tag: Tag = .integer;
 
-        pub fn create_new(allocator: Allocator, value: i48) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, value: i48) std.mem.Allocator.Error!VmObject {
             const self: *Integer = @ptrCast(try allocate_heap_data(allocator, Header{ .value = value }));
             return VmObject.from(self);
         }
@@ -328,7 +345,7 @@ pub const types = struct {
 
         pub const tag: Tag = .double;
 
-        pub fn create_new(allocator: Allocator, value: f64) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, value: f64) std.mem.Allocator.Error!VmObject {
             const self: *Double = @ptrCast(try allocate_heap_data(allocator, Header{}));
             self.value = value;
             return VmObject.from(self);
@@ -364,7 +381,7 @@ pub const types = struct {
 
         pub const tag: Tag = .generic_object;
 
-        pub fn create_new(allocator: Allocator, class: *ClassDefinition) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, class: *ClassDefinition) std.mem.Allocator.Error!VmObject {
             const number_of_instance_fields: i48 = @intCast(class.fields_count_including_parents());
             const self: *GenericObject = @ptrCast(try allocate_heap_data(allocator, Header{
                 .number_of_instance_fields = number_of_instance_fields,
@@ -414,12 +431,12 @@ pub const types = struct {
         pub const tag: Tag = .class;
 
         pub fn create_new(
-            allocator: Allocator,
+            allocator: anytype,
             classes: struct {
                 represented_class: *ClassDefinition,
                 class_of_represented_class: *ClassDefinition,
             },
-        ) Allocator.Error!VmObject {
+        ) std.mem.Allocator.Error!VmObject {
             const number_of_class_fields: i48 = @intCast(classes.represented_class.fields_count_including_parents());
             var self: *Class = @ptrCast(try allocate_heap_data(allocator, Header{
                 .number_of_class_fields = number_of_class_fields,
@@ -470,7 +487,7 @@ pub const types = struct {
 
         pub const tag: Tag = .array;
 
-        pub fn create_new(allocator: Allocator, items_to_copy: []VmObject) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, items_to_copy: []VmObject) std.mem.Allocator.Error!VmObject {
             const length: i48 = @intCast(items_to_copy.len);
             const self: *Array = @ptrCast(try allocate_heap_data(allocator, Header{ .length = length }));
             const items: []VmObject = self.get_items();
@@ -478,7 +495,7 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
-        pub fn create_with_undefined_items(allocator: Allocator, length: usize) Allocator.Error!*Array {
+        pub fn create_with_undefined_items(allocator: anytype, length: usize) std.mem.Allocator.Error!*Array {
             const self: *Array = @ptrCast(try allocate_heap_data(allocator, Header{ .length = @intCast(length) }));
             return self;
         }
@@ -517,18 +534,18 @@ pub const types = struct {
 
         pub const tag: Tag = .string;
 
-        pub fn create_with_undefined_contents(allocator: Allocator, length: i48) Allocator.Error!*String {
+        pub fn create_with_undefined_contents(allocator: anytype, length: i48) std.mem.Allocator.Error!*String {
             const self: *String = @ptrCast(try allocate_heap_data(allocator, Header{ .length = length }));
             return self;
         }
 
-        pub fn create_new(allocator: Allocator, contents_to_copy: []const u8) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, contents_to_copy: []const u8) std.mem.Allocator.Error!VmObject {
             const self: *String = try create_with_undefined_contents(allocator, @intCast(contents_to_copy.len));
             @memcpy(self.contents(), contents_to_copy);
             return VmObject.from(self);
         }
 
-        pub fn create_new_fmt(allocator: Allocator, comptime fmt: []const u8, args: anytype) Allocator.Error!VmObject {
+        pub fn create_new_fmt(allocator: anytype, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!VmObject {
             const length = std.fmt.count(fmt, args);
             const self: *String = try create_with_undefined_contents(allocator, @intCast(length));
             const res = std.fmt.bufPrint(self.contents(), fmt, args) catch unreachable;
@@ -560,7 +577,7 @@ pub const types = struct {
 
         pub const tag: Tag = .symbol;
 
-        pub fn create_new(allocator: Allocator, symbol_id: SymbolId) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, symbol_id: SymbolId) std.mem.Allocator.Error!VmObject {
             const self: *Symbol = @ptrCast(try allocate_heap_data(allocator, Header{ .symbol_id = symbol_id }));
             return VmObject.from(self);
         }
@@ -595,10 +612,10 @@ pub const types = struct {
         pub const tag: Tag = .block;
 
         pub fn create_new(
-            allocator: Allocator,
+            allocator: anytype,
             block_definition: *const BlockDefinition,
             parent_frame: *Stack.Frame,
-        ) Allocator.Error!VmObject {
+        ) std.mem.Allocator.Error!VmObject {
             const self: *Block = @ptrCast(try allocate_heap_data(allocator, Header{}));
             self.block_definition = block_definition;
             self.home_frame = parent_frame;
@@ -636,7 +653,7 @@ pub const types = struct {
         };
         pub const tag = Tag.system;
 
-        pub fn crate_new(allocator: Allocator) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype) std.mem.Allocator.Error!VmObject {
             const self: *System = @ptrCast(try allocate_heap_data(allocator, Header{}));
             return VmObject.from(self);
         }
@@ -659,7 +676,7 @@ pub const types = struct {
 
         pub const tag = Tag.method;
 
-        pub fn create_new(allocator: Allocator, method_definition: *MethodDefinition) Allocator.Error!VmObject {
+        pub fn create_new(allocator: anytype, method_definition: *MethodDefinition) std.mem.Allocator.Error!VmObject {
             const self: *Method = @ptrCast(try allocate_heap_data(allocator, Header{
                 .method = SmallPtr(*const MethodDefinition).new(method_definition),
             }));
@@ -764,7 +781,7 @@ pub const FrameOnHeap = struct {
         return slice_after(frame_ptr, VmObject, length);
     }
 
-    pub fn reallocate_frame_to_heap(allocator: Allocator, frame: Stack.Frame) Allocator.Error!*Stack.Frame {
+    pub fn reallocate_frame_to_heap(allocator: anytype, frame: Stack.Frame) std.mem.Allocator.Error!*Stack.Frame {
         const header_ptr: *Header = try allocate_heap_data(allocator, Header{
             .number_of_locals = @truncate(frame.number_of_args_and_locals()),
         });
@@ -838,7 +855,7 @@ pub const EmptyHeapSegment = extern struct {
         // Logical end of space taken by the object ______________/
         //
         const length_in_bytes = std.mem.alignForward(u64, params.length_in_bytes, object_alignment_in_bytes);
-        const self: *EmptyHeapSegment = params.spot_to_free;
+        const self: *EmptyHeapSegment = @ptrCast(params.spot_to_free);
 
         switch (length_in_bytes) {
             @sizeOf(Header) => self.header = Header{
@@ -876,7 +893,7 @@ pub const EmptyHeapSegment = extern struct {
     };
     pub fn try_allocate_from(self: *Self, params: struct { unaligned_bytes_required: usize }) ?AllocateFromResult {
         const available_bytes = self.size_in_bytes();
-        const bytes_required = std.mem.alignForward(params.unaligned_bytes_required);
+        const bytes_required = std.mem.alignForward(usize, params.unaligned_bytes_required, object_alignment_in_bytes);
         if (available_bytes < bytes_required) return null;
 
         const allocated_segment: *OpaqueHeader = @ptrCast(self);
