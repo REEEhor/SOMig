@@ -2,7 +2,7 @@
 pub const DO_DEBUG_TRACE: bool = false;
 
 pub const PRINT_PTR_MODULO: bool = true;
-pub const DEBUG_CLEAR_SCREEN: bool = false;
+pub const DEBUG_CLEAR_SCREEN: bool = true;
 pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
 
 const std = @import("std");
@@ -95,6 +95,7 @@ pub const Statics = struct {
 pub const Heap = struct {
     backing_allocator: std.mem.Allocator,
     buffer_list_head: ?*BufferHeader = null,
+    interpreter: *Interpreter,
 
     /// WARN: Only `.header.next_empty_segment` of this field should ever be accessed.
     ///
@@ -107,7 +108,11 @@ pub const Heap = struct {
     /// for example in a linked-list iteration with a manipulation of the linked-list.
     /// We would use `*?*EmptyHeapSegment` in such scenarios, but that is not viable,
     /// since we store `?*EmptyHeapSegment` in `SmallPtr(?*EmptyHeapSegment)` inside packed structs,
-    /// so it is not possible to take pointers to such items.
+    /// so it is not possible to take pointers to such pointers. And since the it is inside a packed
+    /// struct, we cannot have a pointer of the `SmallPtr(..)` (as in `*SmallPtr(..)`) also.
+    ///
+    /// So we just have a dummy item that acts as if it was at the beginning of the list
+    /// and instad of doing `prev_segment_next_ptr: *?*EmptyHeapSegment`, we do `prev_segment: *EmptyHeapSegment`.
     ///
     free_list_dummy_before_head: EmptyHeapSegment = .{
         .header = .{ .size_kind = undefined, .next_empty_segment = .new(null) },
@@ -128,12 +133,12 @@ pub const Heap = struct {
         next_buffer: ?*BufferHeader,
         size_without_header: usize,
 
-        pub fn slice_without_header(header: *BufferHeader) []align(8) u8 {
+        pub fn slice_without_header(header: *BufferHeader) []align(object_alignment_in_bytes) u8 {
             return slice_after(header, u8, header.size_without_header);
         }
-        pub fn slice_containing_header(header: *BufferHeader) []u8 {
+        pub fn slice_containing_header(header: *BufferHeader) []align(object_alignment_in_bytes) u8 {
             const total_size = header.size_without_header + @sizeOf(BufferHeader);
-            return @as([*]u8, @ptrCast(header))[0..total_size];
+            return @as([*]align(object_alignment_in_bytes) u8, @ptrCast(header))[0..total_size];
         }
     };
 
@@ -225,9 +230,10 @@ pub const Heap = struct {
         });
         self.free_list_dummy_before_head.header.next_empty_segment = .new(new_empty_segment);
     }
+    /// TODO(consultation): Should we allocate an extra block if `self.is_gc_percentace_exceeded()` after GC?
     fn run_garbage_collection(self: *Self) Allocator.Error!void {
-        _ = self;
-        std.debug.panic("TODO: garbage collection :)", .{});
+        self.gc_mark();
+        self.gc_sweep();
 
         // TODO: don't forget to check `self.is_gc_percentage_exceeded()`
         //  Because if it is, we should allocate a new header that has a size
@@ -237,6 +243,44 @@ pub const Heap = struct {
         //  It might be worth it to also pass in the potential size of this
         //  buffer. Since we usually run GC inside `Heap.allocate(..)`,
         //  it means that we are looking for a new spot anyway.
+    }
+
+    fn gc_mark(self: *Self) void {
+        // Mark objects on the stack
+        for (self.interpreter.stack.objects) |object| {
+            object.gc_mark_as_reachable_ignore_if_class_method_system();
+        }
+
+        // Mark global objects
+        for (self.interpreter.globals.values()) |object| {
+            object.gc_mark_as_reachable_ignore_if_class_method_system();
+        }
+
+        // Mark static objects
+        var it_classes = self.interpreter.statics.all_classes.iterator(0);
+        while (it_classes.next()) |class| {
+            for (class.as_vm_object.get_class_fields()) |object| {
+                object.gc_mark_as_reachable_ignore_if_class_method_system();
+            }
+        }
+
+        // NOTE: Method objects don't require marking
+    }
+
+    fn gc_sweep(self: *Self) void {
+        _ = self;
+        std.debug.panic("TODO: gc_sweep() :)", .{});
+        // var free_list_head = &self.free_list_dummy_before_head;
+        // var next_buffer_header = self.buffer_list_head;
+        // while (next_buffer_header) |buffer_header| : (next_buffer_header = buffer_header.next_buffer) {
+        //     const buffer: []align(object_alignment_in_bytes) u8 = buffer_header.slice_without_header();
+        //     const buffer_end: *OpaqueHeader = @ptrCast(@alignCast(buffer.ptr + buffer.len));
+
+        //     var object_header: *OpaqueHeader = @ptrCast(buffer.ptr);
+        //     while (object_header != buffer_end) {
+        //         //
+        //     }
+        // }
     }
 
     fn minimum_buffer_size_including_header(self: Self) usize {
@@ -275,11 +319,11 @@ pub const Heap = struct {
 
             const alloc_result = free_segment.try_allocate_from(.{
                 .unaligned_bytes_required = unaligned_bytes_required,
+                .previous_segment = previous_segment,
             }) orelse continue;
 
             self.total_free_memory_in_bytes -= alloc_result.total_bytes_allocated;
-            previous_segment.header.next_empty_segment = .new(alloc_result.new_empty_segment);
-            return alloc_result.allocated_header;
+            return alloc_result.allocated_data;
         }
 
         return null;

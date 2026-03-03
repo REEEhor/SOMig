@@ -169,8 +169,7 @@ fn playground(allocator: std.mem.Allocator) !void {
 
     // Setup interpreter
     var interpreter = Interpreter.new(
-        // TODO: use a different allocator for heap, globals
-        Heap{ .backing_allocator = allocator },
+        Heap{ .backing_allocator = allocator, .interpreter = undefined },
         interpreter_allocator,
         stdout,
         stdout,
@@ -180,6 +179,7 @@ fn playground(allocator: std.mem.Allocator) !void {
         objects,
         frames,
     );
+    interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();
     try interpreter.heap.reserve_at_least(.{ .total_minimum_number_of_bytes = 1024 * 1024 });
 

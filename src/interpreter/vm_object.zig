@@ -68,6 +68,32 @@ pub const VmObject = struct {
         return @ptrCast(data);
     }
 
+    /// We ignore `types.(Class|Method|System)` because they are allocated
+    /// in the static space. We have to mark their references manually
+    /// in order for this to make sense.
+    /// NOTE: Only `types.Class` has actuall references - class fields. `types.(Method|System)` doesn't store object references.
+    pub fn gc_mark_as_reachable_ignore_if_class_method_system(self: VmObject) void {
+        const header: *OpaqueHeader = self.data orelse return;
+        switch (header.tag) {
+            .empty_heap_segment,
+            .frame_header,
+            .nil,
+            => unreachable,
+
+            .system,
+            .method,
+            .class,
+            => return,
+
+            inline else => |tag| {
+                const object = header.asserted_cast_to(tag);
+                if (object.header.is_marked) return;
+                object.header.is_marked = true;
+                object.gc_mark_references();
+            },
+        }
+    }
+
     /// Just a simple wrapper around `self.as(.block)`
     pub fn as_block(self: VmObject) ?*types.Block {
         return self.as(.block);
@@ -326,6 +352,10 @@ pub const types = struct {
             const self: *Integer = @ptrCast(try allocate_heap_data(allocator, Header{ .value = value }));
             return VmObject.from(self);
         }
+
+        pub fn gc_mark_references(_: *Self) void {}
+
+        const Self = @This();
     };
 
     pub const Double = extern struct {
@@ -350,6 +380,10 @@ pub const types = struct {
             self.value = value;
             return VmObject.from(self);
         }
+
+        pub fn gc_mark_references(_: *Self) void {}
+
+        const Self = @This();
     };
 
     /// Actual fields when allocated via `create_new` are:
@@ -393,10 +427,18 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
-        pub fn get_fields(self: *@This()) []VmObject {
+        pub fn get_fields(self: *Self) []VmObject {
             const length: usize = @intCast(self.header.number_of_instance_fields);
             return slice_after(self, VmObject, length);
         }
+
+        pub fn gc_mark_references(self: *Self) void {
+            for (self.get_fields()) |field_object| {
+                field_object.gc_mark_as_reachable_ignore_if_class_method_system();
+            }
+        }
+
+        const Self = @This();
     };
 
     /// Actual fields when allocated via `create_new` are:
@@ -452,12 +494,17 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
-        const Self = @This();
-
         pub fn get_class_fields(self: *Self) []VmObject {
             const length: usize = @intCast(self.header.number_of_class_fields);
             return slice_after(self, VmObject, length);
         }
+
+        pub fn gc_mark_references(self: *Self) void {
+            _ = self;
+            @compileError("Mark all `class.get_class_fields()` manually.");
+        }
+
+        const Self = @This();
     };
 
     /// Actual fields when allocated via `create_new` are:
@@ -500,11 +547,18 @@ pub const types = struct {
             return self;
         }
 
-        const Self = @This();
         pub fn get_items(self: *Self) []VmObject {
             const length: usize = @intCast(self.header.length);
             return slice_after(self, VmObject, length);
         }
+
+        pub fn gc_mark_references(self: *Self) void {
+            for (self.get_items()) |item| {
+                item.gc_mark_as_reachable_ignore_if_class_method_system();
+            }
+        }
+
+        const Self = @This();
     };
 
     /// Actual fields when allocated via `create_new` or `create_new_fmt` are:
@@ -553,11 +607,13 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
-        const Self = @This();
         pub fn contents(self: *Self) []u8 {
             const length: usize = @intCast(self.header.length);
             return slice_after(self, u8, length);
         }
+        pub fn gc_mark_references(_: *Self) void {}
+
+        const Self = @This();
     };
 
     pub const Symbol = extern struct {
@@ -581,6 +637,10 @@ pub const types = struct {
             const self: *Symbol = @ptrCast(try allocate_heap_data(allocator, Header{ .symbol_id = symbol_id }));
             return VmObject.from(self);
         }
+
+        pub fn gc_mark_references(_: *Self) void {}
+
+        const Self = @This();
     };
 
     pub const Block = extern struct {
@@ -636,6 +696,15 @@ pub const types = struct {
                 .block => |block| it_frame = block.home_frame,
             };
         }
+
+        pub fn gc_mark_references(self: *Self) void {
+            if (!self.header.has_escaped_home_context) return;
+
+            const frame_header = FrameOnHeap.header_from_frame(self.home_frame);
+            frame_header.gc_mark_as_reachable();
+        }
+
+        const Self = @This();
     };
 
     /// TODO: remove this class
@@ -741,6 +810,15 @@ pub const FrameOnHeap = struct {
         pub fn frame_ptr(header_ptr: *const @This()) *Stack.Frame {
             return frame_from_header(header_ptr);
         }
+
+        pub fn gc_mark_as_reachable(header: *@This()) void {
+            if (header.is_marked) return;
+            header.is_marked = true;
+
+            for (FrameOnHeap.get_arguments_and_locals(header)) |local| {
+                local.gc_mark_as_reachable_ignore_if_class_method_system();
+            }
+        }
     };
 
     pub const tag = Tag.frame_header;
@@ -771,13 +849,13 @@ pub const FrameOnHeap = struct {
     }
 
     pub fn get_arguments_and_locals(header_ptr_or_frame_ptr: anytype) []VmObject {
-        const frame_ptr, const header_ptr = switch (@TypeOf(header_ptr_or_frame_ptr)) {
+        const frame_ptr, const header_ptr: *Header = switch (@TypeOf(header_ptr_or_frame_ptr)) {
             *Header, *const Header => .{ frame_from_header(header_ptr_or_frame_ptr), header_ptr_or_frame_ptr },
             *Stack.Frame, *const Stack.Frame => .{ header_ptr_or_frame_ptr, header_from_frame(header_ptr_or_frame_ptr) },
             else => |Invalid| @compileError(std.fmt.comptimePrint("Invalid type: `{s}`", .{@typeName(Invalid)})),
         };
 
-        const length: u47 = header_ptr.number_of_locals;
+        const length: u55 = header_ptr.number_of_locals;
         return slice_after(frame_ptr, VmObject, length);
     }
 
@@ -798,6 +876,7 @@ pub const FrameOnHeap = struct {
 };
 
 /// Represents an empty spot in the heap.
+/// Created for example by a garbage collection of some object.
 ///
 /// Actual memory layout of this struct is:
 /// ```zig
@@ -806,7 +885,7 @@ pub const FrameOnHeap = struct {
 ///         .big => u64,
 ///         .small => void,
 ///     }
-///     empty_space: [bytes_after_header_and_maybe_u64]u8,
+///     empty_space: [size_in_bytes()-@sizeOf(Header)]u8,
 /// ```
 pub const EmptyHeapSegment = extern struct {
     header: Header,
@@ -819,7 +898,7 @@ pub const EmptyHeapSegment = extern struct {
         tag: Tag = tag,
 
         /// The `OpaqueHeader` has a flag here for marking of objects for (not) GC,
-        /// we want to ignore to not cause badly-trackable bugs.
+        /// we want to ignore this to not cause badly-trackable bugs.
         _ignorred_gc_flag: bool = undefined,
         size_kind: enum(u1) {
             /// This `EmptyHeapSegment` is the size of a single `OpaqueHeader` (64 bits).
@@ -831,6 +910,7 @@ pub const EmptyHeapSegment = extern struct {
         _padding: u6 = undefined,
         next_empty_segment: SmallPtr(?*EmptyHeapSegment),
     };
+
     pub const tag = .empty_heap_segment;
 
     const Self = @This();
@@ -840,20 +920,7 @@ pub const EmptyHeapSegment = extern struct {
         length_in_bytes: u64,
         next_empty_segment: ?*EmptyHeapSegment,
     }) *EmptyHeapSegment {
-        assert(params.length_in_bytes >= @sizeOf(OpaqueHeader));
-
-        // We do this align forward in case of unaligned end of an object.
-        // For example a string:
-        //
-        // Required alignment boundaries: v           v           v             ...
-        //                                |   Header  |"hi"<empty>| next Header ...
-        //                                                ^       ^
-        //                                                |       |
-        // Reported end (start+size)                      |       |
-        // by the string object __________________________/       |
-        //                                                        |
-        // Logical end of space taken by the object ______________/
-        //
+        assert(params.length_in_bytes >= @sizeOf(@This()));
         const length_in_bytes = std.mem.alignForward(u64, params.length_in_bytes, object_alignment_in_bytes);
         const self: *EmptyHeapSegment = @ptrCast(params.spot_to_free);
 
@@ -875,7 +942,6 @@ pub const EmptyHeapSegment = extern struct {
     }
 
     /// Makes the empty heap segment longer.
-    ///
     /// Parameter `bytes_to_add` must be a multiple of `object_alignment_in_bytes`.
     pub fn prolong_by_aligned_bytes(self: *Self, bytes_to_add: usize) void {
         if (bytes_to_add == 0) return;
@@ -886,35 +952,63 @@ pub const EmptyHeapSegment = extern struct {
         self.after_header_size_ptr().* = old_size + bytes_to_add;
     }
 
+    /// Makes the empty heap segment longer.
+    /// Parameter `bytes_to_remove` must be a multiple of `object_alignment_in_bytes`.
+    /// Also, the new size of this empty segment after the shortening cannot be zero.
+    pub fn shorten_by_aligned_bytes(self: *Self, bytes_to_remove: usize) void {
+        if (bytes_to_remove == 0) return;
+        assert(bytes_to_remove % object_alignment_in_bytes == 0);
+        assert(self.size_in_bytes() >= bytes_to_remove);
+
+        const new_size = self.size_in_bytes() - bytes_to_remove;
+        assert(new_size >= @sizeOf(Header));
+
+        if (new_size == @sizeOf(Header)) {
+            self.header.size_kind = .small;
+        } else {
+            self.after_header_size_ptr().* = new_size;
+        }
+    }
+
     pub const AllocateFromResult = struct {
-        allocated_header: *OpaqueHeader,
-        new_empty_segment: ?*EmptyHeapSegment,
+        allocated_data: *OpaqueHeader,
+        /// The allocation from the empty segment may actually allocate more bytes if
+        /// the data was not aligned. This field desribes how many bytes were actually allocated.
         total_bytes_allocated: usize,
     };
-    pub fn try_allocate_from(self: *Self, params: struct { unaligned_bytes_required: usize }) ?AllocateFromResult {
+    pub fn try_allocate_from(
+        self: *Self,
+        params: struct {
+            unaligned_bytes_required: usize,
+            previous_segment: *EmptyHeapSegment,
+        },
+    ) ?AllocateFromResult {
+        const previous_segment = params.previous_segment;
         const available_bytes = self.size_in_bytes();
         const bytes_required = std.mem.alignForward(usize, params.unaligned_bytes_required, object_alignment_in_bytes);
+
+        assert(previous_segment.header.next_empty_segment.pointee() == self);
+
+        // Check if the allocation is possible
         if (available_bytes < bytes_required) return null;
 
-        const allocated_segment: *OpaqueHeader = @ptrCast(self);
-        if (available_bytes == bytes_required) return .{
-            .allocated_header = allocated_segment,
-            .new_empty_segment = self.header.next_empty_segment.pointee(),
-            .total_bytes_allocated = bytes_required,
-        };
+        if (available_bytes == bytes_required) {
+            // We managed to fill this entire empty segment => we have to remove from the free list
+            previous_segment.header.next_empty_segment = self.header.next_empty_segment;
+            return .{
+                .allocated_data = @ptrCast(self),
+                .total_bytes_allocated = bytes_required,
+            };
+        }
 
-        const new_empty_segment: *EmptyHeapSegment = @ptrFromInt(@intFromPtr(self) + bytes_required);
-        const new_segment_size = available_bytes - bytes_required;
-        assert(new_segment_size % object_alignment_in_bytes == 0);
-        assert(new_empty_segment == EmptyHeapSegment.create_from(.{
-            .spot_to_free = new_empty_segment,
-            .length_in_bytes = available_bytes - bytes_required,
-            .next_empty_segment = self.header.next_empty_segment.pointee(),
-        }));
+        // We didn't fill this entire empty segment.
+        // So we allocate the space for an object *at the end* of this empty segment.
+        // NOTE: We don't allocate at the beginning of this segment so that we don't have to readjust the pointers in the free list.
+        self.shorten_by_aligned_bytes(bytes_required);
+        const allocated_segment: *OpaqueHeader = @ptrFromInt(@intFromPtr(self) + self.size_in_bytes());
 
         return .{
-            .allocated_header = allocated_segment,
-            .new_empty_segment = new_empty_segment,
+            .allocated_data = allocated_segment,
             .total_bytes_allocated = bytes_required,
         };
     }
