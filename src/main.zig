@@ -181,7 +181,7 @@ fn playground(allocator: std.mem.Allocator) !void {
     );
     interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();
-    try interpreter.heap.reserve_at_least(.{ .total_minimum_number_of_bytes = 1024 * 1024 });
+    try interpreter.heap.reserve_at_least(.{ .total_minimum_number_of_bytes = 1 });
 
     // Setup the base class hiearchy
     // TODO: assert correct hiearchy (meaning the classes actually point to each other)

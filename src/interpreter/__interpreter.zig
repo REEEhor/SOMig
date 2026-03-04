@@ -1,9 +1,14 @@
 // pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
 
-pub const PRINT_PTR_MODULO: bool = true;
-pub const DEBUG_CLEAR_SCREEN: bool = true;
-pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
+pub const DEBUG_STRESS_GC: bool = false;
+pub const DEBUG_PRINT_GC_STATS: bool = false;
+
+pub const DEBUG_PRINT_HEAP: bool = false;
+
+pub const DEBUG_CLEAR_SCREEN: bool = false;
+pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
+pub const DEBUG_SKIP_BOOTSTRAP: bool = true or DO_DEBUG_TRACE;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -148,7 +153,7 @@ pub const Heap = struct {
         var ran_gc = false;
 
         // Run GC if there is too much stuff allocated.
-        if (self.is_gc_percentage_exceeded()) {
+        if (self.is_gc_percentage_exceeded() or DEBUG_STRESS_GC) {
             ran_gc = true;
             try self.run_garbage_collection();
         }
@@ -226,34 +231,54 @@ pub const Heap = struct {
         const new_empty_segment = EmptyHeapSegment.create_from(.{
             .spot_to_free = new_buffer.slice_without_header().ptr,
             .length_in_bytes = size_of_created_space,
-            .next_empty_segment = self.free_list_dummy_before_head.header.next_empty_segment.pointee(),
+            .previous_empty_segment = &self.free_list_dummy_before_head,
         });
-        self.free_list_dummy_before_head.header.next_empty_segment = .new(new_empty_segment);
+        _ = new_empty_segment;
     }
     /// TODO(consultation): Should we allocate an extra block if `self.is_gc_percentace_exceeded()` after GC?
     fn run_garbage_collection(self: *Self) Allocator.Error!void {
-        self.gc_mark();
-        self.gc_sweep();
+        if (self.gc_is_turned_off) return;
 
-        // TODO: don't forget to check `self.is_gc_percentage_exceeded()`
-        //  Because if it is, we should allocate a new header that has a size
-        //  that exceeds the gc trigger percentage.
-        //
-        // TODO: don't forget to check `self.is_gc_percentage_exceeded()`
-        //  It might be worth it to also pass in the potential size of this
-        //  buffer. Since we usually run GC inside `Heap.allocate(..)`,
-        //  it means that we are looking for a new spot anyway.
+        if (DEBUG_PRINT_GC_STATS) {
+            std.debug.print("=====================\n", .{});
+            std.debug.print("=== GC MARK START ===\n", .{});
+            self.debug_print();
+        }
+        self.gc_mark();
+        if (DEBUG_PRINT_GC_STATS) {
+            std.debug.print("=== GC MARK END ===\n", .{});
+            self.debug_print();
+            std.debug.print("=== GC SWEEP START ===\n", .{});
+        }
+        self.gc_sweep();
+        if (DEBUG_PRINT_GC_STATS) {
+            std.debug.print("=== GC SWEEP END ===\n", .{});
+            self.debug_print();
+            std.debug.print("--------------------\n", .{});
+            std.debug.print("=====================\n", .{});
+        }
     }
 
     fn gc_mark(self: *Self) void {
         // Mark objects on the stack
-        for (self.interpreter.stack.objects) |object| {
-            object.gc_mark_as_reachable_ignore_if_class_method_system();
+        if (DEBUG_PRINT_GC_STATS) std.debug.print("Marking stack objects: \n", .{});
+        for (self.interpreter.stack.objects) |stack_object| {
+            if (DEBUG_PRINT_GC_STATS) {
+                std.debug.print("  • ", .{});
+                self.interpreter.print_object(stack_object) catch unreachable;
+            }
+            stack_object.gc_mark_as_reachable_ignore_if_class_method_system();
+        }
+
+        // Mark blocks which currently have stack frames
+        for (self.interpreter.stack.frames) |frame| {
+            const block: *types.Block = unions.get_payload(frame.kind, .block) orelse continue;
+            VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method_system();
         }
 
         // Mark global objects
-        for (self.interpreter.globals.values()) |object| {
-            object.gc_mark_as_reachable_ignore_if_class_method_system();
+        for (self.interpreter.globals.values()) |global_object| {
+            global_object.gc_mark_as_reachable_ignore_if_class_method_system();
         }
 
         // Mark static objects
@@ -264,23 +289,86 @@ pub const Heap = struct {
             }
         }
 
-        // NOTE: Method objects don't require marking
+        // NOTE: `types.Method` and `types.System` objects don't require marking (they live in the static space and they don't refer to any other objects)
     }
 
     fn gc_sweep(self: *Self) void {
-        _ = self;
-        std.debug.panic("TODO: gc_sweep() :)", .{});
-        // var free_list_head = &self.free_list_dummy_before_head;
-        // var next_buffer_header = self.buffer_list_head;
-        // while (next_buffer_header) |buffer_header| : (next_buffer_header = buffer_header.next_buffer) {
-        //     const buffer: []align(object_alignment_in_bytes) u8 = buffer_header.slice_without_header();
-        //     const buffer_end: *OpaqueHeader = @ptrCast(@alignCast(buffer.ptr + buffer.len));
+        var last_seen_empty_segment = &self.free_list_dummy_before_head;
 
-        //     var object_header: *OpaqueHeader = @ptrCast(buffer.ptr);
-        //     while (object_header != buffer_end) {
-        //         //
-        //     }
-        // }
+        var next_buffer_header = self.buffer_list_head;
+        while (next_buffer_header) |buffer_header| : (next_buffer_header = buffer_header.next_buffer) {
+            const buffer: []align(object_alignment_in_bytes) u8 = buffer_header.slice_without_header();
+            const buffer_end: *OpaqueHeader = @ptrCast(@alignCast(buffer.ptr + buffer.len));
+
+            var object_header: *OpaqueHeader = @ptrCast(buffer.ptr);
+            while (object_header != buffer_end) {
+                const segment_size_in_bytes: usize = object_header.segment_size_in_bytes();
+                defer {
+                    // Advance the object header
+                    object_header = @ptrCast(@alignCast(@as([*]u8, @ptrCast(object_header)) + segment_size_in_bytes));
+                    assert(@intFromPtr(object_header) <= @intFromPtr(buffer_end));
+                }
+                const was_segment_before_empty: bool = last_seen_empty_segment.pointer_to_after_self() == object_header;
+
+                if (object_header.tag == .empty_heap_segment) {
+                    if (was_segment_before_empty) {
+                        // Merge the previous segment with the current one
+                        const current_empty_segment: *EmptyHeapSegment = object_header.asserted_cast_to(.empty_heap_segment);
+                        last_seen_empty_segment.header.next_empty_segment = current_empty_segment.header.next_empty_segment;
+                        last_seen_empty_segment.prolong_by_aligned_bytes(segment_size_in_bytes);
+                    } else {
+                        last_seen_empty_segment = @ptrCast(object_header);
+                    }
+                    continue;
+                }
+                if (object_header.is_marked) {
+                    object_header.is_marked = false;
+                    continue;
+                }
+
+                if (DEBUG_PRINT_GC_STATS) {
+                    std.debug.print("GC sweeping: {t} at: {d:04} size={d}_bytes\n", .{
+                        object_header.tag,
+                        @intFromPtr(object_header) % 10_000,
+                        segment_size_in_bytes,
+                    });
+                }
+
+                // TODO: make the block into a double linked list
+                //  Maybe we could mark the block as "not part of a list" with some flag. That will not work, because since then the block might get deallocated.
+                // NOTE: We could at least do something with the iteration, so that we don't have to do the iteration when the block is not in the list
+                // NOTE: Consider making the escaped block list a doubly linked list, so that we can just remove from the middle (there is space for it in Block.Header).
+                if (object_header.tag == .block) {
+                    const block: *types.Block = object_header.asserted_cast_to(.block);
+                    var prev_next_ptr = &block.home_frame.escaped_blocks_list_head;
+                    while (prev_next_ptr.*) |block_in_list| : (prev_next_ptr = &block_in_list.next_escaped_block) {
+                        if (block_in_list == block) {
+                            prev_next_ptr.* = block.next_escaped_block;
+                            break;
+                        }
+                    }
+                }
+
+                // Now free the unmarked object
+                self.total_free_memory_in_bytes += segment_size_in_bytes;
+
+                // Mark the area as empty segment
+                if (was_segment_before_empty) {
+                    last_seen_empty_segment.prolong_by_aligned_bytes(segment_size_in_bytes);
+                } else {
+                    last_seen_empty_segment = EmptyHeapSegment.create_from(.{
+                        .spot_to_free = object_header,
+                        .length_in_bytes = segment_size_in_bytes,
+                        .previous_empty_segment = last_seen_empty_segment,
+                    });
+                }
+
+                if (DEBUG_PRINT_GC_STATS) {
+                    std.debug.print("State of heap after this sweep:\n", .{});
+                    self.debug_print();
+                }
+            }
+        }
     }
 
     fn minimum_buffer_size_including_header(self: Self) usize {
@@ -327,6 +415,83 @@ pub const Heap = struct {
         }
 
         return null;
+    }
+
+    pub fn debug_print(self: *Self) void {
+        var idx: usize = 0;
+        var next_buffer_header = self.buffer_list_head;
+
+        while (next_buffer_header) |buffer_header| : (next_buffer_header = buffer_header.next_buffer) {
+            defer idx += 1;
+            const buffer: []align(object_alignment_in_bytes) u8 = buffer_header.slice_without_header();
+            const buffer_end: *OpaqueHeader = @ptrCast(@alignCast(buffer.ptr + buffer.len));
+
+            std.debug.print("[BUFFEER {d:02}] start={d:04}_dec size={d}_bytes end={d:04}\n", .{
+                idx,
+                @intFromPtr(buffer.ptr) % 10_000,
+                buffer.len,
+                @intFromPtr(buffer.ptr + buffer.len) % 10_000,
+            });
+
+            var object_header: *OpaqueHeader = @ptrCast(buffer.ptr);
+            var object_idx: usize = 0;
+            while (object_header != buffer_end) : (object_idx += 1) {
+                const segment_size_in_bytes: usize = object_header.segment_size_in_bytes();
+                defer {
+                    // Advance the object header
+                    object_header = @ptrCast(@alignCast(@as([*]u8, @ptrCast(object_header)) + segment_size_in_bytes));
+                    assert(@intFromPtr(object_header) <= @intFromPtr(buffer_end));
+                }
+
+                if (object_header.tag == .empty_heap_segment) {
+                    std.debug.print(colors.FAINT, .{});
+                }
+                defer {
+                    if (object_header.tag == .empty_heap_segment) {
+                        std.debug.print(colors.RESET_FAINT, .{});
+                    }
+                }
+
+                std.debug.print(" • [{d:03} {d:04}_dec tag={s:<14} size={d:02}_bytes", .{
+                    object_idx,
+                    @intFromPtr(object_header) % 1_000_000,
+                    @tagName(object_header.tag),
+                    segment_size_in_bytes,
+                });
+
+                if (object_header.tag != .empty_heap_segment) {
+                    std.debug.print(" marked={s}", .{if (object_header.is_marked) "1" else "0"});
+                }
+                std.debug.print("] ", .{});
+
+                switch (object_header.tag) {
+                    .empty_heap_segment => {},
+                    .frame_header => {
+                        const frame_header: *FrameOnHeap.Header = object_header.asserted_cast_to(.frame_header);
+                        const frame = FrameOnHeap.frame_from_header(frame_header);
+                        switch (frame.kind) {
+                            .method => |method| {
+                                std.debug.print("method '{s}' from '{s}'", .{
+                                    self.interpreter.string_from_symbol(method.method_name),
+                                    self.interpreter.string_from_symbol(method.source_class.class_name),
+                                });
+                            },
+                            .block => |block| {
+                                std.debug.print("block from method '{s}' from '{s}'", .{
+                                    self.interpreter.string_from_symbol(block.home_method().method_name),
+                                    self.interpreter.string_from_symbol(block.home_method().source_class.class_name),
+                                });
+                            },
+                        }
+                    },
+                    else => {
+                        const object = VmObject{ .data = object_header };
+                        self.interpreter.print_object_no_newline(object) catch unreachable;
+                    },
+                }
+                std.debug.print("\n", .{});
+            }
+        }
     }
 };
 
@@ -562,6 +727,9 @@ pub const Interpreter = struct {
                 try self.report_info("The end of the bytecode has been reached.", .{});
                 return;
             };
+            // if (DEBUG_STRESS_GC) {
+            //     try self.heap.run_garbage_collection();
+            // }
             if (DO_DEBUG_TRACE) {
                 const formatter = codegen_module.InstructionFormatter{
                     .base_constant_id = self.top_frame().constants_base_id(),
@@ -765,8 +933,14 @@ pub const Interpreter = struct {
     }
 
     pub fn print_object_no_newline(self: *Self, object: VmObject) Error!void {
-        if (PRINT_PTR_MODULO) {
-            std.debug.print(" [{d:03}] ", .{@intFromPtr(object.data) % 999});
+        switch (DEBUG_PRINT_PTR) {
+            .none => {},
+            .modulo => |mod| {
+                std.debug.print(" [{d:04}] ", .{@intFromPtr(object.data) % mod});
+            },
+            .full_dec => {
+                std.debug.print(" {d:015}_dec ", .{@intFromPtr(object.data)});
+            },
         }
         switch (object.kind()) {
             .integer => |int| std.debug.print("{d}", .{int.header.value}),
@@ -993,8 +1167,8 @@ pub const Interpreter = struct {
             }
             var escaped_block = first_escaped_block;
             while (true) {
-                assert(escaped_block.home_frame == self.top_frame());
                 assert(escaped_block.header.has_escaped_home_context == false);
+                assert(escaped_block.home_frame == self.top_frame());
                 if (DO_DEBUG_TRACE) number_of_escaped_blocks += 1;
                 escaped_block.home_frame = heap_frame;
                 escaped_block.header.has_escaped_home_context = true;

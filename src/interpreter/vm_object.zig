@@ -219,8 +219,7 @@ pub const Kind = union(Tag) {
     block: *types.Block,
     generic_object: *types.GenericObject,
 
-    /// TODO: representation of the `empty_heap_segment`
-    empty_heap_segment,
+    empty_heap_segment: *EmptyHeapSegment,
 
     frame_header: *FrameOnHeap.Header,
 
@@ -249,6 +248,7 @@ pub const OpaqueHeader = packed struct(u64) {
 
     pub fn kind(header: *OpaqueHeader) Kind {
         return switch (header.tag) {
+            .nil => unreachable,
             inline else => |kind_tag| {
                 const tag_name = @tagName(kind_tag);
                 const PayloadType = @FieldType(Kind, tag_name);
@@ -261,9 +261,38 @@ pub const OpaqueHeader = packed struct(u64) {
         };
     }
 
-    pub fn asserted_cast_to(header: *OpaqueHeader, comptime tag: Tag) @FieldType(Kind, @tagName(tag)) {
+    pub fn ObjectHeaderWithTag(comptime tag: Tag) type {
+        const Object = KindPayloadOf(tag);
+        if (Object == *FrameOnHeap.Header) return Object;
+        return std.meta.Child(Object).Header;
+    }
+    pub fn asserted_cast_to_header_of(header: *OpaqueHeader, comptime tag: Tag) ObjectHeaderWithTag(tag) {
+        const object = asserted_cast_to(header, tag);
+        if (@TypeOf(object) == *FrameOnHeap.Header) return object;
+        return object.header;
+    }
+
+    pub fn KindPayloadOf(comptime tag: Tag) type {
+        return @FieldType(Kind, @tagName(tag));
+    }
+    pub fn asserted_cast_to(header: *OpaqueHeader, comptime tag: Tag) KindPayloadOf(tag) {
         assert(header.tag == tag);
         return @ptrCast(header);
+    }
+
+    pub fn segment_size_in_bytes(opaque_header: *OpaqueHeader) usize {
+        switch (opaque_header.tag) {
+            .nil => unreachable,
+            .empty_heap_segment => {
+                const empty_segment: *EmptyHeapSegment = opaque_header.asserted_cast_to(.empty_heap_segment);
+                return empty_segment.size_in_bytes();
+            },
+            inline else => |tag| {
+                const header = opaque_header.asserted_cast_to_header_of(tag);
+                const unaligned_size = header.object_size_in_bytes();
+                return std.mem.alignForward(usize, unaligned_size, object_alignment_in_bytes);
+            },
+        }
     }
 };
 
@@ -918,21 +947,25 @@ pub const EmptyHeapSegment = extern struct {
     pub fn create_from(params: struct {
         spot_to_free: *align(object_alignment_in_bytes) anyopaque,
         length_in_bytes: u64,
-        next_empty_segment: ?*EmptyHeapSegment,
+        previous_empty_segment: *EmptyHeapSegment,
     }) *EmptyHeapSegment {
         assert(params.length_in_bytes >= @sizeOf(@This()));
+        const previous_empty_segment = params.previous_empty_segment;
+        const next_empty_segment = previous_empty_segment.header.next_empty_segment;
         const length_in_bytes = std.mem.alignForward(u64, params.length_in_bytes, object_alignment_in_bytes);
         const self: *EmptyHeapSegment = @ptrCast(params.spot_to_free);
+
+        previous_empty_segment.header.next_empty_segment = .new(self);
 
         switch (length_in_bytes) {
             @sizeOf(Header) => self.header = Header{
                 .size_kind = .small,
-                .next_empty_segment = SmallPtr(?*EmptyHeapSegment).new(params.next_empty_segment),
+                .next_empty_segment = next_empty_segment,
             },
             else => |total_size| {
                 self.header = Header{
                     .size_kind = .big,
-                    .next_empty_segment = SmallPtr(?*EmptyHeapSegment).new(params.next_empty_segment),
+                    .next_empty_segment = next_empty_segment,
                 };
                 self.after_header_size_ptr().* = total_size;
             },
@@ -970,6 +1003,10 @@ pub const EmptyHeapSegment = extern struct {
         }
     }
 
+    pub fn pointer_to_after_self(self: *Self) *OpaqueHeader {
+        return @ptrFromInt(@intFromPtr(self) + self.size_in_bytes());
+    }
+
     pub const AllocateFromResult = struct {
         allocated_data: *OpaqueHeader,
         /// The allocation from the empty segment may actually allocate more bytes if
@@ -1005,7 +1042,7 @@ pub const EmptyHeapSegment = extern struct {
         // So we allocate the space for an object *at the end* of this empty segment.
         // NOTE: We don't allocate at the beginning of this segment so that we don't have to readjust the pointers in the free list.
         self.shorten_by_aligned_bytes(bytes_required);
-        const allocated_segment: *OpaqueHeader = @ptrFromInt(@intFromPtr(self) + self.size_in_bytes());
+        const allocated_segment: *OpaqueHeader = self.pointer_to_after_self();
 
         return .{
             .allocated_data = allocated_segment,

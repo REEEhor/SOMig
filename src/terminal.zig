@@ -6,6 +6,7 @@ pub const CYAN = "\x1b[36m";
 
 pub const RED_BG = "\x1b[41m";
 pub const FAINT = "\x1b[2m";
+pub const RESET_FAINT = "\x1b[22m";
 
 pub const ERR = RED ++ BOLD;
 pub const WARN = YELLOW ++ BOLD;
