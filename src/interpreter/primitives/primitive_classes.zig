@@ -646,6 +646,10 @@ pub const System = struct {
         return interpreter.globals.get(global_name) orelse VmObject.nil;
     }
     pub fn @"global:put:"(_: SystemPlaceholder, global_name: SymbolId, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        if (new_value.as_block()) |block| {
+            @branchHint(.cold);
+            block.add_to_escaped_blocks_list();
+        }
         try interpreter.globals.put(global_name, new_value);
         return .{};
     }

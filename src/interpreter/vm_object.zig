@@ -689,8 +689,9 @@ pub const types = struct {
         pub const Header = packed struct(u64) {
             tag: Tag = tag,
             is_marked: bool = false,
-            _padding: u54 = undefined,
             has_escaped_home_context: bool = false,
+            _padding: u6 = undefined,
+            next_of_previous_escaped_block: SmallPtr(?*?*types.Block) = .new(null),
 
             pub fn object_size_in_bytes(header: @This()) usize {
                 _ = header;
@@ -708,14 +709,34 @@ pub const types = struct {
             const self: *Block = @ptrCast(try allocate_heap_data(allocator, Header{}));
             self.block_definition = block_definition;
             self.home_frame = parent_frame;
+            self.next_escaped_block = null;
             return VmObject.from(self);
         }
 
         pub fn add_to_escaped_blocks_list(self: *Block) void {
-            if (self.header.has_escaped_home_context) return;
-            const head = &self.home_frame.escaped_blocks_list_head;
-            self.next_escaped_block = head.*;
-            head.* = self;
+            if (self.header.has_escaped_home_context) return; // The block has already escaped, no one touches the escaped block list once the frame is on the heap
+            if (self.header.next_of_previous_escaped_block.pointee() != null) return; // The block currently actually is inside the list => don't add it again
+            assert(self.next_escaped_block == null); // Since we are not in a list, we shouldn't have a pointer to the next item
+
+            const ptr_to_head: *?*Block = &self.home_frame.escaped_blocks_list_head;
+            self.header.next_of_previous_escaped_block = .new(ptr_to_head);
+
+            if (ptr_to_head.*) |previously_first_block| {
+                previously_first_block.header.next_of_previous_escaped_block = .new(&self.next_escaped_block);
+                self.next_escaped_block = previously_first_block;
+            }
+
+            ptr_to_head.* = self;
+        }
+
+        pub fn remove_from_potential_escaped_blocks_list(self: *Self) void {
+            if (self.header.has_escaped_home_context) return; // No one touches the escaped block list once the frame is on the heap
+            const next_of_previous_block: *?*Block = self.header.next_of_previous_escaped_block.pointee() orelse return; // We are not in a list
+            assert(next_of_previous_block.* == self);
+
+            next_of_previous_block.* = self.next_escaped_block;
+            self.header.next_of_previous_escaped_block = .new(null);
+            self.next_escaped_block = null;
         }
 
         pub fn home_method(self: *Block) *const MethodDefinition {
@@ -806,8 +827,8 @@ pub const types = struct {
 ///     - therefore `Stack.Frame` cannot be an `extern struct`,
 ///     - therefore `FrameOnHeap` cannot be an `extern struct`,
 ///     - therefore `FrameOnHeap.Header` could not be ensured
-///         to be in front of the `Stack.Frame` in this hypothetical `FrameOnHeap` object.
-/// ... but we need header to be at the front for garbage collection.
+///         to be at front of the `Stack.Frame` in this hypothetical `FrameOnHeap` object.
+/// ... but we need the header to be at the front for garbage collection (the ability to iterate through heap).
 ///
 /// The namespace `FrameOnHeap` and `FrameOnHeap.Header` have methods for accessing
 /// individual parts (header, frame, and local+argument variables).

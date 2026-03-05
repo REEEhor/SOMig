@@ -334,19 +334,10 @@ pub const Heap = struct {
                     });
                 }
 
-                // TODO: make the block into a double linked list
-                //  Maybe we could mark the block as "not part of a list" with some flag. That will not work, because since then the block might get deallocated.
-                // NOTE: We could at least do something with the iteration, so that we don't have to do the iteration when the block is not in the list
-                // NOTE: Consider making the escaped block list a doubly linked list, so that we can just remove from the middle (there is space for it in Block.Header).
+                // If the object is a block, remove it from the escaped blocks list of its home frame
                 if (object_header.tag == .block) {
                     const block: *types.Block = object_header.asserted_cast_to(.block);
-                    var prev_next_ptr = &block.home_frame.escaped_blocks_list_head;
-                    while (prev_next_ptr.*) |block_in_list| : (prev_next_ptr = &block_in_list.next_escaped_block) {
-                        if (block_in_list == block) {
-                            prev_next_ptr.* = block.next_escaped_block;
-                            break;
-                        }
-                    }
+                    block.remove_from_potential_escaped_blocks_list();
                 }
 
                 // Now free the unmarked object
@@ -884,6 +875,7 @@ pub const Interpreter = struct {
                     // Leaves a spot at the top of the stack for the `return_value`
                     const next_instruction = (try self.pop_frame()).next_instruction;
                     if (self.stack.frames.len == 0) {
+                        @branchHint(.unlikely);
                         try self.report_info("The program's entry point function has returned", .{});
                         return;
                     }
