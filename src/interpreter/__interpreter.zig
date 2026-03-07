@@ -151,7 +151,6 @@ pub const Heap = struct {
         }
     };
 
-    /// TODO(consultation): Maybe we could put argument of the required bytes into GC so that if it allocates a buffer, we know how much space we need for it.
     /// `required_bytes` does NOT have to be aligned to `object_alignment_in_bytes`.
     pub fn allocate(self: *Self, required_bytes: usize) Allocator.Error!*OpaqueHeader {
         var ran_gc = false;
@@ -255,7 +254,7 @@ pub const Heap = struct {
         });
         _ = new_empty_segment;
     }
-    /// TODO(consultation): Should we allocate an extra block if `self.is_gc_percentace_exceeded()` after GC?
+
     fn run_garbage_collection(self: *Self) Allocator.Error!void {
         if (DEBUG_PRINT_GC_STATS) {
             std.debug.print("=====================\n", .{});
