@@ -102,6 +102,11 @@ pub const Heap = struct {
     buffer_list_head: ?*BufferHeader = null,
     interpreter: *Interpreter,
 
+    /// Array of objects which will be considered as roots in the GC mark.
+    /// See the method `protect_against_gc(...)` for more information.
+    /// The allocator used for this ArrayList is the `backing_allocator` in the `Heap` struct.
+    protected_objects: std.ArrayList(VmObject) = .empty,
+
     /// WARN: Only `.header.next_empty_segment` of this field should ever be accessed.
     ///
     /// The `.header.next_empty_segment` represents an optional head of the free list of the heap.
@@ -122,7 +127,6 @@ pub const Heap = struct {
     free_list_dummy_before_head: EmptyHeapSegment = .{
         .header = .{ .size_kind = undefined, .next_empty_segment = .new(null) },
     },
-    gc_is_turned_off: bool = false,
 
     minimum_number_of_pages_per_buffer: usize = 1,
 
@@ -185,6 +189,8 @@ pub const Heap = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.protected_objects.deinit(self.backing_allocator);
+
         var maybe_current_buffer: ?*BufferHeader = self.buffer_list_head;
         while (maybe_current_buffer) |current_buffer| {
             const next = current_buffer.next_buffer;
@@ -199,13 +205,27 @@ pub const Heap = struct {
         try self.add_empty_buffer(.{ .minimum_required_bytes = to_allocate });
     }
 
-    pub fn start_gc_no_interrupt_section(self: *Self) void {
-        assert(!self.gc_is_turned_off);
-        self.gc_is_turned_off = true;
-    }
-    pub fn end_gc_no_interrupt_section(self: *Self) void {
-        assert(self.gc_is_turned_off);
-        self.gc_is_turned_off = false;
+    pub const GcProtector = struct {
+        heap: *Heap,
+        protected_objects_length_at_creation: usize,
+
+        pub fn protect(self: *GcProtector, object: VmObject) Allocator.Error!void {
+            const allocator = self.heap.backing_allocator;
+            try self.heap.protected_objects.append(allocator, object);
+        }
+
+        pub fn unprotect(self: *GcProtector) void {
+            self.heap.protected_objects.shrinkRetainingCapacity(self.protected_objects_length_at_creation);
+            self.heap = undefined;
+            self.protected_objects_length_at_creation = undefined;
+        }
+    };
+    pub fn protect_against_gc(self: *Self, params: struct { number_of_planned_protections: usize }) Allocator.Error!GcProtector {
+        try self.protected_objects.ensureUnusedCapacity(self.backing_allocator, params.number_of_planned_protections);
+        return GcProtector{
+            .heap = self,
+            .protected_objects_length_at_creation = self.protected_objects.items.len,
+        };
     }
 
     fn add_empty_buffer(self: *Self, params: struct { minimum_required_bytes: usize }) Allocator.Error!void {
@@ -237,8 +257,6 @@ pub const Heap = struct {
     }
     /// TODO(consultation): Should we allocate an extra block if `self.is_gc_percentace_exceeded()` after GC?
     fn run_garbage_collection(self: *Self) Allocator.Error!void {
-        if (self.gc_is_turned_off) return;
-
         if (DEBUG_PRINT_GC_STATS) {
             std.debug.print("=====================\n", .{});
             std.debug.print("=== GC MARK START ===\n", .{});
@@ -279,6 +297,11 @@ pub const Heap = struct {
         // Mark global objects
         for (self.interpreter.globals.values()) |global_object| {
             global_object.gc_mark_as_reachable_ignore_if_class_method_system();
+        }
+
+        // Mark protected objects
+        for (self.protected_objects.items) |protected_object| {
+            protected_object.gc_mark_as_reachable_ignore_if_class_method_system();
         }
 
         // Mark static objects

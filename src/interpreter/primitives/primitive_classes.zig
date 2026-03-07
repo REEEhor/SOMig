@@ -239,20 +239,23 @@ pub const Class = struct {
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const field_names: []SymbolId = self.identifiers_of_instance_variables;
 
-        const array = try types.Array.create_with_undefined_items(&interpreter.heap, field_names.len);
-
-        // TODO(consultation): Until we have NaN-boxed `Symbol` (so that it does not require allocation), I don't how how else I would do this.
-        //                     We could also "query" remaining capacity, because `Symbol` is just `Header` sized.
         // NOTE(GC):
-        //      We have to turn off the GC here, because we cannot easily (or "possibly") mark the created array
+        //      We cannot easily (or even possibly) mark the created array
         //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
         //      If we ever have NaN boxing for `types.Symbol`, we can remove this,
         //      since `types.Symbol.create_new(..)` will not trigger a heap allocation.
-        interpreter.heap.start_gc_no_interrupt_section();
-        defer interpreter.heap.end_gc_no_interrupt_section();
+        var gc_protector = try interpreter.heap.protect_against_gc(.{ .number_of_planned_protections = field_names.len });
+        defer gc_protector.unprotect();
+
+        const array = try types.Array.create_with_undefined_items(&interpreter.heap, field_names.len);
 
         for (array.get_items(), field_names) |*item, field_name| {
+            // TODO(consultation): This cannot really work with `gc_protector.protect(..)` because it contains uninit data
+            // HACK
+            array.header.is_marked = true;
+
             item.* = try types.Symbol.create_new(&interpreter.heap, field_name);
+            try gc_protector.protect(item.*);
         }
         return VmObject.from(array);
     }
