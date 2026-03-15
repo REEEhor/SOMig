@@ -1,5 +1,3 @@
-//! FIXME: Don't do initalisation of locals in bytecode, do it implicitly
-
 // pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
 
@@ -114,7 +112,7 @@ pub const Heap = struct {
     /// The `.header.next_empty_segment` represents an optional head of the free list of the heap.
     ///
     /// This field represents a non-existant empty heap segment which points to the
-    /// *actual* optional first empty segment, which is *actually on the heap*.
+    /// *actual* optional first empty segment, which is *actually on the heap* (if it exists).
     ///
     /// We do this shenanigan because we sometimes need a pointer of the previous item to its next item,
     /// for example in a linked-list iteration with a manipulation of the linked-list.
@@ -673,7 +671,6 @@ pub const Interpreter = struct {
 
     stack: Stack,
 
-    debug_frame_to_initialised_objects_mapping: if (DO_DEBUG_TRACE) std.DynamicBitSetUnmanaged else void = if (DO_DEBUG_TRACE) .{} else {},
     debug_max_set_object: if (DO_DEBUG_TRACE) usize else void = if (DO_DEBUG_TRACE) 0 else {},
 
     const Self = @This();
@@ -706,7 +703,7 @@ pub const Interpreter = struct {
         preallocated_object_stack: []VmObject,
         preallocated_frame_stack: []Stack.Frame,
     ) Interpreter {
-        var interpreter = Interpreter{
+        const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
             .stdout = stdout,
             .stderr = stderr,
@@ -720,9 +717,6 @@ pub const Interpreter = struct {
             .builtin_class_definitions = .{},
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
         };
-        if (DO_DEBUG_TRACE) {
-            interpreter.debug_frame_to_initialised_objects_mapping = std.DynamicBitSetUnmanaged.initEmpty(statics.allocator, preallocated_object_stack.len) catch unreachable;
-        }
 
         return interpreter;
     }
@@ -797,13 +791,6 @@ pub const Interpreter = struct {
                         @branchHint(.unlikely);
                         block.add_to_escaped_blocks_list();
                     };
-
-                    if (DO_DEBUG_TRACE) {
-                        const ptr = &result_frame.base_ptr[info.local_id.idx];
-                        if (index_from_pointer(ptr, self.stack.objects)) |index| {
-                            self.debug_frame_to_initialised_objects_mapping.set(index);
-                        }
-                    }
                 },
                 .load_instance_var => |info| {
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
@@ -834,15 +821,7 @@ pub const Interpreter = struct {
                     // NOTE(GC): It is important to not trigger a GC until we put `array_object` on the stack below
 
                     // Pop all the objects that were copied into the new array
-                    const old_stack_len = self.stack.objects.len;
                     self.stack.objects.len = items_start_idx;
-                    const new_stack_len = self.stack.objects.len;
-
-                    if (DO_DEBUG_TRACE) {
-                        for (new_stack_len..old_stack_len) |index| {
-                            self.debug_frame_to_initialised_objects_mapping.unset(index);
-                        }
-                    }
 
                     try self.push_object(array_object);
                 },
@@ -1049,12 +1028,6 @@ pub const Interpreter = struct {
                 std.debug.print(" Objects: \n", .{});
                 for (self.stack.objects, 0..) |obj, idx| {
                     std.debug.print(" - stack[{d:02}] = ", .{idx});
-                    if (DO_DEBUG_TRACE) {
-                        if (!self.debug_frame_to_initialised_objects_mapping.isSet(idx)) {
-                            std.debug.print(colors.FAINT ++ colors.YELLOW ++ " garbage \n" ++ colors.RESET, .{});
-                            return;
-                        }
-                    }
                     try self.print_object(obj);
                 }
             }
@@ -1096,12 +1069,6 @@ pub const Interpreter = struct {
                 first_iteration = false;
                 std.debug.print("[{d:02}]", .{object_idx});
                 const obj = self.stack.objects[object_idx];
-                if (DO_DEBUG_TRACE) {
-                    if (!self.debug_frame_to_initialised_objects_mapping.isSet(object_idx)) {
-                        std.debug.print(colors.FAINT ++ colors.YELLOW ++ " garbage \n" ++ colors.RESET, .{});
-                        continue;
-                    }
-                }
                 try self.print_object(obj);
             }
         }
@@ -1156,6 +1123,7 @@ pub const Interpreter = struct {
             return Error.object_stack_overflow;
         }
         // Grow the stack
+        const old_stack_length = self.stack.objects.len;
         const new_base_ptr: [*]VmObject = self.stack.objects.ptr + self.stack.objects.len - arguments_count;
         self.stack.frames.len += 1;
         self.stack.frames[self.stack.frames.len - 1] = Stack.Frame{
@@ -1165,6 +1133,10 @@ pub const Interpreter = struct {
         };
         self.stack.objects.len += locals_count;
         self.decoder = .new(bytecode);
+
+        // Set all locals to nil
+        const locals: []VmObject = self.stack.objects[old_stack_length..self.stack.objects.len];
+        @memset(locals, VmObject.nil);
     }
 
     /// Asserts that the stack is not empty
@@ -1200,15 +1172,8 @@ pub const Interpreter = struct {
         // (therefore the `+1`):
         const after_return_instruction_id = self.top_frame().after_return_instruction_id;
         const new_objects_len = (self.top_frame().base_ptr + 1) - self.stack.objects.ptr;
-        const old_objects_len = self.stack.objects.len;
         self.stack.objects.len = new_objects_len;
         self.stack.frames.len -= 1;
-
-        if (DO_DEBUG_TRACE) {
-            for (new_objects_len..old_objects_len) |object_idx| {
-                self.debug_frame_to_initialised_objects_mapping.unset(object_idx);
-            }
-        }
 
         return .{ .next_instruction = after_return_instruction_id };
     }
@@ -1240,7 +1205,6 @@ pub const Interpreter = struct {
         self.stack.objects.len += 1;
 
         if (DO_DEBUG_TRACE) {
-            self.debug_frame_to_initialised_objects_mapping.set(object_index);
             if (self.debug_max_set_object < self.stack.objects.len) {
                 self.debug_max_set_object = self.stack.objects.len;
                 if (DEBUG_CLEAR_SCREEN) {
@@ -1255,9 +1219,6 @@ pub const Interpreter = struct {
         assert(self.stack.objects.len > 0);
         self.stack.objects.len -= 1;
         const object_index = self.stack.objects.len;
-        if (DO_DEBUG_TRACE) {
-            self.debug_frame_to_initialised_objects_mapping.unset(object_index);
-        }
         return self.stack.objects.ptr[object_index];
     }
 
