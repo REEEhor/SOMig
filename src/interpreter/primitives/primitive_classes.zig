@@ -250,7 +250,6 @@ pub const Class = struct {
         const array = try types.Array.create_with_undefined_items(&interpreter.heap, field_names.len);
 
         for (array.get_items(), field_names) |*item, field_name| {
-            // TODO(consultation): This cannot really work with `gc_protector.protect(..)` because it contains uninit data
             // HACK
             array.header.is_marked = true;
 

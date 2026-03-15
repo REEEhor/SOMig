@@ -1,3 +1,5 @@
+//! FIXME: Don't do initalisation of locals in bytecode, do it implicitly
+
 // pub const DO_DEBUG_TRACE: bool = true;
 pub const DO_DEBUG_TRACE: bool = false;
 
