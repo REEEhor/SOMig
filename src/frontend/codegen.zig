@@ -273,16 +273,20 @@ pub const SourceCodeFiles = struct {
     cached_source_filepaths: Map,
     /// Arena used for storing the `cached_source_filepaths`, including the owned filepaths in it.
     arena: std.heap.ArenaAllocator,
-    root_filepath: Filepath,
+    root_directories: []const Directory,
 
-    const Self = @This();
-    pub const Map = std.AutoArrayHashMapUnmanaged(SymbolId, Filepath);
-    pub const Filepath = []const u8;
+    /// Mapping from: class name to: class name filepath
+    pub const Map = std.AutoArrayHashMapUnmanaged(SymbolId, []const u8);
+
+    pub const Directory = struct {
+        path: []const u8,
+        can_be_searched_recursively: bool,
+    };
 
     pub const LookupError = RefreshError;
     pub const LookupResult = struct {
         source_code: []const u8,
-        filepath: Filepath,
+        filepath: []const u8,
     };
     pub fn get_source_code_of(self: *Self, class_name: SymbolId, source_code_allocator: Allocator, refresh_params: RefreshParams) LookupError!?LookupResult {
         var retry_count: i32 = 0;
@@ -292,30 +296,14 @@ pub const SourceCodeFiles = struct {
             try self.refresh_cached_filepaths(refresh_params);
         } else return null;
 
-        var root_dir = std.fs.cwd().openDir(self.root_filepath, .{}) catch |err| {
+        const source_code: []const u8 = get_src: {
+            var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| break :get_src err;
+            defer file.close();
+            break :get_src file.readToEndAlloc(source_code_allocator, 1 << 32);
+        } catch |err| {
             refresh_params.error_reporter.report_error(
                 .no_location,
-                "Could not open the root directory '{s}' containing SOM code, because: {t}.",
-                .{ self.root_filepath, err },
-            );
-            return null;
-        };
-        defer root_dir.close();
-
-        var file = root_dir.openFile(filepath, .{ .mode = .read_only }) catch |err| {
-            refresh_params.error_reporter.report_error(
-                .no_location,
-                "Could not open '{s}' which should contain the class '{s}', because: {t}.",
-                .{ filepath, refresh_params.symbols_manager.symbol_with_id(class_name), err },
-            );
-            return null;
-        };
-        defer file.close();
-
-        const source_code = file.readToEndAlloc(source_code_allocator, 1 << 32) catch |err| {
-            refresh_params.error_reporter.report_error(
-                .no_location,
-                "Could not read the entire sourcecode in '{s}' which should contain the class '{s}', because: {t}.",
+                "Could not open '{s}' (which should contain the class '{s}') because: {t}.",
                 .{ filepath, refresh_params.symbols_manager.symbol_with_id(class_name), err },
             );
             return null;
@@ -335,30 +323,34 @@ pub const SourceCodeFiles = struct {
         self: *Self,
         params: RefreshParams,
     ) RefreshError!void {
-        const temporary_allocator = params.temporary_allocator;
-        const symbols_manager = params.symbols_manager;
-        const error_reporter = params.error_reporter;
-        var root_dir = std.fs.cwd().openDir(self.root_filepath, .{ .iterate = true }) catch |err| {
-            var filepath_buffer: [2048]u8 = undefined;
-            const path = std.fs.cwd().realpath(self.root_filepath, &filepath_buffer) catch {
-                error_reporter.report_error(.no_location, "Error while opening the root directory '{s}': {t}.", .{ self.root_filepath, err });
-                return;
-            };
-            error_reporter.report_error(.no_location, "Error while opening the root directory '{s}': {t}.", .{ path, err });
-            return;
-        };
-        defer root_dir.close();
-        var walker = try root_dir.walk(temporary_allocator);
-        defer walker.deinit();
 
         // Free all the cached entries
         _ = self.arena.reset(.retain_capacity);
         self.cached_source_filepaths = .empty;
 
+        for (self.root_directories) |directory| {
+            var root_dir = std.fs.cwd().openDir(directory.path, .{ .iterate = true }) catch |err| {
+                params.error_reporter.report_error(.no_location, "Error while opening the directory '{s}': {t}.", .{ directory.path, err });
+                return;
+            };
+            if (directory.can_be_searched_recursively) {
+                try self.refresh_single_directory_recursively(&root_dir, directory.path, params);
+            } else {
+                try self.refresh_single_directory(&root_dir, directory.path, params);
+            }
+        }
+    }
+    fn refresh_single_directory_recursively(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, params: RefreshParams) !void {
+        const temporary_allocator = params.temporary_allocator;
+        const symbols_manager = params.symbols_manager;
+        const error_reporter = params.error_reporter;
+        defer root_dir.close();
+        var walker = try root_dir.walk(temporary_allocator);
+        defer walker.deinit();
         while (true) {
             const entry = walker.next() catch |err| {
                 // TODO: if we ever have warnings, they would be nice here
-                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ self.root_filepath, err });
+                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
                 continue;
             } orelse break;
             if (entry.kind != .file) continue;
@@ -366,12 +358,22 @@ pub const SourceCodeFiles = struct {
             if (!std.mem.endsWith(u8, entry.basename, file_ending)) continue;
             const class_name = entry.basename[0 .. entry.basename.len - file_ending.len];
             const class_name_as_symbol: SymbolId = (try symbols_manager.id_or_intern(class_name)).id;
-            const owned_path: Filepath = try self.arena.allocator().dupe(u8, entry.path);
+            const owned_path: []const u8 = root_dir.realpathAlloc(self.arena.allocator(), entry.path) catch |err| switch (err) {
+                Allocator.Error.OutOfMemory => return Allocator.Error.OutOfMemory,
+                else => {
+                    error_reporter.report_error(
+                        .no_location,
+                        "Had to skip an while looking up classes in '{s}/{s}', because of error: {t}.",
+                        .{ root_dir_name, entry.path, err },
+                    );
+                    continue;
+                },
+            };
             const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
             if (gop.found_existing) {
                 error_reporter.report_error(
                     .no_location,
-                    "Found the same class definition for '{s}' in multiple files. First in '{s}' and now in '{s}'. Ignoring the later entry.",
+                    "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
                     .{ class_name, gop.value_ptr.*, owned_path },
                 );
             } else {
@@ -379,6 +381,42 @@ pub const SourceCodeFiles = struct {
             }
         }
     }
+
+    fn refresh_single_directory(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, params: RefreshParams) RefreshError!void {
+        const symbols_manager = params.symbols_manager;
+        const error_reporter = params.error_reporter;
+        defer root_dir.close();
+        var iterator = root_dir.iterate();
+        while (true) {
+            const entry = iterator.next() catch |err| {
+                // TODO: if we ever have warnings, they would be nice here
+                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
+                continue;
+            } orelse break;
+            if (entry.kind != .file) continue;
+            const file_ending = ".som";
+            if (!std.mem.endsWith(u8, entry.name, file_ending)) continue;
+            const class_name = entry.name[0 .. entry.name.len - file_ending.len];
+            const class_name_as_symbol: SymbolId = (try symbols_manager.id_or_intern(class_name)).id;
+            const owned_path: []const u8 = root_dir.realpathAlloc(self.arena.allocator(), entry.name) catch |err| {
+                // TODO: if we ever have warnings, they would be nice here
+                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
+                continue;
+            };
+            const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
+            if (gop.found_existing) {
+                error_reporter.report_error(
+                    .no_location,
+                    "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
+                    .{ class_name, gop.value_ptr.*, owned_path },
+                );
+            } else {
+                gop.value_ptr.* = owned_path;
+            }
+        }
+    }
+
+    const Self = @This();
 };
 
 pub fn allocate_heap_data(allocator: Allocator, header: HeapData.Header) Allocator.Error!*HeapData {

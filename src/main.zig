@@ -148,7 +148,16 @@ fn playground(allocator: std.mem.Allocator) !void {
     var source_code_files = codegen.SourceCodeFiles{
         .cached_source_filepaths = codegen.SourceCodeFiles.Map.empty,
         .arena = source_code_files_arena,
-        .root_filepath = "playground/",
+        .root_directories = &[2]codegen.SourceCodeFiles.Directory{
+            .{
+                .can_be_searched_recursively = false,
+                .path = "playground/",
+            },
+            .{
+                .can_be_searched_recursively = false,
+                .path = "playground/Smalltalk/",
+            },
+        },
     };
 
     // // Print bytecode
