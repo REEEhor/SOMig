@@ -903,7 +903,7 @@ pub const Interpreter = struct {
                                 self.report_runtime_error("A non local return was encountered in a block that has escaped its home scope.", .{});
                                 return Error.block_escaped_its_home_scope;
                             }
-                            break :blk block.home_frame;
+                            break :blk block.home_method_frame();
                         },
                         .method => unreachable, // We should never encounter a non local in a method
                     };

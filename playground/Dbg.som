@@ -1,0 +1,16 @@
+Dbg = (
+    run = (
+        self xd println. 
+    )
+    
+    xd = (
+        [[ ^ 'lol'  ] value ]  value .
+        
+        ^ 'nene'.
+    )
+    
+    bruh: _ = ()
+)
+
+        "(self class hasMethod: #bruh:) println."
+        "self class methods do: [ :m | m println ]."

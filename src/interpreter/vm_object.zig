@@ -747,6 +747,14 @@ pub const types = struct {
             };
         }
 
+        pub fn home_method_frame(self: *Self) *Stack.Frame {
+            var it_frame = self.home_frame;
+            while (true) switch (it_frame.kind) {
+                .method => return it_frame,
+                .block => |block| it_frame = block.home_frame,
+            };
+        }
+
         pub fn gc_mark_references(self: *Self) void {
             if (!self.header.has_escaped_home_context) return;
 
