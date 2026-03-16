@@ -1,3 +1,5 @@
+//! Definitions for primitive methods
+//!
 //! This file gets parsed (or.. "comptime reflected")
 //! via the function `PrimitivesMethodsMap.init_from` in `primitives/primitives_methods_map`
 //! NOTE(epic-zig): the reflection used to extract this info is really nice :D

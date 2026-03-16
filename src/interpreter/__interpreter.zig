@@ -8,7 +8,7 @@ pub const DEBUG_PRINT_HEAP: bool = false;
 
 pub const DEBUG_CLEAR_SCREEN: bool = false;
 pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
-pub const DEBUG_SKIP_BOOTSTRAP: bool = true or DO_DEBUG_TRACE;
+pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -60,7 +60,7 @@ pub const pointer_after = vm_object_module.pointer_after;
 pub const slice_after = vm_object_module.slice_after;
 
 const primitives_module = @import("primitives/__primitives.zig");
-pub const primitives = primitives_module.primitive_classes;
+pub const primitive_methods_module = primitives_module.primitive_methods;
 pub const PrimitiveMethodsMap = primitives_module.PrimitiveMethodsMap;
 pub const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImplementation;
 
@@ -640,6 +640,7 @@ pub const Interpreter = struct {
     heap: Heap,
 
     heap_allocator: Allocator,
+    temporary_arena: *std.heap.ArenaAllocator,
 
     stdout: *Writer,
     stderr: *Writer,
@@ -695,6 +696,7 @@ pub const Interpreter = struct {
     pub fn new(
         heap: Heap,
         allocator_for_globals: Allocator,
+        temporary_arena: *std.heap.ArenaAllocator,
         stdout: *Writer,
         stderr: *Writer,
         statics: *Statics,
@@ -706,6 +708,7 @@ pub const Interpreter = struct {
         const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
             .stdout = stdout,
+            .temporary_arena = temporary_arena,
             .stderr = stderr,
             .statics = statics,
             .heap = heap,
@@ -1096,9 +1099,10 @@ pub const Interpreter = struct {
             .primitive_methods_map = self.primitive_methods,
             .source_code_files = self.source_code_files,
             .statics = self.statics,
-            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
+            .temporary_allocator = self.temporary_arena.allocator(),
             .builtin_class_definitions = &self.builtin_class_definitions,
         });
+        _ = self.temporary_arena.reset(.retain_capacity);
 
         // The bytecode array might have gotten reallocated during the compilation
         return class_definition_pair.class;
@@ -1310,17 +1314,20 @@ pub const Interpreter = struct {
 
     pub fn report_info(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
         try self.stderr.print(colors.CYAN ++ "[runtime-info] " ++ colors.RESET ++ fmt ++ "\n", args);
+        self.stderr.flush() catch {};
     }
 
     // TODO: remove this once all the major features are implemented
     pub fn report_TODO(self: *Self, comptime fmt: []const u8, args: anytype) error{TODO} {
         self.stderr.print(colors.ERR ++ "[TODO (not implemented)] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
+        self.stderr.flush() catch {};
         return error.TODO;
     }
 
     pub fn report_runtime_error(self: *Self, comptime fmt: []const u8, args: anytype) void {
         // Ignore error since we report errors when there already is an error
-        self.stderr.print(colors.ERR ++ "[runtime-error] " ++ colors.RESET ++ fmt ++ "\n", args) catch return;
+        self.stderr.print(colors.ERR ++ "[runtime-error] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
+        self.stderr.flush() catch {};
     }
 
     pub fn string_from_symbol(self: *Self, symbol_id: SymbolId) []const u8 {

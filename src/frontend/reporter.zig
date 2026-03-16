@@ -40,6 +40,7 @@ pub const ErrorReporter = struct {
     }
 
     pub fn report_error(self: *Self, position: ReportPosition, comptime fmt: []const u8, args: anytype) void {
+        defer self.writer.flush() catch {};
         self.print("\n", .{});
         switch (position) {
             .eof => self.report_internal_eof("ERROR", fmt, args, RED),
@@ -52,6 +53,8 @@ pub const ErrorReporter = struct {
     }
 
     pub fn add_note(self: *Self, position: ReportPosition, comptime fmt: []const u8, args: anytype) void {
+        defer self.writer.flush() catch {};
+
         // Once the errors are structs (if they ever will be??), this will add some hint info on the last struct.
         switch (position) {
             .eof => self.report_internal_eof("NOTE", fmt, args, CYAN),

@@ -40,7 +40,7 @@ const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
 const MethodDefinition = interpreter_module.MethodDefinition;
 const MethodBody = interpreter_module.MethodBody;
 const HeapData = interpreter_module.HeapData;
-const primitives = interpreter_module.primitives;
+const primitives = interpreter_module.primitive_methods;
 const Statics = interpreter_module.Statics;
 const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
 const object_types = interpreter_module.types;
@@ -282,6 +282,20 @@ pub const SourceCodeFiles = struct {
         path: []const u8,
         can_be_searched_recursively: bool,
     };
+
+    pub fn init(params: struct {
+        allocator: Allocator,
+        root_directories: []const Directory,
+    }) Self {
+        return Self{
+            .arena = std.heap.ArenaAllocator.init(params.allocator),
+            .root_directories = params.root_directories,
+            .cached_source_filepaths = .empty,
+        };
+    }
+    pub fn deinit(self: *Self) void {
+        self.arena.deinit();
+    }
 
     pub const LookupError = RefreshError;
     pub const LookupResult = struct {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const terminal = @import("terminal.zig");
@@ -27,26 +28,50 @@ const reporter_module = @import("frontend/reporter.zig");
 const ErrorReporter = reporter_module.ErrorReporter;
 
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    // const args: [][:0]u8 = try std.process.argsAlloc(allocator);
-    // defer std.process.argsFree(allocator, args);
+    // Setup allocator
+    var debug_allocator: std.heap.DebugAllocator(.{ .stack_trace_frames = 100 }) = .init;
+    const gpa, const is_debug = switch (builtin.mode) {
+        .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+        .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+    };
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
+    };
 
-    // if (args.len == 3 and std.mem.eql(u8, args[1], "-lex")) {
-    //     try lex(allocator, args);
-    //     return;
-    // }
+    const args: [][:0]u8 = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
-    // if (args.len == 3 and std.mem.eql(u8, args[1], "-parse")) {
-    //     try parse(allocator, args);
-    //     return;
-    // }
+    var stdout_buffer = [_]u8{0} ** 1024;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
-    // std.debug.print(
-    //     "This will be an amazing SOMig project!\n\nUsage (so far):\n\t- `somig -lex <path/to/file.som>` | prints tokens and exits\n\n",
-    //     .{},
-    // );
+    var stderr_buffer = [_]u8{0} ** 1024;
+    var stderr_writer = std.fs.File.stderr().writerStreaming(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
 
-    try playground(allocator);
+    const arguments_for_som = args[1..]; // FIXME: This should be more complex
+
+    try run(.{
+        .gpa = gpa,
+        .stdout = stdout,
+        .stderr = stderr,
+        .stack_size = .{
+            .objects_count = 200, // TODO: these should be parsed from args
+            .frames_count = 1000, // TODO: these should be parsed from args
+        },
+        .program_arguments_as_strings = arguments_for_som,
+        .root_directories = &[2]codegen.SourceCodeFiles.Directory{ // TODO: these should be parsed from args
+            .{
+                .can_be_searched_recursively = false,
+                .path = "playground/",
+            },
+            .{
+                .can_be_searched_recursively = false,
+                .path = "playground/Smalltalk/",
+            },
+        },
+        .skip_bootstrap = interpreter_module.DEBUG_SKIP_BOOTSTRAP,
+    });
 }
 
 fn parse(allocator: std.mem.Allocator, args: [][:0]u8) !void {
@@ -111,77 +136,73 @@ fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
     return;
 }
 
-fn playground(allocator: std.mem.Allocator) !void {
-    const buffers_length = 256;
+pub const RunParams = struct {
+    gpa: std.mem.Allocator,
+    stdout: *std.io.Writer,
+    stderr: *std.io.Writer,
+    stack_size: struct { objects_count: usize, frames_count: usize },
+    root_directories: []const codegen.SourceCodeFiles.Directory,
+    program_arguments_as_strings: []const []const u8,
+    skip_bootstrap: bool,
+};
 
-    // Setup stdout
-    var stdout_buffer: [buffers_length]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
-    var stdout: *std.io.Writer = &stdout_writer.interface;
-    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
+pub fn run(params: RunParams) !void {
+    const gpa = params.gpa;
+    const stdout = params.stdout;
+    const stderr = params.stderr;
+    const stack_size = params.stack_size;
+    const root_directories = params.root_directories;
+    const program_arguments_as_strings = params.program_arguments_as_strings;
+    const skip_bootstrap = params.skip_bootstrap;
 
     // Setup static fields
-    var interpreter_arena = std.heap.ArenaAllocator.init(allocator);
-    defer interpreter_arena.deinit();
-    const interpreter_allocator = interpreter_arena.allocator();
+    var static_arena = std.heap.ArenaAllocator.init(gpa);
+    defer static_arena.deinit();
+    const static_allocator = static_arena.allocator();
     //
     var statics = Statics{
         .all_classes = .{},
         .all_methods = .{},
-        // TODO: use a different allocator dedicated
-        .allocator = interpreter_allocator,
-        .symbols_manager = blk: {
-            const manager = try SymbolsManager.create(interpreter_allocator, 0);
-            break :blk manager;
-        },
-        .constants_manager = codegen.ConstantsManager.init(interpreter_allocator),
+        .allocator = static_allocator,
+        .symbols_manager = try SymbolsManager.create(static_allocator, 0),
+        .constants_manager = codegen.ConstantsManager.init(static_allocator),
     };
-    //
+
+    // Make program arguments into VM strings
+    const programs_arguments = try types.Array.create_with_undefined_items(&statics, program_arguments_as_strings.len);
+    for (programs_arguments.get_items(), program_arguments_as_strings) |*argument, argument_as_string| {
+        argument.* = try interpreter_module.types.String.create_new(&statics, argument_as_string);
+    }
+
+    // Prepare primitive methods
     const primitive_methods_map = try PrimitiveMethodsMap.init_from(
-        interpreter_allocator,
-        interpreter_module.primitives,
+        static_allocator,
+        interpreter_module.primitive_methods_module,
         &statics.symbols_manager,
     );
-    //
-    var source_code_files_arena = std.heap.ArenaAllocator.init(allocator);
-    defer source_code_files_arena.deinit();
-    var source_code_files = codegen.SourceCodeFiles{
-        .cached_source_filepaths = codegen.SourceCodeFiles.Map.empty,
-        .arena = source_code_files_arena,
-        .root_directories = &[2]codegen.SourceCodeFiles.Directory{
-            .{
-                .can_be_searched_recursively = false,
-                .path = "playground/",
-            },
-            .{
-                .can_be_searched_recursively = false,
-                .path = "playground/Smalltalk/",
-            },
-        },
-    };
 
-    // // Print bytecode
-    // try stdout.print("=" ** 20 ++ "Bytecode (first instruction is at: [{d:04}])" ++ "=" ** 20 ++ "\n", .{start_instruction_id.idx});
-    // try codegen.print_bytecode(
-    //     &statics.symbols_manager,
-    //     &statics.constants_manager,
-    //     statics.constants_manager.current_base_id,
-    //     bytecode,
-    //     stdout,
-    // );
+    // Prepare source code loader
+    var source_code_files = codegen.SourceCodeFiles.init(.{
+        .allocator = gpa,
+        .root_directories = root_directories,
+    });
+    defer source_code_files.deinit();
 
     // Allocate stack
-    const frames = try allocator.alloc(interpreter_module.Stack.Frame, 1000);
-    defer allocator.free(frames);
-    const objects = try allocator.alloc(interpreter_module.VmObject, 200);
-    defer allocator.free(objects);
+    const frames = try static_allocator.alloc(interpreter_module.Stack.Frame, stack_size.frames_count);
+    const objects = try static_allocator.alloc(interpreter_module.VmObject, stack_size.objects_count);
+
+    // Set up temporary arena
+    var temporary_arena = std.heap.ArenaAllocator.init(gpa);
+    defer temporary_arena.deinit();
 
     // Setup interpreter
     var interpreter = Interpreter.new(
-        Heap{ .backing_allocator = allocator, .interpreter = undefined },
-        interpreter_allocator,
+        Heap{ .backing_allocator = gpa, .interpreter = undefined },
+        static_allocator,
+        &temporary_arena,
         stdout,
-        stdout,
+        stderr,
         &statics,
         &source_code_files,
         primitive_methods_map,
@@ -262,20 +283,27 @@ fn playground(allocator: std.mem.Allocator) !void {
         try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
     }
 
-    if (!interpreter_module.DEBUG_SKIP_BOOTSTRAP) {
-        const program_arguments: VmObject = get_args: {
-            // TODO: handle this properly, it should be arguments from the console
-            var args_array: [1]VmObject = undefined;
-            args_array[0] = try types.Symbol.create_new(&statics, ((try statics.symbols_manager.id_or_intern("Main")).id));
-            break :get_args try types.Array.create_new(&statics, &args_array);
-        };
-        const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
-            interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
-            std.process.exit(1);
-        };
-        try interpreter.push_object(program_arguments);
-        try interpreter.push_object(interpreter.singletons.system);
-        try interpreter.call_method(initialize_method);
+    if (skip_bootstrap) {
+        // This is basically code from `System >> initialize:` method, but in Zig.
+        if (program_arguments_as_strings.len == 0) {
+            interpreter.report_runtime_error("No entrypoint class was supplied.", .{});
+            return error.no_entrypoint_class;
+        }
+        const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern(program_arguments_as_strings[0])).id);
+        const main_object: VmObject = try types.GenericObject.create_new(&interpreter.heap, main_class);
+        if (main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id)) |run_method| {
+            try interpreter.push_object(main_object);
+            try interpreter.call_method(run_method);
+        } else if (main_class.get_method((try statics.symbols_manager.id_or_intern("run:")).id)) |run_method| {
+            try interpreter.push_object(VmObject.from(programs_arguments));
+            try interpreter.push_object(main_object);
+            try interpreter.call_method(run_method);
+        } else {
+            interpreter.report_runtime_error("The entrypoint class `{s}` does not have a `run` nor `run:` method.", .{
+                program_arguments_as_strings[0],
+            });
+            return error.no_run_method;
+        }
         interpreter.run() catch |err| {
             interpreter.stderr.flush() catch {};
             interpreter.stdout.flush() catch {};
@@ -283,11 +311,13 @@ fn playground(allocator: std.mem.Allocator) !void {
             return err;
         };
     } else {
-        const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern("Main")).id);
-        const run_method = main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id).?;
-        const main_object: VmObject = try types.GenericObject.create_new(&interpreter.heap, main_class);
-        try interpreter.push_object(main_object);
-        try interpreter.call_method(run_method);
+        const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
+            interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
+            return error.no_initialize_method;
+        };
+        try interpreter.push_object(VmObject.from(programs_arguments));
+        try interpreter.push_object(interpreter.singletons.system);
+        try interpreter.call_method(initialize_method);
         interpreter.run() catch |err| {
             interpreter.stderr.flush() catch {};
             interpreter.stdout.flush() catch {};

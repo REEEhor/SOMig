@@ -1,4 +1,4 @@
-pub const primitive_classes = @import("primitive_classes.zig");
+pub const primitive_methods = @import("primitive_methods.zig");
 
 const primitive_methods_map = @import("primitive_methods_map.zig");
 pub const PrimitiveMethodsMap = primitive_methods_map.PrimitiveMethodsMap;
