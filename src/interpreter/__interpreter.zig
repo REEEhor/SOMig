@@ -838,9 +838,11 @@ pub const Interpreter = struct {
                         try self.push_object(VmObject.from(newly_loaded_class.as_vm_object));
                     }
                 },
-                // .set_global => |global_symbol_id| {
-                // //  TODO: once we implent `.set_global`, we need to ensure, that check if assigned object is block and add it to the escaped blocks
-                // },
+                .set_global => |global_symbol_id| {
+                    const object = self.top_stack_object();
+                    if (object.as_block()) |block| block.add_to_escaped_blocks_list();
+                    try self.globals.put(global_symbol_id, object.*);
+                },
                 .load_symbol => |symbol_id| {
                     const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
                     try self.push_object(object);

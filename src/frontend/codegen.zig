@@ -1358,7 +1358,6 @@ pub const BytecodeGenerator = struct {
             },
             .assignment => |assignment| {
                 try self.compile_expression(assignment.target_value);
-                const idenditifer_text = self.ast.text_at(assignment.variable);
                 const identifier_symbol: SymbolId = try self.symbol_from_token(assignment.variable);
                 const set_instr: Instruction = switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
                     .instance => |info| .{ .set_instance_var = .{
@@ -1369,14 +1368,7 @@ pub const BytecodeGenerator = struct {
                         .local_id = info.local_variable_id,
                         .required_frame_up_steps = info.scope_depth_difference,
                     } },
-                    .global => {
-                        self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(assignment.variable) },
-                            "TODO: Cannot yet compile setting of a global variable, therefore could not set the global variable named '{s}'.",
-                            .{idenditifer_text},
-                        );
-                        return error.TODO;
-                    },
+                    .global => .{ .set_global = identifier_symbol },
                 };
                 try self.add_instruction(set_instr);
             },
@@ -1899,15 +1891,16 @@ pub const Instruction = union(enum(u8)) {
 
     load_global: SymbolId,
 
+    /// Gets the top value from the stack (doesn't pop) and assigns its value to a global variable.
+    set_global: SymbolId,
+
     normal_return,
 
     non_local_return,
 
-    /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into a local variable
     set_local: SetLocal,
 
-    /// TODO: maybe fix this? doesn't pop
     /// Gets the top value from the stack (doesn't pop) and assigns its value into an instance variable
     set_instance_var: SetInstanceVar,
 
