@@ -717,13 +717,13 @@ pub const Parser = struct {
             },
             .integer => {
                 break :get_expression SpannedExpr{
-                    .expr = .{ .integer_literal = token_id },
+                    .expr = .integer_literal,
                     .span = TokenSpan.at(token_id),
                 };
             },
             .float => {
                 break :get_expression SpannedExpr{
-                    .expr = .{ .float_literal = token_id },
+                    .expr = .float_literal,
                     .span = TokenSpan.at(token_id),
                 };
             },
@@ -774,8 +774,46 @@ pub const Parser = struct {
                 self.reporter.report_error(.{ .pos = token.pos }, "Unmatched bracket found. Expected an expression.", .{});
                 return ParserError.unmatched_bracket;
             },
-            // List all the tokens so if there is a change to the list of token options, we catch it here
-            .exit, .separator, .dot, .assign, .binary_message, .keyword_message, .block_param => {
+            .binary_message => {
+                const binary_selector_text = self.text_at(token);
+                const is_minus = std.mem.eql(u8, "-", self.ast.text_at(token));
+                const maybe_number_token = self.next_token();
+                const is_next_token_number = if (maybe_number_token) |m| m.kind == .integer or m.kind == .float else false;
+                const number_literal_span = TokenSpan.create(token_id.idx, token_id.idx + 1);
+
+                if (!is_minus) {
+                    const only_contains_plus_or_minus = for (binary_selector_text) |chr| {
+                        if (chr != '-' and chr != '+') break false;
+                    } else true;
+                    if (only_contains_plus_or_minus and is_next_token_number) {
+                        self.reporter.report_error(
+                            .{ .pos = self.ast.pos_of(number_literal_span) },
+                            "Number literals can only have a single minus '-' in front of them.",
+                            .{},
+                        );
+                        return ParserError.unexpected_token;
+                    }
+                }
+
+                if (!is_next_token_number or !is_minus) {
+                    self.reporter.report_error(.{ .pos = token.pos }, "Unexpected 'binary selector' token. Expected an expression.", .{});
+                    return ParserError.unexpected_token;
+                }
+                // SAFETY: `is_next_token_number` is true from the `if` above. Which implies that there was a token.
+                const number_token = maybe_number_token.?;
+
+                break :get_expression SpannedExpr{
+                    .expr = switch (number_token.kind) {
+                        .integer => .integer_literal,
+                        .float => .float_literal,
+                        // SAFETY: `is_next_token_number` is true, so only a float or an integer can be the kind of such token
+                        else => unreachable,
+                    },
+                    .span = number_literal_span,
+                };
+            },
+            // List all token kinds here so if there is a change to the list of token kinds, we catch it here and decide what to do.
+            .exit, .separator, .dot, .assign, .keyword_message, .block_param => {
                 self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.kind});
                 return ParserError.unexpected_token;
             },
@@ -1064,12 +1102,12 @@ fn print_expression_recursive(
     });
     switch (expression) {
         .variable => try writer.print("Variable({s})\n", .{ast.text_at(expr_id)}),
-        .integer_literal => |token_id| {
-            const value_str = ast.text_at(token_id);
+        .integer_literal => {
+            const value_str = ast.text_at(expr_id);
             try writer.print("Integer literal({s})\n", .{value_str});
         },
-        .float_literal => |token_id| {
-            const value_str = ast.text_at(token_id);
+        .float_literal => {
+            const value_str = ast.text_at(expr_id);
             try writer.print("Float literal({s})\n", .{value_str});
         },
         .string_literal => |token_id| {

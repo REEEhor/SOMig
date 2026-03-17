@@ -143,6 +143,19 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
         };
         defer gpa.free(program_output);
 
+        // Write the program output into a file
+        var write_program_output_as_file: bool = false;
+        defer write_program_output: {
+            if (write_program_output_as_file) {
+                const program_output_filename: []const u8 = std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".new.txt" }) catch break :write_program_output;
+                defer gpa.free(program_output_filename);
+                snapshots_dir.writeFile(.{ .data = program_output, .sub_path = program_output_filename }) catch |err| {
+                    print(ERR ++ " Error while writing the program output into a file, because: {t}" ++ RESET, .{err});
+                    error_tests_count += 1;
+                };
+            }
+        }
+
         // Check that the snapshot exists
         const snapshot_contents: []const u8 = get_snapshot_contents: {
             const snapshot_filename = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".snapshot.txt" });
@@ -162,6 +175,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
                     continue :next_test;
                 } else {
                     tests_without_snapshots_count += 1;
+                    write_program_output_as_file = true;
                     print(WARN ++ "SNAPSHOT NOT FOUND!" ++ RESET, .{});
                     continue :next_test;
                 }
@@ -184,6 +198,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
             .different => |diff| diff,
         };
         print(ERR ++ "SNAPSHOT DIFFERS!" ++ RESET, .{});
+        write_program_output_as_file = true;
 
         different_to_snapshot_count += 1;
         if (opts.show_diff) {
@@ -211,14 +226,6 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
             //
             print(ERR ++ "=" ** 87 ++ RESET ++ "\n", .{}); // Separator line
         }
-
-        // Write the program output into a file
-        const program_output_filename: []const u8 = try std.mem.concat(gpa, u8, &[_][]const u8{ current_test_name, ".new.txt" });
-        defer gpa.free(program_output_filename);
-        snapshots_dir.writeFile(.{ .data = program_output, .sub_path = program_output_filename }) catch |err| {
-            print(ERR ++ " Error while writing the program output into a file, because: {t}" ++ RESET, .{err});
-            error_tests_count += 1;
-        };
     }
 
     // Print results
@@ -233,7 +240,7 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
             print(WARN ++ " - tests without a snapshot: {d}\n" ++ RESET, .{tests_without_snapshots_count});
             if (!opts.accept_all) {
                 print(FAINT ++ YELLOW, .{});
-                print("     Run the tests with `" ++ BOLD ++ "-Dsnap-accept-all=true" ++ RESET ++ FAINT ++ YELLOW ++ "` (or " ++ BOLD ++ "`-Dsa=true`" ++ RESET ++ FAINT ++ YELLOW ++ " for short)\n     to accept program outputs as new snapshots for the ones that are missing)\n", .{});
+                print("     Run the tests with `" ++ BOLD ++ "-Dsnap-accept-all=true" ++ RESET ++ FAINT ++ YELLOW ++ "` (or " ++ BOLD ++ "`-Dsa=true`" ++ RESET ++ FAINT ++ YELLOW ++ " for short)\n     to accept program outputs as new snapshots for the ones that are missing.\n", .{});
                 print(RESET, .{});
             }
         }

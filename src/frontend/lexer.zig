@@ -142,10 +142,6 @@ pub const Lexer = struct {
                 continue :loop .lexing_string_literal;
             },
             .saw_dash => switch (try self.current_char()) {
-                '0'...'9' => {
-                    // Encountered a negative number literal
-                    return try self.lex_number(token_start_idx);
-                },
                 '-' => {
                     self.current_char_idx += 1;
                     continue :loop .saw_multiple_dashes;
@@ -713,17 +709,29 @@ test "lex negative number" {
     // Indexes into the input string:
     //                                   10        20        30
     //                         012345678901234567890123456789012345678
-    const input: []const u8 = "  42  -5  -97    3  -253 -2.1  -43.472";
+    const input: []const u8 = "  42  -5  -97  - 3  -253 -2.1  -43.472";
 
     const e = testing.e;
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.integer, "42", 2),
-        e(.integer, "-5", 6),
-        e(.integer, "-97", 10),
+        //
+        e(.binary_message, "-", 6),
+        e(.integer, "5", 7),
+        //
+        e(.binary_message, "-", 10),
+        e(.integer, "97", 11),
+        //
+        e(.binary_message, "-", 15),
         e(.integer, "3", 17),
-        e(.integer, "-253", 20),
-        e(.float, "-2.1", 25),
-        e(.float, "-43.472", 31),
+        //
+        e(.binary_message, "-", 20),
+        e(.integer, "253", 21),
+        //
+        e(.binary_message, "-", 25),
+        e(.float, "2.1", 26),
+        //
+        e(.binary_message, "-", 31),
+        e(.float, "43.472", 32),
     }, null);
 }
 

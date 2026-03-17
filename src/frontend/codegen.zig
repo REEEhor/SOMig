@@ -1266,12 +1266,12 @@ pub const BytecodeGenerator = struct {
     fn compile_expression(self: *Self, expr_id: Ast.ExprId) CompileError!void {
         const expr = self.ast.expressions.get(expr_id);
         switch (expr) {
-            .integer_literal => |token_id| {
-                const text = self.ast.text_at(token_id);
+            .integer_literal => {
+                const text = self.ast.text_at(expr_id);
                 // TODO: Change this if we implement arbitrary-sized integers.
                 const number = literals.parse_integer_literal(text) orelse {
                     self.reporter.report_error(
-                        .{ .pos = self.ast.pos_of(token_id) },
+                        .{ .pos = self.ast.pos_of(expr_id) },
                         "This integer literal is too big to fit into the VM representation of integers, which is 48 bits. The valid range is from {d} to {d}.",
                         .{ std.math.minInt(i48), std.math.maxInt(i48) },
                     );
@@ -1280,8 +1280,8 @@ pub const BytecodeGenerator = struct {
                 const constant_id = try self.constants_manager.add_constant(Constant{ .integer = number });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
-            .float_literal => |token_id| {
-                const text = self.ast.text_at(token_id);
+            .float_literal => {
+                const text = self.ast.text_at(expr_id);
                 const number = literals.parse_float_literal(text);
                 const constant_id = try self.constants_manager.add_constant(Constant{ .float = number });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });

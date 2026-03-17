@@ -416,10 +416,14 @@ pub const Expression = union(enum) {
     /// The payload of this is guaranteed to be an `.identifier`
     variable: TokenId,
 
-    /// The payload of this is guaranteed to be an `.integer`
-    integer_literal: TokenId,
-    /// The payload of this is guaranteed to be an `.float`
-    float_literal: TokenId,
+    /// The value of this literal is encoded in its `TokenSpan`.
+    /// This expression can consist of one **or two** tokens,
+    /// because it might contain a `-` in front of the integer.
+    integer_literal,
+    /// The value of this literal is encoded in its `TokenSpan`.
+    /// This expression can consist of one **or two** tokens,
+    /// because it might contain a `-` in front of the float.
+    float_literal,
     /// The payload of this is guaranteed to be an `.string_literal`
     string_literal: TokenId,
     ///
