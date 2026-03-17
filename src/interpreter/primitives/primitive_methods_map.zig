@@ -215,7 +215,7 @@ pub const PrimitiveMethodsMap = struct {
                             return invalid_argument(interpreter, som_parameter_idx, "primitive Array"),
 
                         []const u8 => (interpreter.pop_object().as_text(&interpreter.statics.symbols_manager)) orelse
-                            return invalid_argument(interpreter, som_parameter_idx, "primitive String or primtive Symbol"),
+                            return invalid_argument(interpreter, som_parameter_idx, "primitive String or primitive Symbol"),
 
                         SymbolId => switch (interpreter.pop_object().kind()) {
                             .symbol => |symbol| symbol.header.symbol_id,
