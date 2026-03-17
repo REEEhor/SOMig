@@ -38,8 +38,9 @@ pub fn main() !void {
         _ = debug_allocator.deinit();
     };
 
-    const args: [][:0]u8 = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
+    const args_with_program: [][:0]u8 = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args_with_program);
+    const args = args_with_program[1..];
 
     var stdout_buffer = [_]u8{0} ** 1024;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
@@ -49,7 +50,42 @@ pub fn main() !void {
     var stderr_writer = std.fs.File.stderr().writerStreaming(&stderr_buffer);
     const stderr = &stderr_writer.interface;
 
-    const arguments_for_som = args[1..]; // FIXME: This should be more complex
+    var arguments_for_som = std.ArrayList([]const u8).empty;
+    defer arguments_for_som.deinit(gpa);
+
+    var root_directories = std.ArrayList(codegen.SourceCodeFiles.Directory).empty;
+    defer root_directories.deinit(gpa);
+
+    var skip_bootstrap = false;
+
+    // Parse command line arguments
+    var arg_idx: usize = 0;
+    while (arg_idx < args.len) : (arg_idx += 1) {
+        const arg = args[arg_idx];
+        if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--include")) {
+            arg_idx += 1;
+            if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
+            try root_directories.append(gpa, .{
+                .can_be_searched_recursively = false,
+                .path = args[arg_idx],
+            });
+        } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "-ir") or std.mem.eql(u8, arg, "-ri") or std.mem.eql(u8, arg, "--recursively-include")) {
+            arg_idx += 1;
+            if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
+            try root_directories.append(gpa, .{
+                .can_be_searched_recursively = true,
+                .path = args[arg_idx],
+            });
+        } else if (std.mem.eql(u8, arg, "--")) {
+            arg_idx += 1;
+            try arguments_for_som.appendSlice(gpa, args[arg_idx..]);
+            break;
+        } else if (std.mem.eql(u8, arg, "--no-bs")) {
+            skip_bootstrap = true;
+        } else {
+            std.debug.panic("Invalid flag '{s}'", .{arg});
+        }
+    }
 
     try run(.{
         .gpa = gpa,
@@ -59,18 +95,9 @@ pub fn main() !void {
             .objects_count = 200, // TODO: these should be parsed from args
             .frames_count = 1000, // TODO: these should be parsed from args
         },
-        .program_arguments_as_strings = arguments_for_som,
-        .root_directories = &[2]codegen.SourceCodeFiles.Directory{ // TODO: these should be parsed from args
-            .{
-                .can_be_searched_recursively = false,
-                .path = "playground/",
-            },
-            .{
-                .can_be_searched_recursively = false,
-                .path = "playground/Smalltalk/",
-            },
-        },
-        .skip_bootstrap = interpreter_module.DEBUG_SKIP_BOOTSTRAP,
+        .program_arguments_as_strings = arguments_for_som.items,
+        .root_directories = root_directories.items,
+        .skip_bootstrap = interpreter_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
     });
 }
 

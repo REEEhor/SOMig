@@ -31,7 +31,6 @@ pub fn parse_string_literal(allocator: Allocator, supposed_string_literal: []con
     assert(supposed_string_literal.len >= 2); // The bytes have to contain at least ''
     assert(supposed_string_literal[0] == '\'');
     assert(supposed_string_literal[supposed_string_literal.len - 1] == '\'');
-    assert(supposed_string_literal[supposed_string_literal.len - 2] != '\\');
 
     const input: []const u8 = supposed_string_literal[1 .. supposed_string_literal.len - 1];
     var lenght: usize = 0; // The lenght of the output string
@@ -45,6 +44,7 @@ pub fn parse_string_literal(allocator: Allocator, supposed_string_literal: []con
             }
 
             // `idx` now points to an escaped character
+            assert(idx < input.len);
             switch (translate_escaped_char(input[idx])) {
                 .invalid => return .{ .invalid_escape_sequence = .{ .invalid_sequence = input[idx - 1 .. idx + 1] } },
                 .single_byte => idx += 1,
