@@ -358,15 +358,17 @@ pub const Integer = struct {
     }
 
     // ========================= Comparing =========================
-    pub fn @"="(self: i48, rhs: Number) bool {
-        return self == switch (rhs) {
-            .integer => |value| value,
+    pub fn @"="(self: i48, other: VmObject) bool {
+        const other_as_number = other.as_number() orelse return false;
+
+        switch (other_as_number) {
+            .integer => |value| return self == value,
             .double => |value_as_f64| {
                 const ceil = std.math.lossyCast(i48, std.math.ceil(value_as_f64));
                 const floor = std.math.lossyCast(i48, std.math.floor(value_as_f64));
                 return self == ceil and self == floor;
             },
-        };
+        }
     }
     pub fn @"<"(self: i48, rhs: Number) bool {
         return switch (rhs) {
@@ -475,10 +477,13 @@ pub const Double = struct {
     }
 
     // ========================= Comparing =========================
-    pub fn @"="(self: f64, other: Number) bool {
+    pub fn @"="(self: f64, other: VmObject) bool {
+        const other_as_number = other.as_number() orelse return false;
+
         // WARN:
-        // Yes, this does check for strict bit equivalence, it's the user's fault if they are using this method.
-        return self == other.as_f64();
+        // Yes, this does check for strict bit equivalence, same as in C and other languages.
+        // It's the user's fault if they are using this method for non-strict comparison.
+        return self == other_as_number.as_f64();
     }
     pub fn @"<"(self: f64, other: Number) bool {
         return self < other.as_f64();
@@ -562,8 +567,9 @@ pub const String = struct {
 
     // ========================= Comparing =========================
     /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
-    pub fn @"="(self: []const u8, other: []const u8) bool {
-        return std.mem.eql(u8, self, other);
+    pub fn @"="(self: []const u8, other: VmObject, interpreter: *Interpreter) bool {
+        const other_str = other.as_text(&interpreter.statics.symbols_manager) orelse return false;
+        return std.mem.eql(u8, self, other_str);
     }
 
     // ========================= Substring implementation =========================
