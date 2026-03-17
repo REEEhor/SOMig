@@ -118,7 +118,7 @@ fn translate_escaped_char(char: u8) union(enum) {
         'n' => .{ .single_byte = '\n' },
         'r' => .{ .single_byte = '\r' },
         'f' => .{ .single_byte = std.ascii.control_code.ff },
-        0 => .{ .single_byte = 0 },
+        '0' => .{ .single_byte = 0 },
         '\'' => .{ .single_byte = '\'' },
         '\\' => .{ .single_byte = '\\' },
         'x', 'X' => .expects_hex_code_after,
