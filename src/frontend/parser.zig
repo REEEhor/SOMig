@@ -108,6 +108,7 @@ pub const Parser = struct {
             .expressions = ExpressionList.empty,
             .extras = Extras.empty,
             .source_code = tokenized_input.source_code,
+            .source_code_filepath = tokenized_input.source_code_filepath,
             .tokens = tokenized_input.tokens,
         };
 
@@ -1227,7 +1228,12 @@ pub fn print_class_ast(
         .source = input,
         .source_path = null,
     };
-    const tokenized_file: TokenizedFile = lexer_module.tokenize(allocator, input, &reporter) catch |init_error| {
+    const tokenized_file: TokenizedFile = lexer_module.tokenize(.{
+        .allocator = allocator,
+        .reporter = &reporter,
+        .source_code = input,
+        .source_code_filepath = null,
+    }) catch |init_error| {
         try err_writer.print("Failed with parser init error (probably lexing error): '{t}'\n", .{init_error});
         return;
     };

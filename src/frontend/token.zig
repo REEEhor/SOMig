@@ -223,6 +223,8 @@ pub const TokenSpanIterator = struct {
 pub const TokenizedFile = struct {
     tokens: std.MultiArrayList(Token).Slice,
     source_code: []const u8,
+    /// This field is `null` in case the source was not from a file.
+    source_code_filepath: ?[]const u8,
 
     const Self = @This();
 

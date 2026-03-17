@@ -436,7 +436,17 @@ pub const Lexer = struct {
 
 pub const LexingError = Lexer.Error || Allocator.Error;
 
-pub fn tokenize(allocator: Allocator, source_code: []const u8, reporter: *ErrorReporter) LexingError!TokenizedFile {
+pub fn tokenize(params: struct {
+    allocator: Allocator,
+    source_code: []const u8,
+    source_code_filepath: ?[]const u8,
+    reporter: *ErrorReporter,
+}) LexingError!TokenizedFile {
+    const allocator = params.allocator;
+    const source_code = params.source_code;
+    const source_code_filepath = params.source_code_filepath;
+    const reporter = params.reporter;
+
     var lexer = Lexer.create(source_code, reporter);
     var tokens = std.MultiArrayList(Token).empty;
 
@@ -455,6 +465,7 @@ pub fn tokenize(allocator: Allocator, source_code: []const u8, reporter: *ErrorR
     return TokenizedFile{
         .tokens = tokens.toOwnedSlice(),
         .source_code = source_code,
+        .source_code_filepath = source_code_filepath,
     };
 }
 
@@ -826,7 +837,12 @@ pub fn print_tokens(
         .source = input,
         .source_path = null,
     };
-    var tokenized_file: TokenizedFile = tokenize(gpa, input, &reporter) catch |lex_error| {
+    var tokenized_file: TokenizedFile = tokenize(.{
+        .allocator = gpa,
+        .reporter = &reporter,
+        .source_code = input,
+        .source_code_filepath = null,
+    }) catch |lex_error| {
         try err_writer.print("Failed with lexing error: '{t}'\n", .{lex_error});
         return;
     };

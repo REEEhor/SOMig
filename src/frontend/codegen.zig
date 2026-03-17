@@ -505,7 +505,12 @@ pub fn find_file_and_parse_it(
     reporter.source = lookup_result.source_code;
     reporter.source_path = lookup_result.filepath;
 
-    const tokenized_file = try lexer_module.tokenize(parse_allocator, lookup_result.source_code, &reporter);
+    const tokenized_file = try lexer_module.tokenize(.{
+        .allocator = parse_allocator,
+        .source_code = lookup_result.source_code,
+        .source_code_filepath = lookup_result.filepath,
+        .reporter = &reporter,
+    });
     var parser = parser_module.Parser.create(tokenized_file, &reporter, parse_allocator);
     const parsed_file = try parser.parse();
 
@@ -549,8 +554,7 @@ pub fn compile_class_ignoring_parents(
     const ast = try find_file_and_parse_it(class_name, source_code_files, statics, error_writer, temporary_allocator);
     var reporter = ErrorReporter{
         .source = ast.source_code,
-        // TODO: use actual filepath
-        .source_path = statics.symbols_manager.symbol_with_id(class_name),
+        .source_path = ast.source_code_filepath,
         .use_color = true,
         .writer = error_writer,
     };
@@ -643,8 +647,7 @@ pub fn compile_class_with_its_parents(
     while (iter.nextPtr()) |class_to_compile| {
         var reporter = ErrorReporter{
             .source = class_to_compile.ast.source_code,
-            // TODO: add an actual filepath here
-            .source_path = statics.symbols_manager.symbol_with_id(class_to_compile.name),
+            .source_path = class_to_compile.ast.source_code_filepath,
             .use_color = true,
             .writer = error_writer,
         };
