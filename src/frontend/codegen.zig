@@ -1,6 +1,5 @@
 //! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String`
 //! FIXME: Check if empty blocks actually return `nil`.
-//! FIXME: Make method implicit return `self` and not `nil`.
 //! FIXME: Check if we are creating an error out of exit being non-last expression
 //! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 
@@ -1194,7 +1193,10 @@ pub const BytecodeGenerator = struct {
         // WARN: Also, if we do the check in a way that is mentioned, we have throw a compile error on dead code after exit expressions (returns) (Which we are not doing currently.)
 
         if (!self.currently_compiling_block) {
-            try self.add_instruction(.load_nil); // FIXME: Here should be loading of `self` not `nil`
+            try self.add_instruction(.{ .load_local = .{
+                .local_id = .{ .idx = number_of_arguments_including_self - 1 },
+                .required_frame_up_steps = 0,
+            } });
         } else {
             // In case we are compiling a block, we left the value on the top of the stack already.
         }

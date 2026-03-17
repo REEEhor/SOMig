@@ -1,16 +1,9 @@
 Dbg = (
     run = (
-        self xd println. 
+        (self default_return: nil a: nil b: nil c: nil d: nil) println.
     )
     
-    xd = (
-        [[ ^ 'lol'  ] value ]  value .
-        
-        ^ 'nene'.
+    default_return: _ a: _ b: _ c: _ d: _ = (
+        " nothing " 
     )
-    
-    bruh: _ = ()
 )
-
-        "(self class hasMethod: #bruh:) println."
-        "self class methods do: [ :m | m println ]."
