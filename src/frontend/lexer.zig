@@ -131,7 +131,7 @@ pub const Lexer = struct {
                             self.current_char_idx += 1; // Skip the next character
                         }
                     },
-                    eof, '\n' => {
+                    eof => {
                         self.reporter.report_error(.{
                             .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
                         }, "This string literal is missing the delimitting `'` character at the end.", .{});
@@ -552,8 +552,8 @@ pub const testing = struct {
             const actual_text = actual_token.pos.slice_from(source_code);
             if (!std.mem.eql(u8, actual_text, expected.text)) {
                 std.debug.print("Unexpected text of token in lexer test for idx={d}:\n", .{idx});
-                std.debug.print("  Expected: {f}\n", .{expected});
-                std.debug.print("  Got text: \"{s}\"\n", .{actual_text});
+                std.debug.print("  Expected: >{s}<\n", .{expected.text});
+                std.debug.print("  Got text: >{s}<\n", .{actual_text});
                 return error.unexpected_token_text;
             }
 
@@ -568,6 +568,7 @@ pub const testing = struct {
                 std.debug.print("Unexpected position of token in lexer test for idx={d}:\n", .{idx});
                 std.debug.print("  Expected: {d}..{d}\n", .{ expected.start_idx, expected.end_idx });
                 std.debug.print("  Got:      {d}..{d}\n", .{ actual_token.pos.start_idx, actual_token.pos.end_idx_inclusive() });
+                std.debug.print("The kind ({t}) and text >{s}< matches\n", .{ expected.kind, expected.text });
                 return error.unexpected_token_kind;
             }
         }
@@ -773,6 +774,30 @@ test "lex a string literals with escape codes" {
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.string_literal, "'Newline \\n was here'", 0),
         e(.string_literal, "'or tab \\t was also \\t here'", 22),
+    }, null);
+}
+
+test "lex multiline string literal" {
+    const input =
+        // Indexes into the input string:
+        //          10        20
+        //0123456789012345678901234  5(for '\n')
+        \\an_identifier 'First line
+
+        //26  30
+        //67890123456  7(for '\n')
+        \\second line
+
+        //  40
+        //890123456789
+        \\last line' an_identifier2
+    ;
+
+    const e = testing.e;
+    try testing.test_lexer(input, &[_]testing.ExpectedToken{
+        e(.identifier, "an_identifier", 0),
+        e(.string_literal, "'First line\nsecond line\nlast line'", 14),
+        e(.identifier, "an_identifier2", 49),
     }, null);
 }
 
