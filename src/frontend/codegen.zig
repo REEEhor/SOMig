@@ -1745,6 +1745,10 @@ pub const InstructionFormatter = struct {
                     const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ identifier, global_var_id.idx });
                 },
+                .set_global => |global_var_id| {
+                    const identifier: []const u8 = self.symbols_manager.symbol_with_id(global_var_id);
+                    try writer.print(" symbol=\"{s}\" id({d})", .{ identifier, global_var_id.idx });
+                },
                 .load_symbol => |id| {
                     const string: []const u8 = self.symbols_manager.symbol_with_id(id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
