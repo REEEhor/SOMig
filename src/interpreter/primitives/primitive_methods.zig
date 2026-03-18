@@ -22,6 +22,10 @@ pub const Object = struct {
     }
 
     pub fn @"=="(self: VmObject, other: VmObject) bool {
+        // TODO: If we ever have NaN boxing, we won't have to do this shenanigan.
+        if (self.as_symbol()) |lhs| if (other.as_symbol()) |rhs| if (lhs == rhs) {
+            return true;
+        };
         return self.data == other.data;
     }
 
