@@ -717,13 +717,19 @@ pub const Parser = struct {
             },
             .integer => {
                 break :get_expression SpannedExpr{
-                    .expr = .integer_literal,
+                    .expr = .{ .integer_literal = .{
+                        .absolute_value_token = token_id,
+                        .is_negative = false,
+                    } },
                     .span = TokenSpan.at(token_id),
                 };
             },
             .float => {
                 break :get_expression SpannedExpr{
-                    .expr = .float_literal,
+                    .expr = .{ .float_literal = .{
+                        .absolute_value_token = token_id,
+                        .is_negative = false,
+                    } },
                     .span = TokenSpan.at(token_id),
                 };
             },
@@ -777,6 +783,7 @@ pub const Parser = struct {
             .binary_message => {
                 const binary_selector_text = self.text_at(token);
                 const is_minus = std.mem.eql(u8, "-", self.ast.text_at(token));
+                const number_token_id = self.next_token_id;
                 const maybe_number_token = self.next_token();
                 const is_next_token_number = if (maybe_number_token) |m| m.kind == .integer or m.kind == .float else false;
                 const number_literal_span = TokenSpan.create(token_id.idx, token_id.idx + 1);
@@ -804,8 +811,14 @@ pub const Parser = struct {
 
                 break :get_expression SpannedExpr{
                     .expr = switch (number_token.kind) {
-                        .integer => .integer_literal,
-                        .float => .float_literal,
+                        .integer => .{ .integer_literal = .{
+                            .absolute_value_token = number_token_id,
+                            .is_negative = true,
+                        } },
+                        .float => .{ .float_literal = .{
+                            .absolute_value_token = number_token_id,
+                            .is_negative = true,
+                        } },
                         // SAFETY: `is_next_token_number` is true, so only a float or an integer can be the kind of such token
                         else => unreachable,
                     },
@@ -917,7 +930,7 @@ pub const Parser = struct {
             const array_element: ExprId = self.parse_primary() catch |err| {
                 if (err == error.OutOfMemory) return err;
                 self.reporter.add_note(.{ .pos = start_pos }, "The error occured while trying to parse an element of an array literal that starts here.", .{});
-                self.reporter.add_note(.no_location, "If you want to have an element that is a more complex expression, consider wrapping the expression in parenthesis.", .{});
+                self.reporter.add_note(.no_location, "If you want to have an element that is a more complex expression (for example a 'binary message send'), wrap that element in parenthesis.", .{});
                 return err;
             };
             try elements_list.append(self.allocator, array_element);
@@ -1112,13 +1125,15 @@ fn print_expression_recursive(
     });
     switch (expression) {
         .variable => try writer.print("Variable({s})\n", .{ast.text_at(expr_id)}),
-        .integer_literal => {
-            const value_str = ast.text_at(expr_id);
-            try writer.print("Integer literal({s})\n", .{value_str});
+        .integer_literal => |literal_info| {
+            const value_str = ast.text_at(literal_info.absolute_value_token);
+            const sign_str = if (literal_info.is_negative) "-" else "";
+            try writer.print("Integer literal({s}{s})\n", .{ sign_str, value_str });
         },
-        .float_literal => {
-            const value_str = ast.text_at(expr_id);
-            try writer.print("Float literal({s})\n", .{value_str});
+        .float_literal => |literal_info| {
+            const value_str = ast.text_at(literal_info.absolute_value_token);
+            const sign_str = if (literal_info.is_negative) "-" else "";
+            try writer.print("Float literal({s}{s})\n", .{ sign_str, value_str });
         },
         .string_literal => |token_id| {
             const value = ast.text_at(token_id);

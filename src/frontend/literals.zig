@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 /// WARNING: Asserts that all characters are valid
+/// In case of overflow (the number the literal represents is too big) returns null.
 pub fn parse_integer_literal(supposed_integer_literal: []const u8) ?i48 {
     return std.fmt.parseInt(i48, supposed_integer_literal, 10) catch |err| switch (err) {
         std.fmt.ParseIntError.Overflow => null,

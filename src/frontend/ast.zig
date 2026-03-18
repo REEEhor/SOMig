@@ -415,15 +415,18 @@ pub const SpannedExpr = struct {
 pub const Expression = union(enum) {
     /// The payload of this is guaranteed to be an `.identifier`
     variable: TokenId,
-
-    /// The value of this literal is encoded in its `TokenSpan`.
-    /// This expression can consist of one **or two** tokens,
-    /// because it might contain a `-` in front of the integer.
-    integer_literal,
-    /// The value of this literal is encoded in its `TokenSpan`.
-    /// This expression can consist of one **or two** tokens,
-    /// because it might contain a `-` in front of the float.
-    float_literal,
+    integer_literal: struct {
+        /// Token that contains the digits of the integer literal.
+        /// This token is guaranteed to have kind `.integer`.
+        absolute_value_token: TokenId,
+        is_negative: bool,
+    },
+    float_literal: struct {
+        /// Token that contains the digits and decimal dot of the float literal.
+        /// This token is guaranteed to have kind `.float`.
+        absolute_value_token: TokenId,
+        is_negative: bool,
+    },
     /// The payload of this is guaranteed to be an `.string_literal`
     string_literal: TokenId,
     ///
