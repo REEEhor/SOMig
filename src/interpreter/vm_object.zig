@@ -176,9 +176,13 @@ pub const Number = union(enum) {
 
     const Self = @This();
     pub fn as_i48_maybe_lossy(self: Self) i48 {
+        return self.as_int_maybe_lossy(i48);
+    }
+
+    pub fn as_int_maybe_lossy(self: Self, comptime IntegerType: type) IntegerType {
         return switch (self) {
             .integer => |x| x,
-            .double => |x| std.math.lossyCast(i48, x),
+            .double => |x| std.math.lossyCast(IntegerType, x),
         };
     }
     pub fn as_f64(self: Self) f64 {

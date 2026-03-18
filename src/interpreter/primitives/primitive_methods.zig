@@ -497,11 +497,15 @@ pub const Double = struct {
     pub fn @"/"(self: f64, rhs: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
         return @"/_on_numbers"(self, rhs, interpreter);
     }
-    /// FIXME:
-    pub fn @"%"(self: f64, rhs: Number, interpreter: *Interpreter) Interpreter.Error!f64 {
-        _ = self;
-        _ = rhs;
-        return interpreter.report_TODO("Double >> %", .{});
+    pub fn @"%"(self: f64, rhs_raw: Number) Interpreter.Error!f64 {
+        const sign = std.math.sign;
+        const lhs = self;
+        const rhs = rhs_raw.as_f64();
+
+        var quotient = @divTrunc(@abs(lhs), @abs(rhs));
+        if (sign(lhs) != sign(rhs)) quotient *= -1;
+
+        return lhs - quotient * rhs;
     }
     pub fn sqrt(self: f64) f64 {
         return std.math.sqrt(self); // Produces NaN if `self < 0`
