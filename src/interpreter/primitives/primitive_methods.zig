@@ -316,17 +316,33 @@ pub const Integer = struct {
     pub fn @"//"(self: i48, rhs_raw: Number) f64 {
         return @"//_on_numbers"(self, rhs_raw);
     }
-    /// FIXME:
-    pub fn @"%"(self: i48, rhs: Number, interpreter: *Interpreter) Interpreter.Error!Number {
-        _ = self;
-        _ = rhs;
-        return interpreter.report_TODO("Integer >> %", .{});
+    pub fn @"%"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+        const lhs = self;
+        const rhs = rhs_raw.as_i48_maybe_lossy();
+        if (rhs == 0) {
+            @branchHint(.cold);
+            interpreter.report_runtime_error("Tried to compute {d} modulus 0.", .{self});
+            return Interpreter.Error.division_by_zero;
+        }
+        const lhs_abs: i48 = @intCast(@abs(lhs));
+        const rhs_abs: i48 = @intCast(@abs(rhs));
+
+        // Modulus is in the range [0, rhs_abs]
+        const modulus = @mod(lhs_abs, rhs_abs);
+
+        // Now we want to make result be in the range [rhs, 0] if 'rhs < 0'
+        const result = modulus + rhs * @intFromBool(modulus != 0 and rhs < 0);
+
+        return result;
     }
-    /// FIXME:
-    pub fn @"rem:"(self: i48, rhs: Number, interpreter: *Interpreter) Interpreter.Error!Number {
-        _ = self;
-        _ = rhs;
-        return interpreter.report_TODO("Integer >> rem:", .{});
+    pub fn @"rem:"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
+        const rhs = rhs_raw.as_i48_maybe_lossy();
+        if (rhs == 0) {
+            @branchHint(.cold);
+            interpreter.report_runtime_error("Tried to compute remainder of division of {d} by 0.", .{self});
+            return Interpreter.Error.division_by_zero;
+        }
+        return self - rhs * @divTrunc(self, rhs);
     }
     pub fn @"&"(self: i48, rhs: i48) i48 {
         return self & rhs;
