@@ -897,6 +897,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .body = MethodBody{ .primitive = primitive_method.function },
                     .source_class = compiled_class,
                     .as_vm_object = undefined,
+                    .definition_order_index = @intCast(method_idx),
                 };
                 _ = try object_types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
@@ -933,6 +934,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     } },
                     .source_class = compiled_class,
                     .as_vm_object = undefined,
+                    .definition_order_index = @intCast(method_idx),
                 };
                 _ = try object_types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;

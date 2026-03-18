@@ -284,7 +284,7 @@ pub const Class = struct {
         }
 
         // NOTE(GC):
-        //      We don't have to turn GC off here, because after creating the result object,
+        //      We don't have do GC protection here, because after creating the result object (array),
         //      we will not allocate anything else (the methods are already created objects).
         const array = try types.Array.create_with_undefined_items(&interpreter.heap, non_inherited_methods_count);
         const methods_slice = array.get_items();
@@ -294,6 +294,26 @@ pub const Class = struct {
             methods_slice[result_array_index] = VmObject.from(method_definition.as_vm_object);
             result_array_index += 1;
         }
+        assert(result_array_index == non_inherited_methods_count);
+
+        // We have to sort the methods by the order they were defined in.
+        //
+        // This is needed for the, because the test suite
+        // `TestSuite/ClassStructureTest.som >> testThatCertainMethodsArePrimitives`
+        // depends on this order because of this assert:
+        // ```SOM
+        //     m := Object methods at: 7.
+        //     self optional: #invokableTypes assert: Method equals: m class.
+        // ```
+        std.sort.pdq(VmObject, methods_slice, {}, struct {
+            fn less_than(_: void, lhs_obj: VmObject, rhs_obj: VmObject) bool {
+                // SAFETY: The array must contain only methods.
+                // We have just created this array and put only method objects into it.
+                const lhs = lhs_obj.as(.method).?.method().definition_order_index;
+                const rhs = rhs_obj.as(.method).?.method().definition_order_index;
+                return lhs < rhs;
+            }
+        }.less_than);
 
         return VmObject.from(array);
     }

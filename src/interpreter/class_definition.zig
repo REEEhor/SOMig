@@ -41,8 +41,8 @@ pub const ClassDefinition = struct {
 
 /// Runtime definition of any method in SOM
 pub const MethodDefinition = struct {
-    /// The method selector.
-    /// Some examples of selectors are strings: "value", "+++", "get:with:andWith:".
+    /// The method's selector as symbol.
+    /// Some examples of selectors are: "value", "+++", "get:with:andWith:".
     method_name: SymbolId,
 
     /// Number of arguments of this method **excluding** the first argument
@@ -54,7 +54,13 @@ pub const MethodDefinition = struct {
     /// This field is used for example for a stackframe creation.
     number_of_aditional_args: u16,
 
+    /// Class in which the method was defined.
     source_class: *const ClassDefinition,
+
+    /// Number describing the order in which the methods were defined in
+    /// the source code. The first method in the class has this field set
+    /// to 0, the second method to 1, third to 2 and so on.
+    definition_order_index: u32,
 
     as_vm_object: *types.Method,
 
