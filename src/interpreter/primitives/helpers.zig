@@ -6,6 +6,17 @@ const types = vm_object_module.types;
 
 const MethodDefinition = @import("../__interpreter.zig").MethodDefinition;
 
+/// Returns the number of arguments from a selector **INCLUDING SELF**.
+/// WARNING: Does not check the validity of the selector.
+/// For example:
+/// ```Zig
+///     assert(get_method_arity_from_selector("a") == 1);
+///     assert(get_method_arity_from_selector("an_iDentifiEr97") == 1);
+///     assert(get_method_arity_from_selector("+++") == 2);
+///     assert(get_method_arity_from_selector("a:") == 2);
+///     assert(get_method_arity_from_selector("a:b:") == 3);
+///     assert(get_method_arity_from_selector("a:b:c:") == 4);
+/// ```
 pub fn get_method_arity_from_selector(selector: []const u8) u32 {
     const lexer_module = @import("../../frontend/lexer.zig");
     const is_binary_message_char = lexer_module.is_binary_message_char;

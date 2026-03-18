@@ -150,6 +150,7 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "Integer class",
     "Double class",
     "escapedBlock:",
+    "doesNotUnderstand:arguments:",
 });
 
 const testing = struct {

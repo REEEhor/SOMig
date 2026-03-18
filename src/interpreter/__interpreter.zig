@@ -6,6 +6,8 @@ pub const DEBUG_PRINT_GC_STATS: bool = false;
 
 pub const DEBUG_PRINT_HEAP: bool = false;
 
+pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
+
 pub const DEBUG_CLEAR_SCREEN: bool = false;
 pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
 pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
@@ -987,7 +989,7 @@ pub const Interpreter = struct {
                 const items: []VmObject = array.get_items();
                 std.debug.print("Array: #(", .{});
                 for (items, 0..) |item, idx| {
-                    if (idx > 1) {
+                    if (idx + 1 > DEBUG_ARRAY_ELEMENTS_TO_PRINT) {
                         std.debug.print(", .. {d} more ", .{items.len - idx});
                         break;
                     }
@@ -1273,15 +1275,64 @@ pub const Interpreter = struct {
     }
 
     pub fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
-        const target_object: VmObject = self.top_stack_object().*;
-        const class: *const ClassDefinition = self.get_class_of(target_object);
+        const receiver_object: VmObject = self.top_stack_object().*;
+        const class: *const ClassDefinition = self.get_class_of(receiver_object);
         const method: *const MethodDefinition = class.get_method(call_info.message_name) orelse {
-            self.report_runtime_error(
-                "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
-                .{ self.statics.symbols_manager.symbol_with_id(call_info.message_name), self.statics.symbols_manager.symbol_with_id(class.class_name) },
-            );
-            // TODO: maybe also print the methods that exist on that class?
-            return Error.method_not_found;
+            @branchHint(.cold);
+
+            // The method was not defined in the receiver's class.
+            // We now have to send the error message `doesNotUnderstand:arguments:` to the `self` object.
+            const self_object: VmObject = self.top_frame().self_object_ptr().*;
+            const class_of_self: *const ClassDefinition = self.get_class_of(self_object);
+            const method__does_not_understand = class_of_self.get_method(SymbolsManager.comptime_id_of("doesNotUnderstand:arguments:")) orelse {
+                self.report_runtime_error(
+                    "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
+                    .{
+                        self.string_from_symbol(call_info.message_name),
+                        self.string_from_symbol(class.class_name),
+                    },
+                );
+                self.report_runtime_error(
+                    "Therefore tried to call `doesNotUnderstand:arguments:` on `self` (with class '{s}'), but that class does not have that method defined as well.",
+                    .{self.string_from_symbol(class_of_self.class_name)},
+                );
+                return Error.method_not_found;
+            };
+
+            // Create an `arguments` array containing the arguments for the original method,
+            // since the method `doesNotUnderstand:arguments:` requires them.
+            const arity = primitives_module.helpers_module.get_method_arity_from_selector(self.string_from_symbol(call_info.message_name));
+            const arguments_len = arity - 1;
+            const arguments_start_index = self.stack.objects.len - arity;
+            const arguments_slice = self.stack.objects[arguments_start_index..][0..arguments_len];
+
+            // Reverse the arguments since they are in a reverse order on the stack due to the calling convention.
+            std.mem.reverse(VmObject, arguments_slice);
+
+            // Create an object representing the arguments.
+            const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
+
+            // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
+            var protector = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
+            try protector.protect(arguments);
+            defer protector.unprotect();
+
+            // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
+            const selector_symbol: VmObject = try types.Symbol.create_new(&self.heap, call_info.message_name);
+
+            // Pop the now-copied arguments from the stack.
+            // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
+            //           since their creation might trigger a GC and we need to protect the objects from getting swept.
+            self.stack.objects.len -= arity;
+
+            // Push arguments for the `doesNotUnderstand:arguments:` method onto the stack.
+            try self.push_object(arguments);
+            try self.push_object(selector_symbol);
+            try self.push_object(self_object);
+
+            // Finally, call the method.
+            try self.call_method(method__does_not_understand);
+            return;
         };
 
         try self.call_method(method);
