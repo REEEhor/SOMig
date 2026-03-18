@@ -751,7 +751,7 @@ pub const Interpreter = struct {
                 };
                 std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
-            sw_instruction: switch (instruction) {
+            switch_instruction: switch (instruction) {
                 .no_op => {},
                 .halt => {
                     try self.report_info("The halt instruction has been encountered.", .{});
@@ -897,17 +897,30 @@ pub const Interpreter = struct {
                 },
                 .non_local_return => {
                     const return_value: VmObject = self.top_stack_object().*;
+                    if (return_value.as_block()) |block| {
+                        @branchHint(.cold);
+                        block.add_to_escaped_blocks_list();
+                    }
 
                     const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
+                        .method => unreachable, // We should never encounter a non local in a method
                         .block => |block| blk: {
                             if (block.header.has_escaped_home_context) {
                                 @branchHint(.cold);
-                                self.report_runtime_error("A non local return was encountered in a block that has escaped its home scope.", .{});
-                                return Error.block_escaped_its_home_scope;
+                                // We have to send a message `escapedBlock:` to the current `self`.
+                                const self_object: VmObject = self.top_frame().self_object_ptr().*;
+
+                                // Put arguments on the top of the stack `self`.
+                                try self.push_object(VmObject.from(block));
+                                try self.push_object(self_object);
+
+                                // Send the error message to `self` that is currently on the top of the stack.
+                                try self.send_message(.{ .message_name = SymbolsManager.comptime_id_of("escapedBlock:") });
+
+                                break :switch_instruction; // We are done with execution of this instruction
                             }
                             break :blk block.home_method_frame();
                         },
-                        .method => unreachable, // We should never encounter a non local in a method
                     };
 
                     // We know that we want to pop at least one frame (the block frame)
@@ -921,7 +934,7 @@ pub const Interpreter = struct {
                     // Put the return value on the top of the stack
                     self.top_stack_object().* = return_value;
 
-                    continue :sw_instruction .normal_return;
+                    continue :switch_instruction .normal_return;
                 },
             }
             if (DO_DEBUG_TRACE) {

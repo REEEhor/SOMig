@@ -713,9 +713,9 @@ pub const types = struct {
             return VmObject.from(self);
         }
 
-        /// Marks the block as a block that will "escape" by adding it to the escaped blocks list of its home frame.
+        /// Marks the block as a block that will **probably** "escape" by adding it to the escaped blocks list of its home frame.
         /// Meaning the block will most likely out-live the lifetime of its home frame (of type `*Stack.Frame`) that is on the stack.
-        /// That home frame will have to then get rellocated to the heap.
+        /// That home frame will have to then get relocated to the heap when it gets poppped from the frame stack in the future.
         pub fn add_to_escaped_blocks_list(self: *Block) void {
             if (self.header.has_escaped_home_context) return; // The block has already escaped, no one touches the escaped block list once the frame is on the heap
             if (self.header.next_of_previous_escaped_block.pointee() != null) return; // The block currently actually is inside the list => don't add it again

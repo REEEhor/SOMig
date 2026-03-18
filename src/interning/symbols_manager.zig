@@ -143,12 +143,13 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
     "false",
     "system",
 
-    // Required for runtime checks
+    // Required for runtime
     "perform:",
     "perform:withArguments:",
     "Array class",
     "Integer class",
     "Double class",
+    "escapedBlock:",
 });
 
 const testing = struct {
