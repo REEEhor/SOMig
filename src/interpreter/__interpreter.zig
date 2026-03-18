@@ -835,9 +835,14 @@ pub const Interpreter = struct {
                     if (maybe_global_object) |global_object| {
                         try self.push_object(global_object);
                     } else {
-                        // TODO: here we will probably invoke `doesNotUnderstand` or something similiar
-                        const newly_loaded_class: *ClassDefinition = try self.load_class(global_symbol_id);
-                        try self.push_object(VmObject.from(newly_loaded_class.as_vm_object));
+                        @branchHint(.unlikely);
+                        // We have to invoke `unknownGlobal:` method on the `self` object.
+                        const self_object: VmObject = self.top_frame().self_object_ptr().*;
+                        const global_name = try types.Symbol.create_new(&self.heap, global_symbol_id);
+
+                        try self.push_object(global_name);
+                        try self.push_object(self_object);
+                        try self.send_message(.{ .message_name = SymbolsManager.comptime_id_of("unknownGlobal:") });
                     }
                 },
                 .set_global => |global_symbol_id| {
