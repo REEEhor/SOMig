@@ -243,25 +243,36 @@ pub const Class = struct {
     }
 
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const field_names: []SymbolId = self.identifiers_of_instance_variables;
+        const fields_count = self.fields_count_including_parents();
 
         // NOTE(GC):
         //      We cannot easily (or even possibly) mark the created array
         //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
         //      If we ever have NaN boxing for `types.Symbol`, we can remove this,
         //      since `types.Symbol.create_new(..)` will not trigger a heap allocation.
-        var gc_protector = try interpreter.heap.protect_against_gc(.{ .number_of_planned_protections = field_names.len });
+        var gc_protector = try interpreter.heap.protect_against_gc(.{ .number_of_planned_protections = fields_count });
         defer gc_protector.unprotect();
 
-        const array = try types.Array.create_with_undefined_items(&interpreter.heap, field_names.len);
+        const array = try types.Array.create_with_undefined_items(&interpreter.heap, fields_count);
+        const result_fields = array.get_items();
 
-        for (array.get_items(), field_names) |*item, field_name| {
-            // HACK
-            array.header.is_marked = true;
+        // Go through the instance field names of the entire class hiearchy.
+        var field_index: usize = 0;
+        var it_class_definition: ?*ClassDefinition = self;
+        while (it_class_definition) |cls| : (it_class_definition = cls.parent) {
+            for (cls.identifiers_of_instance_variables) |field_name| {
+                // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
+                //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
+                //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
+                array.header.is_marked = true;
 
-            item.* = try types.Symbol.create_new(&interpreter.heap, field_name);
-            try gc_protector.protect(item.*);
+                result_fields[field_index] = try types.Symbol.create_new(&interpreter.heap, field_name);
+                try gc_protector.protect(result_fields[field_index]);
+
+                field_index += 1;
+            }
         }
+        assert(field_index == fields_count);
         return VmObject.from(array);
     }
 
