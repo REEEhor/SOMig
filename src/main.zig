@@ -42,6 +42,15 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args_with_program);
     const args = args_with_program[1..];
 
+    if (std.mem.eql(u8, args[0], "--parse")) {
+        if (args.len != 2) {
+            std.debug.print("ERROR: Expected a single filepath argument after `--parse`.\n", .{});
+            return;
+        }
+        const filepath = args[1];
+        return parse(gpa, filepath);
+    }
+
     var stdout_buffer = [_]u8{0} ** 1024;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
@@ -101,12 +110,11 @@ pub fn main() !void {
     });
 }
 
-fn parse(allocator: std.mem.Allocator, args: [][:0]u8) !void {
+fn parse(allocator: std.mem.Allocator, filepath: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const gpa = arena.allocator();
 
-    const filepath = args[2];
     var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
         std.debug.print("Could not open the file '{s}'\n", .{filepath});
         return err;

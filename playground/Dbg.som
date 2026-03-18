@@ -1,9 +1,14 @@
 Dbg = (
+    
     run = (
-        (self default_return: nil a: nil b: nil c: nil d: nil) println.
+       	#( 10-   (200) ) at: 2.
     )
     
-    default_return: _ a: _ b: _ c: _ d: _ = (
-        " nothing " 
-    )
 )
+
+        "
+       	#(10 -200) at: 2.
+       	#(10- 200) at: 2.
+       	#((10-20)) at: 2.
+       	#( 10-   (200) ) at: 2.
+        "

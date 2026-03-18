@@ -909,7 +909,17 @@ pub const Parser = struct {
                 break;
             }
 
-            const array_element: ExprId = try self.parse_expression();
+            // We want to parse primary here and not an entire expression, because of
+            // cases such as `#(10 -20)` that should get parsed as `#((10) (-20))`, instead of `#((10 - 20))`.
+            //
+            // This does not limit having arbitrary expresssions in array literals,
+            // we just have to wrap such expressions in parenthesis - like doing `#( (10-20) )`.
+            const array_element: ExprId = self.parse_primary() catch |err| {
+                if (err == error.OutOfMemory) return err;
+                self.reporter.add_note(.{ .pos = start_pos }, "The error occured while trying to parse an element of an array literal that starts here.", .{});
+                self.reporter.add_note(.no_location, "If you want to have an element that is a more complex expression, consider wrapping the expression in parenthesis.", .{});
+                return err;
+            };
             try elements_list.append(self.allocator, array_element);
         }
         const elements: []ExprId = try elements_list.toOwnedSlice(self.allocator);
