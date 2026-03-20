@@ -902,12 +902,18 @@ pub const Interpreter = struct {
                     self.decoder.set_id_of_the_next_instruction(next_instruction);
                 },
                 .non_local_return => {
-                    self.debug_validate_escaped_blocks_list();
                     const return_value: VmObject = self.top_stack_object().*;
+
+                    // NOTE(GC): We might be popping multiple stack frame here.
+                    //           This might mean allocation of a new `Stack.Frame` on the heap,
+                    //           which could trigger a deallocation of the `return_value`.
+                    var p = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
+                    defer p.unprotect();
+                    try p.protect(return_value);
+
                     if (return_value.as_block()) |block| {
                         @branchHint(.cold);
                         block.add_to_escaped_blocks_list();
-                        self.debug_validate_escaped_blocks_list();
                     }
                     const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
                         .method => unreachable, // We should never encounter a non local in a method

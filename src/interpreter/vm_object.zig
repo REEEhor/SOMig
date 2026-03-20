@@ -883,6 +883,12 @@ pub const FrameOnHeap = struct {
             if (header.is_marked) return;
             header.is_marked = true;
 
+            const frame = FrameOnHeap.frame_from_header(header);
+            switch (frame.kind) {
+                .block => |block| VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method_system(),
+                .method => {},
+            }
+
             for (FrameOnHeap.get_arguments_and_locals(header)) |local| {
                 local.gc_mark_as_reachable_ignore_if_class_method_system();
             }
@@ -917,14 +923,16 @@ pub const FrameOnHeap = struct {
     }
 
     pub fn get_arguments_and_locals(header_ptr_or_frame_ptr: anytype) []VmObject {
-        const frame_ptr, const header_ptr: *Header = switch (@TypeOf(header_ptr_or_frame_ptr)) {
+        const frame_ptr: *Stack.Frame, const header_ptr: *Header = switch (@TypeOf(header_ptr_or_frame_ptr)) {
             *Header, *const Header => .{ frame_from_header(header_ptr_or_frame_ptr), header_ptr_or_frame_ptr },
             *Stack.Frame, *const Stack.Frame => .{ header_ptr_or_frame_ptr, header_from_frame(header_ptr_or_frame_ptr) },
             else => |Invalid| @compileError(std.fmt.comptimePrint("Invalid type: `{s}`", .{@typeName(Invalid)})),
         };
-
         const length: u55 = header_ptr.number_of_locals;
-        return slice_after(frame_ptr, VmObject, length);
+
+        const values = slice_after(frame_ptr, VmObject, length);
+        assert(values.ptr == frame_ptr.base_ptr);
+        return values;
     }
 
     pub fn reallocate_frame_to_heap(allocator: anytype, frame: Stack.Frame) std.mem.Allocator.Error!*Stack.Frame {
