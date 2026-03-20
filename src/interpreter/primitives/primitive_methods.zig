@@ -644,9 +644,8 @@ pub const String = struct {
             .length = self.len,
             .access_index = to_idx_raw,
         });
-        if (from_index > to_index) {
-            interpreter.report_runtime_error("Argument `from:` is {d}, which is bigger than `to:`, which is {d}.", .{ from_index, to_index });
-            return Interpreter.Error.generic_runtime_error;
+        if (to_index < from_idx_raw) {
+            return types.String.create_new(&interpreter.heap, "");
         }
 
         const substring: []const u8 = self[(from_index - 1)..(to_index)];
@@ -654,7 +653,7 @@ pub const String = struct {
         // NOTE(GC):
         //     We have to protect the contents of `substring` from getting collected,
         //     because `String.create_*` might trigger GC. We have to protect
-        //     the object `self`, since that the `substring` originates from it.
+        //     the object `self`, since the `substring` originates from it.
         const p = protect_args_from_gc(@src(), interpreter);
         defer p.end_protection_from_gc(@src(), interpreter);
         return try types.String.create_new(&interpreter.heap, substring);
