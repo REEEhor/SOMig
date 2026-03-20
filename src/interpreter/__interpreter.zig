@@ -6,11 +6,12 @@ pub const DEBUG_PRINT_GC_STATS: bool = false;
 
 pub const DEBUG_PRINT_HEAP: bool = false;
 
-pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
-
 pub const DEBUG_CLEAR_SCREEN: bool = false;
 pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
 pub const DEBUG_SKIP_BOOTSTRAP: bool = false or (DO_DEBUG_TRACE and true);
+
+pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
+pub const DEBUG_PRINT_STACK_ON_EXIT: bool = true or DO_DEBUG_TRACE;
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -752,6 +752,12 @@ pub const System = struct {
             interpreter.report_runtime_error("Invalid argument, got integer {d} but only integers from the range [0,255] are expected.", .{error_code});
             return Interpreter.Error.generic_runtime_error;
         };
+
+        if (interpreter_module.DEBUG_PRINT_STACK_ON_EXIT) {
+            std.debug.print("The process will be terminated with the exit code: {d}.\n", .{error_code});
+            interpreter.debug_print_stack() catch {};
+        }
+
         std.process.exit(error_code_as_u8);
     }
 
