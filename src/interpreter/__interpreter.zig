@@ -10,7 +10,7 @@ pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
 
 pub const DEBUG_CLEAR_SCREEN: bool = false;
 pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
-pub const DEBUG_SKIP_BOOTSTRAP: bool = false or DO_DEBUG_TRACE;
+pub const DEBUG_SKIP_BOOTSTRAP: bool = false or (DO_DEBUG_TRACE and true);
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -257,7 +257,7 @@ pub const Heap = struct {
         _ = new_empty_segment;
     }
 
-    fn run_garbage_collection(self: *Self) Allocator.Error!void {
+    pub fn run_garbage_collection(self: *Self) Allocator.Error!void {
         if (DEBUG_PRINT_GC_STATS) {
             std.debug.print("=====================\n", .{});
             std.debug.print("=== GC MARK START ===\n", .{});
@@ -726,8 +726,6 @@ pub const Interpreter = struct {
         return interpreter;
     }
 
-    pub const NewObjectAllocationStrategy = enum { heap, static };
-
     pub fn run(self: *Self) !void {
         self.timer = std.time.Timer.start() catch blk: {
             // TODO: make this a warning
@@ -903,12 +901,13 @@ pub const Interpreter = struct {
                     self.decoder.set_id_of_the_next_instruction(next_instruction);
                 },
                 .non_local_return => {
+                    self.debug_validate_escaped_blocks_list();
                     const return_value: VmObject = self.top_stack_object().*;
                     if (return_value.as_block()) |block| {
                         @branchHint(.cold);
                         block.add_to_escaped_blocks_list();
+                        self.debug_validate_escaped_blocks_list();
                     }
-
                     const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
                         .method => unreachable, // We should never encounter a non local in a method
                         .block => |block| blk: {
@@ -1170,16 +1169,17 @@ pub const Interpreter = struct {
         assert(self.stack.frames_count() > 0);
 
         var number_of_escaped_blocks: if (DO_DEBUG_TRACE) i32 else void = if (DO_DEBUG_TRACE) 0 else {};
-        if (self.top_frame().escaped_blocks_list_head) |first_escaped_block| {
+        if (self.top_frame().escaped_blocks_list_head != null) putting_frame_on_heap: {
             const heap_frame: *Stack.Frame = try FrameOnHeap.reallocate_frame_to_heap(
                 &self.heap,
                 self.top_frame().*,
             );
+            // NOTE(GC): The reallocation might have triggered a GC of the escaped block, we have to check it again
+            var escaped_block = self.top_frame().escaped_blocks_list_head orelse break :putting_frame_on_heap;
             switch (self.top_frame().kind) {
                 .block => |block| block.add_to_escaped_blocks_list(),
                 .method => {},
             }
-            var escaped_block = first_escaped_block;
             while (true) {
                 assert(escaped_block.header.has_escaped_home_context == false);
                 assert(escaped_block.home_frame == self.top_frame());
@@ -1443,6 +1443,25 @@ pub const Interpreter = struct {
             .{ method_name, actual_type_name, expected_type_name },
         );
         return Error.primitive_type_error;
+    }
+
+    fn debug_validate_escaped_blocks_list(self: *Self) void {
+        for (self.stack.frames) |*frame| {
+            if (frame.escaped_blocks_list_head) |first_block| {
+                const from_block: *?*types.Block = first_block.header.next_of_previous_escaped_block.pointee().?;
+                assert(&frame.escaped_blocks_list_head == from_block);
+            }
+
+            var it_block = frame.escaped_blocks_list_head;
+            while (it_block) |block| : (it_block = block.next_escaped_block) {
+                assert(block.header.tag == .block);
+                assert(block.home_frame == frame);
+
+                // Blocks in the home context should not be marked as escaped
+                assert(block.header.has_escaped_home_context == false);
+                assert(block.header.next_of_previous_escaped_block.pointee().?.*.? == block);
+            }
+        }
     }
 };
 

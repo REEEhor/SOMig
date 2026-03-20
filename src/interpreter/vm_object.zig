@@ -47,6 +47,9 @@ pub const VmObject = struct {
             assert(header_type_info.fields[1].type == bool);
             assert(std.mem.eql(u8, header_type_info.fields[1].name, "is_marked"));
         }
+        assert(known_object.header.tag != Tag.frame_header);
+        assert(known_object.header.tag != Tag.empty_heap_segment);
+
         const object = VmObject{ .data = @ptrCast(known_object) };
         return object;
     }
