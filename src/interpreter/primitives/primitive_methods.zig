@@ -823,7 +823,8 @@ pub const System = struct {
     /// FIXME: implement actual GC
     /// NOTE: yes, it should really return a `bool`, see `IntegrationTests/Tests/fullgc.com`
     pub fn fullGC(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!bool {
-        return interpreter.report_TODO("Garbage collection is not yet implemented :)", .{});
+        try interpreter.heap.run_garbage_collection();
+        return true;
     }
 };
 
