@@ -9,7 +9,7 @@ pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .m
 pub const DEBUG_SKIP_BOOTSTRAP: bool = false or (DO_DEBUG_TRACE and true);
 
 pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
-pub const DEBUG_PRINT_STACK_ON_EXIT: bool = true or DO_DEBUG_TRACE;
+pub const DEBUG_PRINT_STACK_ON_EXIT: bool = false or DO_DEBUG_TRACE;
 
 const std = @import("std");
 const assert = std.debug.assert;

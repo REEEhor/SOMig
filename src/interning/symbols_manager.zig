@@ -138,6 +138,7 @@ pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
 
     // Keywords of the language
     "self",
+    "super",
     "nil",
     "true",
     "false",

@@ -1149,6 +1149,10 @@ pub const BytecodeGenerator = struct {
                 .identifier = SymbolsManager.comptime_id_of("self"),
                 .idx = method_header.number_of_arguments_including_self() - 1,
             });
+            try arguments_scope.register_variable(.{
+                .identifier = SymbolsManager.comptime_id_of("super"),
+                .idx = method_header.number_of_arguments_including_self() - 1,
+            });
         }
         defer self.lexical_scope_stack.pop_scope();
 
