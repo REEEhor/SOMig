@@ -20,7 +20,6 @@ pub const ClassDefinition = struct {
     instance_methods: MethodMap,
     as_vm_object: *types.Class,
     identifiers_of_instance_variables: []SymbolId,
-    number_of_parent_instance_variables: usize,
     parent: ?*ClassDefinition,
 
     const Self = @This();
@@ -28,10 +27,6 @@ pub const ClassDefinition = struct {
 
     pub fn get_metaclass_through_vm_object(self: Self) *ClassDefinition {
         return self.as_vm_object.class_of_represented_class;
-    }
-
-    pub fn fields_count_including_parents(self: Self) usize {
-        return self.identifiers_of_instance_variables.len + self.number_of_parent_instance_variables;
     }
 
     pub fn get_method(self: Self, method_name: SymbolId) ?*const MethodDefinition {

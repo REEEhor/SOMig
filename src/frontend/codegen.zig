@@ -466,7 +466,7 @@ pub fn set_parent_and_leak_original_methods(
     // The `load_instance_var` instruction are already set.
     // These instructions rely on the number of fields
     // staying the same.
-    assert(class.fields_count_including_parents() == 0);
+    assert(class.identifiers_of_instance_variables.len == 0);
 
     const new_methods = try ClassDefinition.MethodMap.from_merge_of(
         class.instance_methods,
@@ -802,28 +802,38 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     // TODO: after development, increase these numbers
     var lexical_scopes = try LexicalScopesStack.init(temporary_allocator, 0, 0);
 
-    // Create a list of fields and create a lexical scope out of them
-    var field_identifiers = try statics.allocator.alloc(
-        SymbolId,
-        if (ast_portion.fields) |f| f.number_of_tokens() else 0,
-    );
+    // Create a list of instance field identifiers and create a lexical scope out of them
+    const parent_fields: []SymbolId = if (compiled_parent) |p| p.identifiers_of_instance_variables else &[_]SymbolId{};
+    var field_identifiers: []SymbolId = blk: {
+        const current_fields_count = if (ast_portion.fields) |f| f.number_of_tokens() else 0;
+        break :blk try statics.allocator.alloc(SymbolId, current_fields_count + parent_fields.len);
+    };
     {
-        const parent_fields_count: u32 = if (compiled_parent) |p| @intCast(p.identifiers_of_instance_variables.len) else 0;
-        var lexical_scope = try lexical_scopes.add_scope(.{ .increase_depth = false });
+        var field_idx: u32 = 0;
+
+        // Deal with the fields of the parent
+        @memcpy(field_identifiers[0..parent_fields.len], parent_fields);
+        //
+        var parent_fields_scope = try lexical_scopes.add_scope(.{ .increase_depth = false });
+        for (parent_fields) |parent_field| {
+            try parent_fields_scope.register_variable(.{ .identifier = parent_field, .idx = field_idx });
+            field_idx += 1;
+        }
+        assert(field_idx == parent_fields.len);
+
+        // Deal with the current fields
+        var current_fields_scope = try lexical_scopes.add_scope(.{ .increase_depth = false });
         var iter = token_iterator(ast_portion.fields);
-        var idx: u32 = 0;
-        while (iter.next()) |field_token| : (idx += 1) {
+        while (iter.next()) |field_token| : (field_idx += 1) {
             const field_text = ast.text_at(field_token);
             const field_symbol: SymbolId = (try statics.symbols_manager.id_or_intern(field_text)).id;
-            field_identifiers[idx] = field_symbol;
-
-            // The fields are stored right after all the parent's fields
-            const field_idx = idx + parent_fields_count;
-            try lexical_scope.register_variable(.{ .identifier = field_symbol, .idx = field_idx });
+            try current_fields_scope.register_variable(.{ .identifier = field_symbol, .idx = field_idx });
+            field_identifiers[field_idx] = field_symbol;
         }
-        assert(idx == field_identifiers.len);
+        assert(field_idx == field_identifiers.len);
     }
-    defer lexical_scopes.pop_scope();
+    defer lexical_scopes.pop_scope(); // Pop `current_fields_scope`
+    defer lexical_scopes.pop_scope(); // Pop `parent_fields_scope`
 
     // Add the class to the list of all classes
     const compiled_class: *ClassDefinition = blk: {
@@ -834,7 +844,6 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             .as_vm_object = undefined,
             .identifiers_of_instance_variables = field_identifiers,
             .parent = compiled_parent,
-            .number_of_parent_instance_variables = if (compiled_parent) |p| p.fields_count_including_parents() else 0,
         };
         break :blk ptr;
     };

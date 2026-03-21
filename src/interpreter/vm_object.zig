@@ -452,7 +452,7 @@ pub const types = struct {
         pub const tag: Tag = .generic_object;
 
         pub fn create_new(allocator: anytype, class: *ClassDefinition) std.mem.Allocator.Error!VmObject {
-            const number_of_instance_fields: i48 = @intCast(class.fields_count_including_parents());
+            const number_of_instance_fields: i48 = @intCast(class.identifiers_of_instance_variables.len);
             const self: *GenericObject = @ptrCast(try allocate_heap_data(allocator, Header{
                 .number_of_instance_fields = number_of_instance_fields,
             }));
@@ -515,7 +515,7 @@ pub const types = struct {
                 class_of_represented_class: *ClassDefinition,
             },
         ) std.mem.Allocator.Error!VmObject {
-            const number_of_class_fields: i48 = @intCast(classes.represented_class.fields_count_including_parents());
+            const number_of_class_fields: i48 = @intCast(classes.class_of_represented_class.identifiers_of_instance_variables.len);
             var self: *Class = @ptrCast(try allocate_heap_data(allocator, Header{
                 .number_of_class_fields = number_of_class_fields,
             }));

@@ -1,0 +1,8 @@
+Child = Parent (
+    run = (
+        self dumpBytecode.
+        self inspect.
+        super init.
+        varFromParent println.
+    ) 
+)

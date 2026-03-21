@@ -101,7 +101,7 @@ pub fn main() !void {
         .stdout = stdout,
         .stderr = stderr,
         .stack_size = .{
-            .objects_count = 200, // TODO: these should be parsed from args
+            .objects_count = 1000, // TODO: these should be parsed from args
             .frames_count = 1000, // TODO: these should be parsed from args
         },
         .program_arguments_as_strings = arguments_for_som.items,

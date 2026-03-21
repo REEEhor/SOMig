@@ -60,6 +60,7 @@ Object = nil (
     "Debugging"
     inspect   = primitive
     halt      = primitive
+    dumpBytecode = primitive
 
     "Error handling"
     error: string = ( '' println. ('ERROR: ' + string) println. system exit: 1 )

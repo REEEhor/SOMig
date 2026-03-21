@@ -806,8 +806,8 @@ pub const Interpreter = struct {
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     self_object.get_instance_fields()[info.instance_var_id.idx] = top_object;
 
-                    // If we have assigned a block to an instance variable, we say that the block
-                    // will escape and out-live its home frame.
+                    // If we have assigned a block to an instance variable,
+                    // we presume that the block will escape and out-live its home frame.
                     if (top_object.as_block()) |block| {
                         @branchHint(.unlikely);
                         block.add_to_escaped_blocks_list();

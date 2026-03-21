@@ -42,6 +42,20 @@ pub const Object = struct {
         return .{};
     }
 
+    pub fn dumpBytecode(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+        const bytecode = interpreter.top_frame().get_bytecode();
+        try codegen_module.print_bytecode(
+            &interpreter.statics.symbols_manager,
+            &interpreter.statics.constants_manager,
+            interpreter.top_frame().constants_base_id(),
+            bytecode,
+            interpreter.stderr,
+            .{},
+        );
+        try interpreter.stderr.flush();
+        return .{};
+    }
+
     /// FIXME: It would be better to maybe call a precompiled bytecode with the `halt` instruction...
     pub fn halt(self: VmObject, interpreter: *Interpreter) void {
         _ = self;
@@ -158,8 +172,7 @@ pub const Object = struct {
     }
 
     pub fn @"instVarAt:"(self: VmObject, index: i48, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const cls = interpreter.get_class_of(self);
-        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        const instance_fields: []VmObject = self.get_instance_fields();
         const index_usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
             .accessee = "array of instance fields",
             .length = instance_fields.len,
@@ -169,8 +182,7 @@ pub const Object = struct {
     }
 
     pub fn @"instVarAt:put:"(self: VmObject, index: i48, new_object: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        const cls = interpreter.get_class_of(self);
-        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        const instance_fields: []VmObject = self.get_instance_fields();
         const index_usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
             .accessee = "array of instance fields",
             .length = instance_fields.len,
@@ -182,7 +194,7 @@ pub const Object = struct {
 
     pub fn @"instVarNamed:"(self: VmObject, field_name: SymbolId, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const cls = interpreter.get_class_of(self);
-        const instance_fields: []VmObject = self.get_instance_fields()[cls.number_of_parent_instance_variables..];
+        const instance_fields: []VmObject = self.get_instance_fields();
         for (cls.identifiers_of_instance_variables, 0..) |actual_field_name, index| {
             if (actual_field_name == field_name) {
                 return instance_fields[index];
@@ -243,7 +255,7 @@ pub const Class = struct {
     }
 
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        const fields_count = self.fields_count_including_parents();
+        const fields_count = self.identifiers_of_instance_variables.len;
 
         // NOTE(GC):
         //      We cannot easily (or even possibly) mark the created array
@@ -254,25 +266,17 @@ pub const Class = struct {
         defer gc_protector.unprotect();
 
         const array = try types.Array.create_with_undefined_items(&interpreter.heap, fields_count);
-        const result_fields = array.get_items();
 
         // Go through the instance field names of the entire class hiearchy.
-        var field_index: usize = 0;
-        var it_class_definition: ?*ClassDefinition = self;
-        while (it_class_definition) |cls| : (it_class_definition = cls.parent) {
-            for (cls.identifiers_of_instance_variables) |field_name| {
-                // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
-                //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
-                //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
-                array.header.is_marked = true;
+        for (array.get_items(), self.identifiers_of_instance_variables) |*array_item, field_name| {
+            // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
+            //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
+            //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
+            array.header.is_marked = true;
 
-                result_fields[field_index] = try types.Symbol.create_new(&interpreter.heap, field_name);
-                try gc_protector.protect(result_fields[field_index]);
-
-                field_index += 1;
-            }
+            array_item.* = try types.Symbol.create_new(&interpreter.heap, field_name);
+            try gc_protector.protect(array_item.*);
         }
-        assert(field_index == fields_count);
         return VmObject.from(array);
     }
 
@@ -1062,3 +1066,5 @@ const vm_object_module = @import("../vm_object.zig");
 const VmObject = vm_object_module.VmObject;
 const HeapData = vm_object_module.HeapData;
 const Number = vm_object_module.Number;
+
+const codegen_module = @import("../../frontend/codegen.zig");
