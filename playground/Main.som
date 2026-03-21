@@ -57,7 +57,7 @@ Main = (
 
         self loop_example.
         
-        self fibonacci_example.
+        "self fibonacci_example."
     )
 
     loop_example = (
@@ -154,8 +154,16 @@ Main = (
             ' Arg2: ' print.
             arg2 println.
         ] value: '"Argument 1 to a block"'.
+        
+        '-10' println.
+        system fullGC.
+        '-20' println.
+
 
         '---' println.
+        '-1' println.
+        system fullGC.
+        '-2' println.
 
         method1 := '"local method1"'.
         method2 := '"local method2"'.
@@ -165,6 +173,10 @@ Main = (
         ] value.
 
         '---' println.
+        
+        '1' println.
+        system fullGC.
+        '2' println.
 
         [
             | a_block1 a_block2 |
@@ -179,6 +191,10 @@ Main = (
         ] value.
 
         '---' println.
+        
+        '10' println.
+        system fullGC.
+        '20' println.
 
         'block_runner:' println.
         self block_runner: [ :a_block_argument |
@@ -196,11 +212,14 @@ Main = (
 
         '---' println.
 
+        '100' println.
+        system fullGC.
+        '200' println.
+
         method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.
         blk := [ 'In block: ' print. method1 println. ].
         method1 := '"Changed method1 value"'.
         blk value.
-
         '---' println.
 
         method1 := '"NOT Changed method1 value (if you see this, it\'s an error)"'.

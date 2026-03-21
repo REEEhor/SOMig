@@ -16,6 +16,13 @@ const SmallPtr = @import("small_ptr.zig").SmallPtr;
 const codegen_module = @import("../frontend/codegen.zig");
 const BlockDefinition = codegen_module.BlockDefinition;
 
+const debug_module = @import("../debug/debug.zig");
+const dbg = debug_module.dbg;
+const dbg_nl = debug_module.dbg_nl;
+const dbgx = debug_module.dbgx;
+const dbg_assert_eql = debug_module.dbg_assert_eql;
+const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
+
 const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolsManager = interning_module.SymbolsManager;
@@ -744,17 +751,19 @@ pub const types = struct {
             const next_of_previous_block: *?*Block = self.header.next_of_previous_escaped_block.pointee() orelse return; // We are not in a list
             assert(next_of_previous_block.* == self);
 
+            if (self.next_escaped_block) |next_block| {
+                next_block.header.next_of_previous_escaped_block = .new(next_of_previous_block);
+            }
             next_of_previous_block.* = self.next_escaped_block;
             self.header.next_of_previous_escaped_block = .new(null);
             self.next_escaped_block = null;
         }
 
         pub fn home_method(self: *Block) *const MethodDefinition {
-            var it_frame = self.home_frame;
-            while (true) switch (it_frame.kind) {
+            sw: switch (self.home_frame.kind) {
                 .method => |method| return method,
-                .block => |block| it_frame = block.home_frame,
-            };
+                .block => |block| continue :sw block.home_frame.kind,
+            }
         }
 
         pub fn home_method_frame(self: *Self) *Stack.Frame {

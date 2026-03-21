@@ -4,8 +4,6 @@ pub const DO_DEBUG_TRACE: bool = false;
 pub const DEBUG_STRESS_GC: bool = false;
 pub const DEBUG_PRINT_GC_STATS: bool = false;
 
-pub const DEBUG_PRINT_HEAP: bool = false;
-
 pub const DEBUG_CLEAR_SCREEN: bool = false;
 pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
 pub const DEBUG_SKIP_BOOTSTRAP: bool = false or (DO_DEBUG_TRACE and true);
@@ -1456,6 +1454,9 @@ pub const Interpreter = struct {
         for (self.stack.frames) |*frame| {
             if (frame.escaped_blocks_list_head) |first_block| {
                 const from_block: *?*types.Block = first_block.header.next_of_previous_escaped_block.pointee().?;
+                if (from_block.*) |b| {
+                    assert(b.header.tag == .block);
+                }
                 assert(&frame.escaped_blocks_list_head == from_block);
             }
 
