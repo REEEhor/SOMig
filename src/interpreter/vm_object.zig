@@ -184,7 +184,18 @@ pub const Number = union(enum) {
     integer: i48,
     double: f64,
 
-    const Self = @This();
+    pub fn from_f64(value: f64) Number {
+        const ceil = std.math.ceil(value);
+        const floor = std.math.floor(value);
+        if (ceil == floor) {
+            const integer_value = std.math.lossyCast(i48, ceil);
+            if (integer_value == @as(i48, @intFromFloat(ceil))) {
+                return Number{ .integer = integer_value };
+            }
+        }
+        return Number{ .double = ceil };
+    }
+
     pub fn as_i48_maybe_lossy(self: Self) i48 {
         return self.as_int_maybe_lossy(i48);
     }
@@ -201,6 +212,8 @@ pub const Number = union(enum) {
             .double => |x| x,
         };
     }
+
+    const Self = @This();
 };
 
 /// Defined separatelly, because of dependency loop error.

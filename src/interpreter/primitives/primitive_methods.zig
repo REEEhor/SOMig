@@ -395,14 +395,15 @@ pub const Integer = struct {
     pub fn @"bitXor:"(self: i48, rhs: i48) i48 {
         return self ^ rhs;
     }
-    pub fn sqrt(self: i48, interpreter: *Interpreter) Interpreter.Error!f64 {
+    pub fn sqrt(self: i48, interpreter: *Interpreter) Interpreter.Error!Number {
         if (self < 0) {
             @branchHint(.cold);
             interpreter.report_runtime_error("Tried to take a square root of a negative number: {d}.", .{self});
             return Interpreter.Error.generic_runtime_error;
         }
         const as_float: f64 = @floatFromInt(self);
-        return std.math.sqrt(as_float);
+        const result_float: f64 = std.math.sqrt(as_float);
+        return Number.from_f64(result_float);
     }
 
     // ========================= Random numbers =========================
