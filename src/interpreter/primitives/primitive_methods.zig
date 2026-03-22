@@ -358,21 +358,21 @@ pub const Integer = struct {
     pub fn @"%"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
         const lhs = self;
         const rhs = rhs_raw.as_i48_maybe_lossy();
-        if (rhs == 0) {
-            @branchHint(.cold);
-            interpreter.report_runtime_error("Tried to compute {d} modulus 0.", .{self});
-            return Interpreter.Error.division_by_zero;
-        }
-        const lhs_abs: i48 = @intCast(@abs(lhs));
-        const rhs_abs: i48 = @intCast(@abs(rhs));
+        const quotient: i48 = std.math.divFloor(i48, lhs, rhs) catch |err| switch (err) {
+            error.DivisionByZero => {
+                @branchHint(.cold);
+                interpreter.report_runtime_error("Tried to compute {d} modulus 0.", .{self});
+                return Interpreter.Error.division_by_zero;
+            },
+            error.Overflow => {
+                // Happens when `lhs=minInt(i48)` and `rhs=-1`, therefore the result is `0` in such cases.
+                assert(lhs == std.math.minInt(i48));
+                assert(rhs == -1);
+                return 0;
+            },
+        };
 
-        // Modulus is in the range [0, rhs_abs]
-        const modulus = @mod(lhs_abs, rhs_abs);
-
-        // Now we want to make result be in the range [rhs, 0] if 'rhs < 0'
-        const result = modulus + rhs * @intFromBool(modulus != 0 and rhs < 0);
-
-        return result;
+        return lhs - rhs * quotient;
     }
     pub fn @"rem:"(self: i48, rhs_raw: Number, interpreter: *Interpreter) Interpreter.Error!i48 {
         const rhs = rhs_raw.as_i48_maybe_lossy();
