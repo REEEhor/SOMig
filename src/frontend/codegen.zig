@@ -3,8 +3,6 @@
 //! FIXME: Check if we are creating an error out of exit being non-last expression
 //! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 //!
-//! FIXME: Assert that class name == name of the file
-//!
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -516,7 +514,18 @@ pub fn find_file_and_parse_it(
     var parser = parser_module.Parser.create(tokenized_file, &reporter, parse_allocator);
     const parsed_file = try parser.parse();
 
-    // FIXME: assert_or_compile_error: `parsed_file.class_ast.class_name  ==  class_name`
+    {
+        const actual_class_name = parsed_file.text_at(parsed_file.class_ast.class_name);
+        const expected_class_name = statics.symbols_manager.symbol_with_id(class_name);
+        if (!std.mem.eql(u8, actual_class_name, expected_class_name)) {
+            reporter.report_error(
+                .{ .pos = parsed_file.pos_of(parsed_file.class_ast.class_name) },
+                "Mismatch between the class name '{s}' and filename '{s}.som'.",
+                .{ actual_class_name, expected_class_name },
+            );
+            return error.class_name_does_not_match_filename;
+        }
+    }
 
     return parsed_file;
 }
