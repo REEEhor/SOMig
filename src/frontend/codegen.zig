@@ -1,7 +1,10 @@
-//! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String`
+//! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String` (you can actually emit a warning for the second one)
 //! FIXME: Check if empty blocks actually return `nil`.
 //! FIXME: Check if we are creating an error out of exit being non-last expression
 //! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
+//!
+//! FIXME: Assert that class name == name of the file
+//!
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -513,6 +516,8 @@ pub fn find_file_and_parse_it(
     var parser = parser_module.Parser.create(tokenized_file, &reporter, parse_allocator);
     const parsed_file = try parser.parse();
 
+    // FIXME: assert_or_compile_error: `parsed_file.class_ast.class_name  ==  class_name`
+
     return parsed_file;
 }
 
@@ -626,7 +631,7 @@ pub fn compile_class_with_its_parents(
             break if (parent_definition.as(.class)) |class|
                 class.represented_class
             else
-                return error.parent_is_not_a_class;
+                return error.parent_is_not_a_class; // TODO: print the error
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
         try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });
