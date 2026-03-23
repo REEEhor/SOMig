@@ -109,10 +109,10 @@ pub const TokenKind = enum(u8) {
     string_literal,
 
     /// Identifier which consists of: &@,/=<-\>~|%+*
-    binary_message,
+    binary_selector,
 
     /// String in the form of `someIdentifier:`
-    keyword_message,
+    keyword,
 
     /// Identifiers in SOM consist of 'a'...'z', 'A'...'Z', '0'...'9' (<- not at the start), '_'
     identifier,

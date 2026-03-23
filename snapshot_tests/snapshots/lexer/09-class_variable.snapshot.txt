@@ -1,9 +1,9 @@
 Position   Token                      String (according to position of the token)
 [ 34.. 40] identifier               | "Example"
-[ 42.. 42] binary_message           | "="
+[ 42.. 42] binary_selector          | "="
 [ 44.. 44] open_parenthesis         | "("
 [ 46.. 50] separator                | "-----"
-[ 52.. 52] binary_message           | "|"
+[ 52.. 52] binary_selector          | "|"
 [ 54.. 67] identifier               | "staticVariable"
-[ 69.. 69] binary_message           | "|"
+[ 69.. 69] binary_selector          | "|"
 [ 71.. 71] close_parenthesis        | ")"

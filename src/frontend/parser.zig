@@ -1,18 +1,13 @@
-// TODO:
-//  Check if it is possible to have empty locals list like this:
-//      method = ( || )
-//  Because that means we have to check for `TokenKind{.binary_message}` that is `||`
-//
-// TODO(nice-to-have):
-//  When there is an unexpected binary message, it might have been meant
-//    as a unary operator. Nice error message would have been nice.
-//  Maybe the lexer should lex `+2` correctly.
-
-// NOTE:
-//  Currently, assignments can only be at the beginning of an expression (which is adhering to the grammar).
-//  But it would be nice-to-have the possibility to use it somewhere else.
-//  On the other hand, it is possible when surrounded by parenthesis like this: `( var1 := expression )`,
-//    so it does not matter and it forces a better program style.
+//! FIXME: Parse block parameters from multiple tokens, so that `:param` becomes `.{ .colon, .identifier }` and not `.{ .block_parameter }`.
+//!         To do this, we have to:
+//!             1. Remove `TokenKind.block_parameter`
+//!             2. Change parser to accomodate this change
+//!             3. Change AST expression for block parameters. Right now, we rely on parameters being a single token each.
+//!
+//! FIXME:
+//!  Check if it is possible to have empty locals list like this:
+//!      method = ( || )
+//!  Because that means we have to check for `TokenKind{.binary_selector}` that is `||`
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -123,7 +118,7 @@ pub const Parser = struct {
     pub fn parse(self: *Self) ParserError!ParsedFile {
         const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
-        _ = try self.eat_token_match_string(.binary_message, "=");
+        _ = try self.eat_token_match_string(.binary_selector, "=");
 
         const maybe_super_class: ?TokenId = get_super_class: {
             const expected_str = "Expected a name of the super class or the class definition.";
@@ -211,11 +206,11 @@ pub const Parser = struct {
         while (self.peek_next_token()) |method_header_token| {
             const method_header: MethodHeader = switch (method_header_token.kind) {
                 .identifier => self.parse_unary_method_header(),
-                .binary_message => try self.parse_binary_method_header(),
-                .keyword_message => try self.parse_keyword_method_header(),
+                .binary_selector => try self.parse_binary_method_header(),
+                .keyword => try self.parse_keyword_method_header(),
                 else => break,
             };
-            _ = try self.eat_token_match_string(.binary_message, "=");
+            _ = try self.eat_token_match_string(.binary_selector, "=");
 
             const body_start_token_id = self.next_token_id;
             const parenthesis_or_primitive_keyword = self.peek_next_token() orelse {
@@ -293,14 +288,14 @@ pub const Parser = struct {
             // Parse the keyword
             const expected_keyword_str = "Unexpected token: '{t}'. Expected a keyword (an identifier with `:` at the end) or a method body `= ( \"some code\" )`.";
             switch (maybe_keyword_token.kind) {
-                .keyword_message => _ = self.next_token(),
+                .keyword => _ = self.next_token(),
                 .identifier => {
                     self.reporter.report_error(.{ .pos = maybe_keyword_token.pos }, expected_keyword_str, .{maybe_keyword_token.kind});
                     const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive() + 1);
                     self.reporter.add_note(.{ .pos = hint_pos }, "You probably wanted to put a `:` here.", .{});
                     return ParserError.unexpected_token;
                 },
-                .binary_message => {
+                .binary_selector => {
                     const token_text = self.text_at(maybe_keyword_token);
                     const is_equal_sign: bool = std.mem.eql(u8, token_text, "=");
                     if (is_equal_sign) break maybe_keyword_token_id.minus(1); // `maybe_keyword_token_id` is poiting at the equal sign and we want a token before that
@@ -326,10 +321,10 @@ pub const Parser = struct {
                     self.reporter.report_error(.{ .pos = maybe_param_token.pos }, "Unexpected token: '{t}'. Expected a parameter (which is an identifier).", .{tag});
 
                     const token_text = self.text_at(maybe_param_token);
-                    if (tag == .keyword_message) {
+                    if (tag == .keyword) {
                         const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive());
                         self.reporter.add_note(.{ .pos = hint_pos }, "Remove this `:` to make the `{s}` into a parameter.", .{token_text});
-                    } else if (tag == .binary_message and std.mem.eql(u8, token_text, "=")) {
+                    } else if (tag == .binary_selector and std.mem.eql(u8, token_text, "=")) {
                         self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "You can provide a parameter after this keyword.", .{});
                     } else {
                         self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "Parameter is expected because of this keyword here.", .{});
@@ -372,7 +367,7 @@ pub const Parser = struct {
                     if (tag == .identifier) {
                         const hint_pos = CodePosition.at(token.pos.start_idx - 1);
                         self.reporter.add_note(.{ .pos = hint_pos }, "You might have forgotten a `:` here to make it a block parameter.", .{});
-                    } else if (tag == .keyword_message) {
+                    } else if (tag == .keyword) {
                         const parameter_text = self.text_at(token.pos.offset_start_by(1));
                         self.reporter.add_note(.{ .pos = token.pos }, "You probably might have wanted a block parameter, which would be '{s}:'", .{parameter_text});
                     }
@@ -584,7 +579,7 @@ pub const Parser = struct {
 
         // Parse keyword message calls
         while (self.peek_next_token()) |token| {
-            if (token.kind != .keyword_message) break;
+            if (token.kind != .keyword) break;
             const keyword_token_id = self.next_token_id;
             _ = self.next_token();
             const error_str = "Because of this, an argument to this keyword message could have not been parsed.";
@@ -633,7 +628,7 @@ pub const Parser = struct {
         var result_expr_id: ExprId = try self.parse_maybe_unary_messages(lhs_expr_id);
 
         while (self.peek_next_token()) |message_token| {
-            if (message_token.kind != .binary_message) break;
+            if (message_token.kind != .binary_selector) break;
             const message_token_id = self.next_token_id;
             _ = self.next_token();
 
@@ -780,7 +775,7 @@ pub const Parser = struct {
                 self.reporter.report_error(.{ .pos = token.pos }, "Unmatched bracket found. Expected an expression.", .{});
                 return ParserError.unmatched_bracket;
             },
-            .binary_message => {
+            .binary_selector => {
                 const binary_selector_text = self.text_at(token);
                 const is_minus = std.mem.eql(u8, "-", self.ast.text_at(token));
                 const number_token_id = self.next_token_id;
@@ -826,7 +821,7 @@ pub const Parser = struct {
                 };
             },
             // List all token kinds here so if there is a change to the list of token kinds, we catch it here and decide what to do.
-            .exit, .separator, .dot, .assign, .keyword_message, .block_param => {
+            .exit, .separator, .dot, .assign, .keyword, .block_param => {
                 self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.kind});
                 return ParserError.unexpected_token;
             },
@@ -857,7 +852,7 @@ pub const Parser = struct {
                 // Check if the user might wants to remove spaces before the next token
                 const t = self.peek_next_token() orelse break :print_hint;
                 switch (t.kind) {
-                    .string_literal, .identifier, .binary_message, .keyword_message => {},
+                    .string_literal, .identifier, .binary_selector, .keyword => {},
                     else => break :print_hint,
                 }
                 const note_pos = CodePosition.from_start_and_end(token.pos.end_idx_inclusive() + 1, t.pos.start_idx - 1);
@@ -873,10 +868,10 @@ pub const Parser = struct {
         const end_token_id: TokenId = blk: switch (token.kind) {
             .string_literal,
             .identifier,
-            .binary_message,
+            .binary_selector,
             => break :blk token_id,
 
-            .keyword_message => {
+            .keyword => {
                 // Go through consecutive tokens that are keyword messages
                 var previous_end_idx = token.pos.end_idx_inclusive();
                 var end_token_idx = token_id.idx;
@@ -884,7 +879,7 @@ pub const Parser = struct {
                 while (self.peek_next_token()) |current_token| {
                     const current_start_idx = current_token.pos.start_idx;
                     const token_is_right_after_previous: bool = (current_start_idx == previous_end_idx + 1);
-                    if (!token_is_right_after_previous or current_token.kind != .keyword_message) {
+                    if (!token_is_right_after_previous or current_token.kind != .keyword) {
                         break :blk TokenId.create(end_token_idx);
                     }
                     _ = self.next_token();

@@ -1,8 +1,8 @@
 Position   Token                      String (according to position of the token)
 [  0..  8] identifier               | "SomeClass"
-[ 10.. 10] binary_message           | "="
+[ 10.. 10] binary_selector          | "="
 [ 12.. 12] open_parenthesis         | "("
 [ 19.. 24] identifier               | "method"
-[ 26.. 26] binary_message           | "="
+[ 26.. 26] binary_selector          | "="
 [ 28.. 59] identifier               | "this_identifier_is_not_primitive"
 [ 62.. 62] close_parenthesis        | ")"

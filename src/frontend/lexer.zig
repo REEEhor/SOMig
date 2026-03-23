@@ -152,7 +152,7 @@ pub const Lexer = struct {
                 } else {
                     return Token{
                         .pos = CodePosition.at(token_start_idx),
-                        .kind = .binary_message,
+                        .kind = .binary_selector,
                     };
                 },
             },
@@ -166,7 +166,7 @@ pub const Lexer = struct {
                     continue :loop .lexing_binary_message;
                 } else {
                     const pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1);
-                    const kind: TokenKind = if (pos.length < minimal_separator_length) .binary_message else .separator;
+                    const kind: TokenKind = if (pos.length < minimal_separator_length) .binary_selector else .separator;
                     return Token{ .kind = kind, .pos = pos };
                 },
             },
@@ -227,7 +227,7 @@ pub const Lexer = struct {
                     } else {
                         return Token{
                             .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
-                            .kind = .keyword_message,
+                            .kind = .keyword,
                         };
                     }
                 },
@@ -257,7 +257,7 @@ pub const Lexer = struct {
                 continue :loop .lexing_binary_message;
             } else {
                 return Token{
-                    .kind = .binary_message,
+                    .kind = .binary_selector,
                     .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
                 };
             },
@@ -679,7 +679,7 @@ test "lex identifiers" {
     const e = testing.e;
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.identifier, "Hello", 0),
-        e(.keyword_message, "hoW_:", 6),
+        e(.keyword, "hoW_:", 6),
         e(.identifier, "are", 13),
         e(.block_param, ":you", 17),
         e(.identifier, "_som9", 22),
@@ -715,22 +715,22 @@ test "lex negative number" {
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.integer, "42", 2),
         //
-        e(.binary_message, "-", 6),
+        e(.binary_selector, "-", 6),
         e(.integer, "5", 7),
         //
-        e(.binary_message, "-", 10),
+        e(.binary_selector, "-", 10),
         e(.integer, "97", 11),
         //
-        e(.binary_message, "-", 15),
+        e(.binary_selector, "-", 15),
         e(.integer, "3", 17),
         //
-        e(.binary_message, "-", 20),
+        e(.binary_selector, "-", 20),
         e(.integer, "253", 21),
         //
-        e(.binary_message, "-", 25),
+        e(.binary_selector, "-", 25),
         e(.float, "2.1", 26),
         //
-        e(.binary_message, "-", 31),
+        e(.binary_selector, "-", 31),
         e(.float, "43.472", 32),
     }, null);
 }
@@ -818,7 +818,7 @@ test "lex code" {
     const e = testing.e;
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.identifier, "SomeClass", 2),
-        e(.binary_message, "=", 12),
+        e(.binary_selector, "=", 12),
         e(.open_parenthesis, "(", 13),
         e(.identifier, "hi", 15),
         e(.block_param, ":D", 18),
@@ -835,7 +835,7 @@ test "lex snapshot code" {
     const e = testing.e;
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
         e(.identifier, "Example", 0),
-        e(.binary_message, "=", 8),
+        e(.binary_selector, "=", 8),
         e(.open_parenthesis, "(", 10),
         e(.close_parenthesis, ")", 12),
     }, null);
@@ -849,9 +849,9 @@ test "🤮 lex separators 🤮" {
 
     const e = testing.e;
     try testing.test_lexer(input, &[_]testing.ExpectedToken{
-        e(.binary_message, "-", 1),
-        e(.binary_message, "--", 3),
-        e(.binary_message, "---", 6),
+        e(.binary_selector, "-", 1),
+        e(.binary_selector, "--", 3),
+        e(.binary_selector, "---", 6),
         e(.separator, "----", 10),
         e(.separator, "-----", 15),
         e(.separator, "------", 21),

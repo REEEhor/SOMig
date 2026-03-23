@@ -2,7 +2,7 @@
 ======== ERROR OUTPUT FROM THE PROGRAM ========
 
 [ERROR at line:26 column:42]
-Unexpected token binary_message '='. Expected token 'identifier'.
+Unexpected token binary_selector '='. Expected token 'identifier'.
           |
  line: 26 | &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* = _ ( self &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* nil. )
           |                                         ^
