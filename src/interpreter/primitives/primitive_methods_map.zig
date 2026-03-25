@@ -198,7 +198,7 @@ pub const PrimitiveMethodsMap = struct {
                         },
 
                         Number => interpreter.pop_object().as_number() orelse
-                            return invalid_argument(interpreter, som_parameter_idx, "primitive Integer orp rimitive Double"),
+                            return invalid_argument(interpreter, som_parameter_idx, "primitive Integer or primitive Double"),
 
                         *const ClassDefinition,
                         *ClassDefinition,
