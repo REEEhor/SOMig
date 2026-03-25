@@ -537,11 +537,8 @@ pub const Parser = struct {
 
         // Check whether this expression is an assignment or not
         if (token.kind == .assign) {
-            const lhs_identifier: TokenId = blk: switch (self.ast.tag_of(primary_expr_id)) {
-                .variable => {
-                    const identifier_token = self.span_of(primary_expr_id).start_id;
-                    break :blk identifier_token;
-                },
+            const lhs_identifier: TokenId = switch (self.ast.get_expr(primary_expr_id)) {
+                .variable => |identifier_token| identifier_token,
                 else => |unexpected_expr_tag| {
                     self.reporter.report_error(
                         .{ .pos = self.pos_of(primary_expr_id) },
@@ -1119,7 +1116,7 @@ fn print_expression_recursive(
         expr_id.idx,
     });
     switch (expression) {
-        .variable => try writer.print("Variable({s})\n", .{ast.text_at(expr_id)}),
+        .variable => |identifier_token| try writer.print("Variable({s})\n", .{ast.text_at(identifier_token)}),
         .integer_literal => |literal_info| {
             const value_str = ast.text_at(literal_info.absolute_value_token);
             const sign_str = if (literal_info.is_negative) "-" else "";

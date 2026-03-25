@@ -1255,15 +1255,15 @@ pub const BytecodeGenerator = struct {
         self.last_instruction = instruction;
     }
 
-    fn compile_message_send(self: *Self, receiver: Ast.ExprId, message_selector: SymbolId) CompileError!void {
-        const receiver_tag: Ast.Expression.Tag = self.ast.tag_of(receiver);
-        const is_receiver_super = switch (receiver_tag) {
-            .variable => std.mem.eql(u8, self.ast.text_at(receiver), "super"),
+    fn compile_message_send(self: *Self, receiver_id: Ast.ExprId, message_selector: SymbolId) CompileError!void {
+        const receiver: Ast.Expression = self.ast.get_expr(receiver_id);
+        const is_receiver_super = switch (receiver) {
+            .variable => |identifier_token| std.mem.eql(u8, self.ast.text_at(identifier_token), "super"),
             else => false,
         };
 
         if (!is_receiver_super) {
-            try self.compile_expression(receiver);
+            try self.compile_expression(receiver_id);
             try self.add_instruction(Instruction{
                 .send_message = .{ .message_name = message_selector },
             });
@@ -1272,7 +1272,7 @@ pub const BytecodeGenerator = struct {
 
         // We have to compile a call to a method in the super class
         const parent_methods = if (self.compiled_parent_methods) |methods| methods else {
-            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver) }, "Referencing `super` inside a class without a parent class.", .{});
+            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver_id) }, "Referencing `super` inside a class without a parent class.", .{});
             return CompileError.super_call_in_class_without_parent;
         };
         const method_ptr: *const MethodDefinition = parent_methods.get(message_selector) orelse {
@@ -1280,7 +1280,7 @@ pub const BytecodeGenerator = struct {
             const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.super_class_name.?);
             const parent_name = self.ast.text_at(position_of_parent_declaration);
             const selector_as_string = self.symbols_manager.symbol_with_id(message_selector);
-            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver) }, "Call to a `super` with method `{s}`, but the parent class is `{s}`, which doesn't have that method defined.", .{ selector_as_string, parent_name });
+            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver_id) }, "Call to a `super` with method `{s}`, but the parent class is `{s}`, which doesn't have that method defined.", .{ selector_as_string, parent_name });
             self.reporter.add_note(.{ .pos = position_of_parent_declaration }, "The parent is defined here.", .{});
             return CompileError.could_not_find_method_in_parent;
         };

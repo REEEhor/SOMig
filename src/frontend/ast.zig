@@ -108,6 +108,10 @@ pub const MethodAst = struct {
     body: union(enum) { impl: FunctionBody, primitive },
 };
 
+/// TODO: Move individual elements to individual structs
+///
+/// TODO: Rename `method_name` -> `method_selector`
+///
 pub const MethodHeader = union(enum) {
     unary: struct { method_name: TokenId },
     binary: struct { method_name: TokenId, parameter: TokenId },
