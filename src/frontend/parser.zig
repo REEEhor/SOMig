@@ -154,7 +154,7 @@ pub const Parser = struct {
 
         const class_ast = ClassAst{
             .class_name = class_name_token,
-            .super_class_name = maybe_super_class,
+            .parent_class_name = maybe_super_class,
             .instance_portion = instance_portion,
             .class_portion = class_portion,
             .span = TokenSpan.create(class_name_token.idx, closing_parenthesis_token.idx),
@@ -1306,7 +1306,7 @@ pub fn print_class_ast(
     try writer.print("AST of the class {f}'{s}'", .{
         span_formatter.fmt(class_ast.span), parsed_file.text_at(class_ast.class_name),
     });
-    if (class_ast.super_class_name) |super_name| {
+    if (class_ast.parent_class_name) |super_name| {
         try writer.print(" (super = '{s}')\n", .{parsed_file.text_at(super_name)});
     } else {
         try writer.print("\n", .{});

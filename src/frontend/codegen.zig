@@ -613,7 +613,7 @@ pub fn compile_class_with_its_parents(
     // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
-    var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.super_class_name, &statics.symbols_manager, bottom_ast);
+    var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.parent_class_name, &statics.symbols_manager, bottom_ast);
 
     // Parsed files to be compiled. This invariant should hold:
     //    (∀ idx in 1..len-1 ) ( classes_to_compile[idx] is_parent_of classes_to_compile[idx-1] )
@@ -644,7 +644,7 @@ pub fn compile_class_with_its_parents(
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
         try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });
-        maybe_parent_being_resolved = try symbol_of_parents_name(parent_ast.class_ast.super_class_name, &statics.symbols_manager, parent_ast);
+        maybe_parent_being_resolved = try symbol_of_parents_name(parent_ast.class_ast.parent_class_name, &statics.symbols_manager, parent_ast);
     } else null;
 
     try globals.ensureUnusedCapacity(classes_to_compile.items.len);
@@ -1277,7 +1277,7 @@ pub const BytecodeGenerator = struct {
         };
         const method_ptr: *const MethodDefinition = parent_methods.get(message_selector) orelse {
             // SAFETY: we can access `self.ast.class_ast.super_class_name.?` because the current class has a parent in this branch of code (we are currently compiling a call to a method from the parent)
-            const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.super_class_name.?);
+            const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.parent_class_name.?);
             const parent_name = self.ast.text_at(position_of_parent_declaration);
             const selector_as_string = self.symbols_manager.symbol_with_id(message_selector);
             self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver_id) }, "Call to a `super` with method `{s}`, but the parent class is `{s}`, which doesn't have that method defined.", .{ selector_as_string, parent_name });
