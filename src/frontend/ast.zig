@@ -108,20 +108,16 @@ pub const MethodAst = struct {
     body: union(enum) { impl: FunctionBody, primitive },
 };
 
-/// TODO: Move individual elements to individual structs
-///
-/// TODO: Rename `method_name` -> `method_selector`
-///
 pub const MethodHeader = union(enum) {
-    unary: struct { method_name: TokenId },
-    binary: struct { method_name: TokenId, parameter: TokenId },
+    unary: struct { selector: TokenId },
+    binary: struct { selector: TokenId, parameter: TokenId },
     keyword: KeywordMethodHeader,
 
     const Self = @This();
     pub fn span(self: Self) TokenSpan {
         return switch (self) {
-            .unary => |info| TokenSpan.at(info.method_name),
-            .binary => |info| TokenSpan.create(info.method_name.idx, info.parameter.idx),
+            .unary => |info| TokenSpan.at(info.selector),
+            .binary => |info| TokenSpan.create(info.selector.idx, info.parameter.idx),
             .keyword => |info| info.argument_pairs,
         };
     }

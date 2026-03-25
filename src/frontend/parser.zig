@@ -260,7 +260,7 @@ pub const Parser = struct {
     fn parse_unary_method_header(self: *Self) MethodHeader {
         const method_name_token: TokenId = self.next_token_id;
         _ = self.next_token().?;
-        return MethodHeader{ .unary = .{ .method_name = method_name_token } };
+        return MethodHeader{ .unary = .{ .selector = method_name_token } };
     }
 
     fn parse_binary_method_header(self: *Self) ParserError!MethodHeader {
@@ -270,7 +270,7 @@ pub const Parser = struct {
         const parameter_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
 
-        return MethodHeader{ .binary = .{ .method_name = method_name_token, .parameter = parameter_token } };
+        return MethodHeader{ .binary = .{ .selector = method_name_token, .parameter = parameter_token } };
     }
 
     fn parse_keyword_method_header(self: *Self) ParserError!MethodHeader {
@@ -1242,11 +1242,11 @@ fn print_portion(
         try writer.print("\t{f}Header: ", .{span_formatter.fmt(header.span())});
         switch (header) {
             .unary => |info| {
-                try writer.print("(unary-method) '{s}'\n", .{ast.text_at(info.method_name)});
+                try writer.print("(unary-method) '{s}'\n", .{ast.text_at(info.selector)});
             },
             .binary => |info| {
                 try writer.print("(binary-method) '{s}' with parameter '{s}'\n", .{
-                    ast.text_at(info.method_name), ast.text_at(info.parameter),
+                    ast.text_at(info.selector), ast.text_at(info.parameter),
                 });
             },
             .keyword => |info| {

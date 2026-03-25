@@ -1025,10 +1025,10 @@ pub fn get_selector_symbol(
 ) !SymbolId {
     const method_selector_text: []const u8 = sw: switch (method_header) {
         .unary => |header_info| {
-            break :sw ast.text_at(header_info.method_name);
+            break :sw ast.text_at(header_info.selector);
         },
         .binary => |header_info| {
-            break :sw ast.text_at(header_info.method_name);
+            break :sw ast.text_at(header_info.selector);
         },
         .keyword => |header_info| {
             fixed_writer.end = 0;
