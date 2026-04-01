@@ -1,8 +1,10 @@
 //! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String` (you can actually emit a warning for the second one)
 //! FIXME: Check if empty blocks actually return `nil`.
 //! FIXME: Check if we are creating an error out of exit being non-last expression
-//! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 //!
+//! FIXME: create an instruction something like "unresolved_super_call", which will be generated when there is a call to a `super` method which does not exits.
+//!
+//! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -1376,7 +1378,6 @@ pub const BytecodeGenerator = struct {
                 const load_instr: Instruction = sw: switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
                     .instance => |info| {
                         break :sw .{ .load_instance_var = .{
-                            .required_frame_up_steps = info.scope_depth_difference,
                             .instance_var_id = info.instance_variable_id,
                         } };
                     },
@@ -1767,7 +1768,7 @@ pub const InstructionFormatter = struct {
                     try writer.print(" id({d}) up-frame-steps={d}", .{ info.local_id.idx, info.required_frame_up_steps });
                 },
                 .load_instance_var => |info| {
-                    try writer.print(" id({d}) up-frame-steps={d}", .{ info.instance_var_id.idx, info.required_frame_up_steps });
+                    try writer.print(" id({d})", .{info.instance_var_id.idx});
                 },
                 .set_instance_var => |info| {
                     try writer.print(" id({d}) up-frame-steps={d}", .{ info.instance_var_id.idx, info.required_frame_up_steps });
@@ -1952,7 +1953,6 @@ pub const Instruction = union(enum(u8)) {
 
     pub const LoadInstanceVar = packed struct {
         instance_var_id: InstanceVarId,
-        required_frame_up_steps: u32,
     };
 
     pub const SetInstanceVar = packed struct {

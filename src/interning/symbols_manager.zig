@@ -27,9 +27,9 @@ pub fn GenericSymbolsManager(
         pub fn create(
             allocator: Allocator,
             additional_init_capacity: usize,
-        ) !SymbolsManager {
+        ) !Self {
             const real_init_capacity = additional_init_capacity + comptime_known_symbols.len;
-            var manager = SymbolsManager{
+            var manager = Self{
                 .allocator = allocator,
                 .string_to_id_map = SymbolToIdMap.empty,
                 .id_to_string_map = try IdToSymbolMap.initCapacity(allocator, real_init_capacity),
@@ -106,6 +106,7 @@ pub fn GenericSymbolsManager(
     };
 }
 
+/// TODO: Use `std.ArrayHashMap` for interning.
 /// Manages symbols (interned strings) in the SOM runtime.
 /// See `SymbolId` for more info.
 pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
