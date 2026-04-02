@@ -1906,21 +1906,8 @@ pub fn print_bytecode(
 }
 
 pub const Instruction = union(enum(u8)) {
-    no_op,
-
     load_constant: LoadConstant,
-    load_nil,
-    load_true,
-    load_false,
-
     send_message: SendMessage,
-
-    /// Duplicates a value that is on the the top of the stack.
-    /// The duplicate is pushed on the top of the stack.
-    duplicate,
-
-    /// Stops the program.
-    halt,
 
     /// Pushes either a local variable or a method argument onto the stack.
     load_local: LoadLocal,

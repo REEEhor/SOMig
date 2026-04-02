@@ -751,11 +751,6 @@ pub const Interpreter = struct {
                 std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
             }
             switch_instruction: switch (instruction) {
-                .no_op => {},
-                .halt => {
-                    try self.report_info("The halt instruction has been encountered.", .{});
-                    return;
-                },
                 .pop => {
                     _ = self.pop_object();
                 },
@@ -851,10 +846,6 @@ pub const Interpreter = struct {
                     const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
                     try self.push_object(object);
                 },
-                .duplicate => {
-                    const object = self.stack_top_object();
-                    try self.push_object(object);
-                },
                 .load_constant => |constant_info| {
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
                     const constant = self.statics.constants_manager.get_constant(constant_id);
@@ -866,9 +857,6 @@ pub const Interpreter = struct {
                     };
                     try self.push_object(object);
                 },
-                .load_nil => try self.push_object(VmObject.nil),
-                .load_true => try self.push_object(self.singletons.true_object),
-                .load_false => try self.push_object(self.singletons.false_object),
                 .resolved_method_call => |call_info| {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
                     try self.call_method(method_ptr);
