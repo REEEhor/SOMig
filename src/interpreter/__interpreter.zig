@@ -357,10 +357,10 @@ pub const Heap = struct {
                     });
                 }
 
-                // If the object is a block, remove it from the escaped blocks list of its home frame
+                // If the object is a block, remove it from the escaping blocks list of its home frame
                 if (object_header.tag == .block) {
                     const block: *types.Block = object_header.asserted_cast_to(.block);
-                    block.remove_from_potential_escaped_blocks_list();
+                    block.remove_from_potential_escaping_blocks_list();
                 }
 
                 // Now free the unmarked object
@@ -528,7 +528,7 @@ pub const Stack = struct {
         base_ptr: [*]VmObject,
         after_return_instruction_id: InstructionId,
         kind: Kind,
-        escaped_blocks_list_head: ?*types.Block = null,
+        escaping_blocks_list_head: ?*types.Block = null,
 
         pub const Kind = union(enum) {
             /// Has guaranteed that the `body` is of type `user_land`.
@@ -786,7 +786,7 @@ pub const Interpreter = struct {
 
                     if (to_assign.as_block()) |block| if (info.required_frame_up_steps != 0) {
                         @branchHint(.unlikely);
-                        block.add_to_escaped_blocks_list();
+                        block.add_to_escaping_blocks_list();
                     };
                 },
                 .load_instance_var => |info| {
@@ -803,7 +803,7 @@ pub const Interpreter = struct {
                     // we presume that the block will escape and out-live its home frame.
                     if (top_object.as_block()) |block| {
                         @branchHint(.unlikely);
-                        block.add_to_escaped_blocks_list();
+                        block.add_to_escaping_blocks_list();
                     }
                 },
                 .pop_into_new_array => |info| {
@@ -839,7 +839,7 @@ pub const Interpreter = struct {
                 },
                 .set_global => |global_symbol_id| {
                     const object = self.top_stack_object();
-                    if (object.as_block()) |block| block.add_to_escaped_blocks_list();
+                    if (object.as_block()) |block| block.add_to_escaping_blocks_list();
                     try self.globals.put(global_symbol_id, object.*);
                 },
                 .load_symbol => |symbol_id| {
@@ -869,7 +869,7 @@ pub const Interpreter = struct {
 
                     if (return_value.as_block()) |block| {
                         @branchHint(.cold);
-                        block.add_to_escaped_blocks_list();
+                        block.add_to_escaping_blocks_list();
                     }
 
                     // Leaves a spot at the top of the stack for the `return_value`
@@ -899,7 +899,7 @@ pub const Interpreter = struct {
 
                     if (return_value.as_block()) |block| {
                         @branchHint(.cold);
-                        block.add_to_escaped_blocks_list();
+                        block.add_to_escaping_blocks_list();
                     }
                     const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
                         .method => unreachable, // We should never encounter a non local in a method
@@ -1162,24 +1162,24 @@ pub const Interpreter = struct {
         assert(self.stack.frames_count() > 0);
 
         var number_of_escaped_blocks: if (DO_DEBUG_TRACE) i32 else void = if (DO_DEBUG_TRACE) 0 else {};
-        if (self.top_frame().escaped_blocks_list_head != null) putting_frame_on_heap: {
+        if (self.top_frame().escaping_blocks_list_head != null) putting_frame_on_heap: {
             const heap_frame: *Stack.Frame = try FrameOnHeap.reallocate_frame_to_heap(
                 &self.heap,
                 self.top_frame().*,
             );
             // NOTE(GC): The reallocation might have triggered a GC of the escaped block, we have to check it again
-            var escaped_block = self.top_frame().escaped_blocks_list_head orelse break :putting_frame_on_heap;
+            var escaping_block = self.top_frame().escaping_blocks_list_head orelse break :putting_frame_on_heap;
             switch (self.top_frame().kind) {
-                .block => |block| block.add_to_escaped_blocks_list(),
+                .block => |block| block.add_to_escaping_blocks_list(),
                 .method => {},
             }
             while (true) {
-                assert(escaped_block.header.has_escaped_home_context == false);
-                assert(escaped_block.home_frame == self.top_frame());
+                assert(escaping_block.header.has_escaped_home_context == false);
+                assert(escaping_block.home_frame == self.top_frame());
                 if (DO_DEBUG_TRACE) number_of_escaped_blocks += 1;
-                escaped_block.home_frame = heap_frame;
-                escaped_block.header.has_escaped_home_context = true;
-                escaped_block = escaped_block.next_escaped_block orelse break;
+                escaping_block.home_frame = heap_frame;
+                escaping_block.header.has_escaped_home_context = true;
+                escaping_block = escaping_block.next_escaping_block orelse break;
             }
         }
         if (DO_DEBUG_TRACE) {
@@ -1438,24 +1438,24 @@ pub const Interpreter = struct {
         return Error.primitive_type_error;
     }
 
-    fn debug_validate_escaped_blocks_list(self: *Self) void {
+    fn debug_validate_escaping_blocks_list(self: *Self) void {
         for (self.stack.frames) |*frame| {
-            if (frame.escaped_blocks_list_head) |first_block| {
-                const from_block: *?*types.Block = first_block.header.next_of_previous_escaped_block.pointee().?;
+            if (frame.escaping_blocks_list_head) |first_block| {
+                const from_block: *?*types.Block = first_block.header.next_of_previous_escaping_block.pointee().?;
                 if (from_block.*) |b| {
                     assert(b.header.tag == .block);
                 }
-                assert(&frame.escaped_blocks_list_head == from_block);
+                assert(&frame.escaping_blocks_list_head == from_block);
             }
 
-            var it_block = frame.escaped_blocks_list_head;
-            while (it_block) |block| : (it_block = block.next_escaped_block) {
+            var it_block = frame.escaping_blocks_list_head;
+            while (it_block) |block| : (it_block = block.next_escaping_block) {
                 assert(block.header.tag == .block);
                 assert(block.home_frame == frame);
 
                 // Blocks in the home context should not be marked as escaped
                 assert(block.header.has_escaped_home_context == false);
-                assert(block.header.next_of_previous_escaped_block.pointee().?.*.? == block);
+                assert(block.header.next_of_previous_escaping_block.pointee().?.*.? == block);
             }
         }
     }

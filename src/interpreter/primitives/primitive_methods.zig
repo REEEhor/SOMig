@@ -717,7 +717,7 @@ pub const System = struct {
     pub fn @"global:put:"(_: SystemPlaceholder, global_name: SymbolId, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         if (new_value.as_block()) |block| {
             @branchHint(.cold);
-            block.add_to_escaped_blocks_list();
+            block.add_to_escaping_blocks_list();
         }
         try interpreter.globals.put(global_name, new_value);
         return .{};

@@ -282,6 +282,7 @@ pub const Lexer = struct {
     }
 
     /// TODO: remove this:
+    /// TODO: remove this method
     /// Depracted, left here for later reference
     fn lex_string_literal(self: *Self, token_start_idx: usize) Lexer.Error!Token {
         self.string_literals.start_new_literal();

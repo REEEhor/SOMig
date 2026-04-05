@@ -704,21 +704,21 @@ pub const types = struct {
         block_definition: *const BlockDefinition,
         home_frame: *Stack.Frame,
 
-        /// Next blocks which is also consider to be escaped from
+        /// Next blocks which is also consider to be escaping from
         /// its home frame.
         ///
         /// The `Block` might be a part of an intrusive list
-        /// which tracks all blocks, that escaped from their home context.
+        /// which tracks all blocks, that are escaping from their home context.
         ///
-        /// The first item of this list is in `Stack.Frame.escaped_blocks_list_head`.
-        next_escaped_block: ?*types.Block = null,
+        /// The first potential item of this list is in `Stack.Frame.escaping_blocks_list_head` of the frame `self.home_frame`.
+        next_escaping_block: ?*types.Block = null,
 
         pub const Header = packed struct(u64) {
             tag: Tag = tag,
             is_marked: bool = false,
             has_escaped_home_context: bool = false,
             _padding: u6 = undefined,
-            next_of_previous_escaped_block: SmallPtr(?*?*types.Block) = .new(null),
+            next_of_previous_escaping_block: SmallPtr(?*?*types.Block) = .new(null),
 
             pub fn object_size_in_bytes(header: @This()) usize {
                 _ = header;
@@ -736,40 +736,40 @@ pub const types = struct {
             const self: *Block = @ptrCast(try allocate_heap_data(allocator, Header{}));
             self.block_definition = block_definition;
             self.home_frame = parent_frame;
-            self.next_escaped_block = null;
+            self.next_escaping_block = null;
             return VmObject.from(self);
         }
 
-        /// Marks the block as a block that will **probably** "escape" by adding it to the escaped blocks list of its home frame.
+        /// Marks the block as a block that will **probably** "escape" by adding it to the escaping blocks list of its home frame.
         /// Meaning the block will most likely out-live the lifetime of its home frame (of type `*Stack.Frame`) that is on the stack.
         /// That home frame will have to then get relocated to the heap when it gets poppped from the frame stack in the future.
-        pub fn add_to_escaped_blocks_list(self: *Block) void {
-            if (self.header.has_escaped_home_context) return; // The block has already escaped, no one touches the escaped block list once the frame is on the heap
-            if (self.header.next_of_previous_escaped_block.pointee() != null) return; // The block currently actually is inside the list => don't add it again
-            assert(self.next_escaped_block == null); // Since we are not in a list, we shouldn't have a pointer to the next item
+        pub fn add_to_escaping_blocks_list(self: *Block) void {
+            if (self.header.has_escaped_home_context) return; // The block has already escaped, no one touches the escaping block list once the frame is on the heap
+            if (self.header.next_of_previous_escaping_block.pointee() != null) return; // The block currently actually is inside the list => don't add it again
+            assert(self.next_escaping_block == null); // Since we are not in a list, we shouldn't have a pointer to the next item
 
-            const ptr_to_head: *?*Block = &self.home_frame.escaped_blocks_list_head;
-            self.header.next_of_previous_escaped_block = .new(ptr_to_head);
+            const ptr_to_head: *?*Block = &self.home_frame.escaping_blocks_list_head;
+            self.header.next_of_previous_escaping_block = .new(ptr_to_head);
 
             if (ptr_to_head.*) |previously_first_block| {
-                previously_first_block.header.next_of_previous_escaped_block = .new(&self.next_escaped_block);
-                self.next_escaped_block = previously_first_block;
+                previously_first_block.header.next_of_previous_escaping_block = .new(&self.next_escaping_block);
+                self.next_escaping_block = previously_first_block;
             }
 
             ptr_to_head.* = self;
         }
 
-        pub fn remove_from_potential_escaped_blocks_list(self: *Self) void {
-            if (self.header.has_escaped_home_context) return; // No one touches the escaped block list once the frame is on the heap
-            const next_of_previous_block: *?*Block = self.header.next_of_previous_escaped_block.pointee() orelse return; // We are not in a list
+        pub fn remove_from_potential_escaping_blocks_list(self: *Self) void {
+            if (self.header.has_escaped_home_context) return; // No one touches the escaping block list once the frame is on the heap
+            const next_of_previous_block: *?*Block = self.header.next_of_previous_escaping_block.pointee() orelse return; // We are not in a list
             assert(next_of_previous_block.* == self);
 
-            if (self.next_escaped_block) |next_block| {
-                next_block.header.next_of_previous_escaped_block = .new(next_of_previous_block);
+            if (self.next_escaping_block) |next_block| {
+                next_block.header.next_of_previous_escaping_block = .new(next_of_previous_block);
             }
-            next_of_previous_block.* = self.next_escaped_block;
-            self.header.next_of_previous_escaped_block = .new(null);
-            self.next_escaped_block = null;
+            next_of_previous_block.* = self.next_escaping_block;
+            self.header.next_of_previous_escaping_block = .new(null);
+            self.next_escaping_block = null;
         }
 
         pub fn home_method(self: *Block) *const MethodDefinition {
