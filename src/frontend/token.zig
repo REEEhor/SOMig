@@ -67,6 +67,7 @@ pub const CodePosition = struct {
 pub const IntegerRepresentation = i64;
 pub const FloatRepresentation = f64;
 
+/// TODO: Rename to `Tag`
 pub const TokenKind = enum(u8) {
     const Self = @This();
 
@@ -121,6 +122,7 @@ pub const TokenKind = enum(u8) {
     block_param,
 };
 
+/// TODO: Rename `kind` to `tag`
 pub const Token = struct {
     const Self = @This();
     kind: TokenKind,
