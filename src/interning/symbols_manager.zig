@@ -17,12 +17,10 @@ pub fn GenericSymbolsManager(
 ) type {
     return struct {
         const Self = @This();
-        pub const SymbolToIdMap = std.StringHashMapUnmanaged(SymbolId);
-        pub const IdToSymbolMap = std.ArrayListUnmanaged([]const u8);
+        pub const OrderedStringSet = std.StringArrayHashMapUnmanaged(void);
 
         allocator: Allocator,
-        string_to_id_map: SymbolToIdMap,
-        id_to_string_map: IdToSymbolMap,
+        string_set: OrderedStringSet,
 
         pub fn create(
             allocator: Allocator,
@@ -31,10 +29,9 @@ pub fn GenericSymbolsManager(
             const real_init_capacity = additional_init_capacity + comptime_known_symbols.len;
             var manager = Self{
                 .allocator = allocator,
-                .string_to_id_map = SymbolToIdMap.empty,
-                .id_to_string_map = try IdToSymbolMap.initCapacity(allocator, real_init_capacity),
+                .string_set = OrderedStringSet.empty,
             };
-            try manager.string_to_id_map.ensureTotalCapacity(allocator, @intCast(real_init_capacity));
+            try manager.string_set.ensureTotalCapacity(allocator, @intCast(real_init_capacity));
 
             // Add the fields that might have been looked up in the compile time
             inline for (comptime_known_symbols, 0..) |comptime_symbol, idx| {
@@ -49,8 +46,6 @@ pub fn GenericSymbolsManager(
             return manager;
         }
 
-        pub const InternResult = struct { id: SymbolId, was_new: bool };
-
         // NOTE(epic-zig): `comptime_id_of`
         pub fn comptime_id_of(comptime symbol: []const u8) SymbolId {
             inline for (comptime_known_symbols, 0..) |known_symbol, idx| {
@@ -61,52 +56,45 @@ pub fn GenericSymbolsManager(
             @compileError(std.fmt.comptimePrint("The symbol '{s}' could not be found in comptime.", .{symbol}));
         }
 
+        pub const InternResult = struct { id: SymbolId, was_new: bool };
+
         /// Looks up the unique `SymbolId` for a string.
         /// If the string has not yet been interned, it will be added to the `SymbolsManager` and a new `SymbolId` will be returned.
         pub fn id_or_intern(self: *Self, symbol: []const u8) Allocator.Error!InternResult {
-            const lookup_result = try self.string_to_id_map.getOrPut(self.allocator, symbol);
+            const lookup_result = try self.string_set.getOrPut(self.allocator, symbol);
+
             if (lookup_result.found_existing) {
-                return .{ .id = lookup_result.value_ptr.*, .was_new = false };
+                return InternResult{
+                    // SAFETY: We can do this `@intCast` since we assert the size when adding the element.
+                    .id = SymbolId.new(@intCast(lookup_result.index)),
+                    .was_new = false,
+                };
             }
+            errdefer self.string_set.swapRemoveAt(lookup_result.index);
 
-            // The symbol is not registered.
-            // Create a new owned string and add it to the ArrayList and HashMap
-            const owned_string = try self.allocator.dupe(u8, symbol);
+            // The key was not found in the set
+            const new_index = std.math.cast(SymbolId.IdRepr, lookup_result.index) orelse return error.OutOfMemory;
+            const new_id = SymbolId.new(new_index);
 
-            assert(self.id_to_string_map.items.len <= std.math.maxInt(SymbolId.IdRepr));
-            const symbol_idx: SymbolId.IdRepr = @truncate(self.id_to_string_map.items.len);
-            const new_id = SymbolId{ .idx = symbol_idx };
-
-            // Add it to the HashMap
+            // We did the look-up via a non-owned string, we have to reassign the key.
+            const owned_string: []const u8 = try self.allocator.dupe(u8, symbol);
             lookup_result.key_ptr.* = owned_string;
-            lookup_result.value_ptr.* = new_id;
-
-            // Add it to the ArrayList
-            try self.id_to_string_map.append(self.allocator, owned_string);
 
             return .{ .id = new_id, .was_new = true };
         }
 
-        pub fn id_of(self: Self, symbol: []const u8) ?SymbolId {
-            return self.string_to_id_map.get(symbol);
-        }
-
         pub fn symbol_with_id_or_null(self: Self, id: SymbolId) ?[]const u8 {
-            if (id.idx >= self.id_to_string_map.items.len) {
-                @branchHint(.unlikely);
-                return null;
-            }
-            return self.id_to_string_map.items[id.idx];
+            const strings = self.string_set.keys();
+            if (id.idx >= strings.len) return null;
+            return strings[id.idx];
         }
 
         pub fn symbol_with_id(self: Self, id: SymbolId) []const u8 {
-            assert(id.idx < self.id_to_string_map.items.len);
-            return self.id_to_string_map.items[id.idx];
+            return self.string_set.keys()[id.idx];
         }
     };
 }
 
-/// TODO: Use `std.ArrayHashMap` for interning.
 /// Manages symbols (interned strings) in the SOM runtime.
 /// See `SymbolId` for more info.
 pub const SymbolsManager = GenericSymbolsManager(&[_][]const u8{
