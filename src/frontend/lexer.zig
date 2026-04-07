@@ -41,7 +41,7 @@ const State = enum {
 };
 
 pub const Lexer = struct {
-    current_char_idx: usize,
+    current_char_idx: u32,
     source_code: []const u8,
     reporter: *ErrorReporter,
 
@@ -388,7 +388,7 @@ pub const Lexer = struct {
         return peeked_char;
     }
 
-    inline fn lex_number(self: *Self, token_start_idx: usize) Lexer.Error!Token {
+    inline fn lex_number(self: *Self, token_start_idx: u32) Lexer.Error!Token {
         try self.lex_integer();
 
         const integer_token = Token{

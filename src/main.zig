@@ -42,7 +42,7 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args_with_program);
     const args = args_with_program[1..];
 
-    if (std.mem.eql(u8, args[0], "--parse")) {
+    if (args.len > 0 and std.mem.eql(u8, args[0], "--parse")) {
         if (args.len != 2) {
             std.debug.print("ERROR: Expected a single filepath argument after `--parse`.\n", .{});
             return;

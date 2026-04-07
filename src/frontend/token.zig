@@ -3,8 +3,6 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const int = i64;
-const uint = u64;
 
 // And              &
 // At               @
@@ -25,18 +23,18 @@ const uint = u64;
 
 pub const CodePosition = struct {
     const Self = @This();
-    start_idx: uint,
-    length: uint,
+    start_idx: u32,
+    length: u32,
 
     /// Creates a position in code of a single character.
-    pub fn at(start_index: usize) CodePosition {
+    pub fn at(start_index: u32) CodePosition {
         return CodePosition{
             .start_idx = start_index,
             .length = 1,
         };
     }
 
-    pub fn from_start_and_end(start_index: usize, end_index_inclusive: usize) CodePosition {
+    pub fn from_start_and_end(start_index: u32, end_index_inclusive: u32) CodePosition {
         std.debug.assert(start_index <= end_index_inclusive);
         return CodePosition{
             .start_idx = start_index,
@@ -44,14 +42,14 @@ pub const CodePosition = struct {
         };
     }
 
-    pub fn offset_start_by(self: Self, offset: usize) CodePosition {
+    pub fn offset_start_by(self: Self, offset: u32) CodePosition {
         return CodePosition.from_start_and_end(
             self.start_idx + offset,
             self.end_idx_inclusive(),
         );
     }
 
-    pub fn end_idx_inclusive(self: Self) uint {
+    pub fn end_idx_inclusive(self: Self) u32 {
         return self.start_idx + self.length - 1;
     }
 
@@ -271,7 +269,7 @@ test "slice_from" {
 
     for (0..text.len) |idx| {
         const expected = try std.fmt.bufPrint(&buffer, "{c}", .{text[idx]});
-        try std.testing.expectEqualStrings(expected, CodePosition.at(idx).slice_from(text));
+        try std.testing.expectEqualStrings(expected, CodePosition.at(@intCast(idx)).slice_from(text));
     }
 
     for (0..text.len - 4) |idx| {
@@ -281,7 +279,7 @@ test "slice_from" {
             text[idx + 2],
             text[idx + 3],
         });
-        const pos = CodePosition{ .start_idx = idx, .length = 4 };
+        const pos = CodePosition{ .start_idx = @intCast(idx), .length = 4 };
         try std.testing.expectEqualStrings(expected, pos.slice_from(text));
     }
 }
