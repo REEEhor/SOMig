@@ -570,7 +570,8 @@ pub const BlockLiteral = struct {
     ///
     /// If `impl_of_paremeters_start.idx == 0` then the block literal has no parameters.
     /// This is an okay implementation, since the first token can never be a block parameter
-    ///   for multiple reasons (for example the first token must be the name of the class).
+    ///   for multiple reasons. For example the first token must be the name of the class,
+    ///   or even if we had source code that started with a block, there must be a `[` token first.
     ///
     impl_of_paremeters_start: TokenId,
     body_id: FunctionBodyId,
