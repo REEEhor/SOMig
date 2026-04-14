@@ -45,8 +45,8 @@ const ArrayLiteral = ast_module.ArrayLiteral;
 const ClassAstPortion = ast_module.ClassAstPortion;
 const KeywordMethodHeader = ast_module.KeywordMethodHeader;
 const BlockLiteral = ast_module.BlockLiteral;
-const RawBinaryMessageCall = ast_module.RawBinaryMessageCall;
-const BinaryMessageCall = ast_module.BinaryMessageCall;
+const RawBinaryMessageSend = ast_module.RawBinaryMessageSend;
+const BinaryMessageSend = ast_module.BinaryMessageSend;
 const KeywordMessage = ast_module.KeywordMessage;
 const KeywordMessageArgs = ast_module.KeywordMessageArgs;
 const ExprSpanId = ast_module.ExprSpanId;
@@ -610,7 +610,7 @@ pub const Parser = struct {
         const args_slice: []ExprId = try keyword_arguments.toOwnedSlice(self.allocator);
         const args_id: ExprSpanId = try self.ast.extras.add_variable_span(self.allocator, args_slice);
 
-        const expression = Expression{ .keyword_message_call = .{
+        const expression = Expression{ .keyword_message_send = .{
             .first_argument = first_argument_id,
             .args_id = args_id,
         } };
@@ -640,13 +640,13 @@ pub const Parser = struct {
             };
             const rhs_expr_id: ExprId = try self.parse_maybe_unary_messages(rhs_primary);
 
-            const binary_call = BinaryMessageCall{
+            const binary_call = BinaryMessageSend{
                 .lhs = result_expr_id,
                 .message = message_token_id,
                 .rhs = rhs_expr_id,
             };
-            const raw_binary_call: RawBinaryMessageCall = try binary_call.compress_allocating(self.allocator, &self.ast.extras);
-            const expression = Expression{ .binary_message_call = raw_binary_call };
+            const raw_binary_call: RawBinaryMessageSend = try binary_call.compress_allocating(self.allocator, &self.ast.extras);
+            const expression = Expression{ .binary_message_send = raw_binary_call };
             const span = TokenSpan.create(
                 self.span_of(binary_call.lhs).start_id.idx,
                 self.span_of(binary_call.rhs).end_id.idx,
@@ -665,7 +665,7 @@ pub const Parser = struct {
             _ = self.next_token();
 
             // Append the message call
-            const expression = Expression{ .unary_message_call = .{
+            const expression = Expression{ .unary_message_send = .{
                 .argument = result_expr_id,
                 .message = unary_message_name_id,
             } };
@@ -1184,11 +1184,11 @@ fn print_expression_recursive(
             try print_function_body(writer, body, formatter, ast, indent);
         },
 
-        .unary_message_call => |unary_call| {
+        .unary_message_send => |unary_call| {
             try writer.print("Unary message '{s}' to the object:\n", .{ast.text_at(unary_call.message)});
             try print_expression_recursive(writer, formatter, unary_call.argument, ast, indent.plus(1));
         },
-        .binary_message_call => |raw_binary_call| {
+        .binary_message_send => |raw_binary_call| {
             const binary_call = raw_binary_call.decompress(ast.extras);
 
             try writer.print("Binary message call '{s}', with lhs:\n", .{ast.text_at(binary_call.message)});
@@ -1197,7 +1197,7 @@ fn print_expression_recursive(
             try writer.print("{f}  and rhs:\n", .{indent});
             try print_expression_recursive(writer, formatter, binary_call.rhs, ast, indent.plus(1));
         },
-        .keyword_message_call => |keyword_call| {
+        .keyword_message_send => |keyword_call| {
             try writer.print("Keyword message call on object:\n", .{});
             try print_expression_recursive(writer, formatter, keyword_call.first_argument, ast, indent.plus(1));
 

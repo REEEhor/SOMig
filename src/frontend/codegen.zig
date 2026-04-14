@@ -1327,11 +1327,11 @@ pub const BytecodeGenerator = struct {
                 const constant_id = try self.constants_manager.add_constant(Constant{ .string = string });
                 try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
             },
-            .unary_message_call => |unary_call| {
+            .unary_message_send => |unary_call| {
                 const message_symbol: SymbolId = try self.symbol_from_token(unary_call.message);
                 try self.compile_message_send(unary_call.argument, message_symbol);
             },
-            .binary_message_call => |raw_binary_call| {
+            .binary_message_send => |raw_binary_call| {
                 const binary_call = raw_binary_call.decompress(self.ast.extras);
                 const message_symbol: SymbolId = try self.symbol_from_token(binary_call.message);
 
@@ -1341,7 +1341,7 @@ pub const BytecodeGenerator = struct {
                 try self.compile_expression(binary_call.rhs);
                 try self.compile_message_send(binary_call.lhs, message_symbol);
             },
-            .keyword_message_call => |keyword_message_call| {
+            .keyword_message_send => |keyword_message_call| {
                 // TODO: the length of the `buffer` should be the same as in `get_selector_symbol`
                 // Build the selector
                 var buffer: [512]u8 = undefined;

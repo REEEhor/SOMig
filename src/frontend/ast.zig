@@ -163,8 +163,6 @@ pub const MethodHeader = union(enum) {
 };
 
 pub const KeywordMethodHeader = struct {
-    const Self = @This();
-
     argument_pairs: TokenSpan,
 
     /// Creates a new instance of `KeywordMethodHeader`.
@@ -189,6 +187,8 @@ pub const KeywordMethodHeader = struct {
     pub fn number_of_args_excluding_self(self: Self) u32 {
         return self.argument_pairs.number_of_tokens() / 2;
     }
+
+    const Self = @This();
 };
 
 pub const FunctionBody = struct {
@@ -439,9 +439,9 @@ pub const Expression = union(enum) {
 
     block_literal: BlockLiteral,
 
-    unary_message_call: struct { argument: ExprId, message: TokenId },
-    binary_message_call: RawBinaryMessageCall,
-    keyword_message_call: KeywordMessageCall,
+    unary_message_send: struct { argument: ExprId, message: TokenId },
+    binary_message_send: RawBinaryMessageSend,
+    keyword_message_send: KeywordMessageSend,
 
     const Self = @This();
 
@@ -452,7 +452,7 @@ pub const Expression = union(enum) {
     }
 };
 
-pub const KeywordMessageCall = struct {
+pub const KeywordMessageSend = struct {
     const Self = @This();
     first_argument: ExprId,
     args_id: ExprSpanId,
@@ -506,19 +506,19 @@ pub const KeywordMessageArgs = struct {
     }
 };
 
-pub const RawBinaryMessageCall = struct {
+pub const RawBinaryMessageSend = struct {
     const Self = @This();
     info_id: FixedExprSpanId(3),
 
-    pub fn decompress(self: Self, extras: Extras) BinaryMessageCall {
+    pub fn decompress(self: Self, extras: Extras) BinaryMessageSend {
         const slice: []const ExprId = extras.fixed_span_of(self.info_id);
         const lhs: ExprId = slice[0];
         const rhs: ExprId = slice[1];
         const operator: TokenId = TokenId.create(slice[2].idx);
-        return BinaryMessageCall{ .lhs = lhs, .rhs = rhs, .message = operator };
+        return BinaryMessageSend{ .lhs = lhs, .rhs = rhs, .message = operator };
     }
 };
-pub const BinaryMessageCall = struct {
+pub const BinaryMessageSend = struct {
     const Self = @This();
 
     lhs: ExprId,
@@ -529,14 +529,14 @@ pub const BinaryMessageCall = struct {
         self: Self,
         allocator: Allocator,
         extras: *Extras,
-    ) Allocator.Error!RawBinaryMessageCall {
+    ) Allocator.Error!RawBinaryMessageSend {
         const info: [3]ExprId = [3]ExprId{
             self.lhs,
             self.rhs,
             ExprId{ .idx = self.message.idx },
         };
         const info_id: FixedExprSpanId(3) = try extras.add_fixed_span(allocator, 3, info);
-        return RawBinaryMessageCall{ .info_id = info_id };
+        return RawBinaryMessageSend{ .info_id = info_id };
     }
 };
 
@@ -563,8 +563,6 @@ pub const BlockParameterIterator = struct {
 };
 
 pub const BlockLiteral = struct {
-    const Self = @This();
-
     /// First token of the parameters for the block.
     /// Used for inner implementation, use `parameters_start` method.
     ///
@@ -573,31 +571,31 @@ pub const BlockLiteral = struct {
     ///   for multiple reasons. For example the first token must be the name of the class,
     ///   or even if we had source code that started with a block, there must be a `[` token first.
     ///
-    impl_of_paremeters_start: TokenId,
+    impl_of_parameters_start: TokenId,
     body_id: FunctionBodyId,
 
     pub fn create(first_parameter_token: ?TokenId, body_id: FunctionBodyId) BlockLiteral {
         return BlockLiteral{
-            .impl_of_paremeters_start = first_parameter_token orelse TokenId.create(0),
+            .impl_of_parameters_start = first_parameter_token orelse TokenId.create(0),
             .body_id = body_id,
         };
     }
 
     pub fn parameters_start(self: Self) ?TokenId {
-        if (self.impl_of_paremeters_start.idx == 0) return null;
-        return self.impl_of_paremeters_start;
+        if (self.impl_of_parameters_start.idx == 0) return null;
+        return self.impl_of_parameters_start;
     }
 
     pub fn iter_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) BlockParameterIterator {
         return BlockParameterIterator{
             .tokens = tokens,
-            .next_token_id = self.impl_of_paremeters_start,
+            .next_token_id = self.impl_of_parameters_start,
         };
     }
 
     pub fn get_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) ?TokenSpan {
         var iter = self.iter_parameters(tokens);
-        const start_token = self.impl_of_paremeters_start;
+        const start_token = self.impl_of_parameters_start;
         _ = iter.next() orelse return null;
 
         var last_token = start_token;
@@ -607,6 +605,8 @@ pub const BlockLiteral = struct {
 
         return TokenSpan.create(start_token.idx, last_token.idx);
     }
+
+    const Self = @This();
 };
 
 comptime {

@@ -1,10 +1,13 @@
 Dbg = (
     run = (
-        
+        b := [ :param1 :param2 :param3 :param4 :param5 | "<- This should not work"
+            'hehe' println.
+        ].
+
         [ :arg | ] value.
-        
+
         [ :arg1 :arg2 | ] value.
-        
+
         system fullGC.
 
     )
