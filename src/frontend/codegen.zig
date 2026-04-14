@@ -1585,8 +1585,8 @@ pub const InstructionDecoder = struct {
     /// return null -> decoder is at the end of the bytecode
     pub inline fn next_instruction(self: *Self) ?Instruction {
         if (self.is_at_end()) {
-            // Since in the practical VM code,
-            // we will use `halt` to end fetching of the next_instruction
+            // The code should actually never hit the end.
+            // There will always be a `normal_return` or `non_local_return` instruction at the end.
             @branchHint(.cold);
             return null;
         }

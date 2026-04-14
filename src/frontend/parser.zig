@@ -8,6 +8,7 @@
 //!  Check if it is possible to have empty locals list like this:
 //!      method = ( || )
 //!  Because that means we have to check for `TokenKind{.binary_selector}` that is `||`
+//! FIXME: remove `separator` from token and make it a regular binary message token
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -170,7 +171,6 @@ pub const Parser = struct {
             self.reporter.report_unexpected_eof(expected_str, .{});
             return ParserError.unexpected_eof;
         };
-        // TODO: remove `separator` from token and make it a regular binary message token
         switch (maybe_separator.kind) {
             .separator => {
                 _ = self.next_token();
@@ -322,7 +322,7 @@ pub const Parser = struct {
 
                     const token_text = self.text_at(maybe_param_token);
                     if (tag == .keyword) {
-                        const hint_pos = CodePosition.at(maybe_keyword_token.pos.end_idx_inclusive());
+                        const hint_pos = CodePosition.at(maybe_param_token.pos.end_idx_inclusive());
                         self.reporter.add_note(.{ .pos = hint_pos }, "Remove this `:` to make the `{s}` into a parameter.", .{token_text});
                     } else if (tag == .binary_selector and std.mem.eql(u8, token_text, "=")) {
                         self.reporter.add_note(.{ .pos = maybe_keyword_token.pos }, "You can provide a parameter after this keyword.", .{});
@@ -400,7 +400,7 @@ pub const Parser = struct {
 
         const close_bracket_token: TokenId = self.next_token_id;
         _ = self.eat_token(.close_bracket) catch |err| {
-            self.reporter.add_note(.{ .pos = open_bracket_pos }, "The ']' is expected because of an opening `]` here.", .{});
+            self.reporter.add_note(.{ .pos = open_bracket_pos }, "The ']' is expected because of an opening `[` here.", .{});
             return err;
         };
 
@@ -595,7 +595,7 @@ pub const Parser = struct {
             // Append the keyword to the list of arguments
             //
             // NOTE: The AST stores the keyword arguments as a slice of `ExprId`s even
-            // when every other is actually a `TokenId` pointing to a `keyword_message`.
+            // when every other is actually a `TokenId` pointing to a `.keyword` token.
             // This is because `Extras` is implemented to primarily store slices of `ExprId`.
             //
             // This means, that we have to cast the `keyword_token_id` into an `ExprId` in order to store it.
