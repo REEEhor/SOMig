@@ -1582,34 +1582,38 @@ pub const InstructionDecoder = struct {
         return InstructionId{ .idx = self.next_idx };
     }
 
-    /// return null -> decoder is at the end of the bytecode
-    pub inline fn next_instruction(self: *Self) ?Instruction {
+    pub fn fetch_instruction(self: *Self) ?Fetch {
         if (self.is_at_end()) {
             // The code should actually never hit the end.
             // There will always be a `normal_return` or `non_local_return` instruction at the end.
             @branchHint(.cold);
             return null;
         }
-
         const tag_byte: u8 = self.read_byte();
         const runtime_tag: Instruction.Tag = @enumFromInt(tag_byte);
-        return switch (runtime_tag) {
-            inline else => |tag| sw: {
-                const Payload = @FieldType(Instruction, @tagName(tag));
-                const payload: Payload = self.decode_type(Payload);
-                break :sw @unionInit(Instruction, @tagName(tag), payload);
+        return runtime_tag;
+    }
+
+    /// return null -> decoder is at the end of the bytecode
+    pub inline fn next_instruction(self: *Self) ?Instruction {
+        const fetch = self.fetch_instruction() orelse return null;
+        switch (fetch) {
+            inline else => |access, tag| {
+                const payload = access.get(self);
+                const instruction = @unionInit(Instruction, @tagName(tag), payload);
+                return instruction;
             },
-        };
+        }
+        unreachable;
     }
 
     pub fn decode_type(self: *Self, comptime ToDecode: type) ToDecode {
-        _ = std.builtin.Type;
         return switch (@typeInfo(ToDecode)) {
             .void => return,
             .int => self.read_integer(ToDecode),
             .@"struct" => |struct_info| blk: {
                 const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
-                    "Cannot decode the struct `{s}`, because it is not a packed struct.\nThe thought behind that we can just dump the struct into the memory, which is faster.",
+                    "Cannot decode the struct `{s}`, because it is not a packed struct.",
                     .{@typeName(ToDecode)},
                 ));
                 const result_raw = self.read_integer(BackingInteger);
@@ -1628,20 +1632,6 @@ pub const InstructionDecoder = struct {
         return self.bytes[self.next_idx - 1];
     }
 
-    pub inline fn read_id(self: *Self, comptime IdType: type) IdType {
-        const should_error = comptime switch (@typeInfo(IdType)) {
-            .@"struct" => |info| (info.fields.len != 1 or !std.mem.eql(u8, info.fields[0].name, "idx")),
-            else => true,
-        };
-        if (comptime should_error) {
-            @compileError(std.fmt.comptimePrint("Expected a struct with exactly one field named `idx`. Got type `{s}`.", .{@typeName(IdType)}));
-        }
-
-        const Idx = @FieldType(IdType, "idx");
-        const idx = self.read_integer(Idx);
-        return IdType{ .idx = idx };
-    }
-
     pub inline fn read_integer(self: *Self, comptime IntegerType: anytype) IntegerType {
         const byte_size = @divExact(@typeInfo(IntegerType).int.bits, 8);
         assert(self.next_idx + byte_size <= self.bytes.len); // NOTE the `<=` here!
@@ -1652,6 +1642,49 @@ pub const InstructionDecoder = struct {
         self.next_idx += byte_size;
         return result;
     }
+
+    pub fn Accessor(comptime instruction_tag: Instruction.Tag) type {
+        const Payload: type = @FieldType(Instruction, @tagName(instruction_tag));
+        return struct {
+            pub fn get(_: @This(), decoder: *InstructionDecoder) Payload {
+                return switch (@typeInfo(Payload)) {
+                    .void => return,
+                    .int => decoder.read_integer(Payload),
+                    .@"struct" => |struct_info| blk: {
+                        const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
+                            "Cannot decode the struct `{s}`, because it is not a packed struct.",
+                            .{@typeName(Payload)},
+                        ));
+                        const result_raw = decoder.read_integer(BackingInteger);
+                        break :blk @as(Payload, @bitCast(result_raw));
+                    },
+                    else => @compileError(std.fmt.comptimePrint(
+                        "Cannot decode the type `{s}` (which is `{t}`). Expected either a `void`, an integer or a struct.",
+                        .{ @typeName(Payload), @typeInfo(Payload) },
+                    )),
+                };
+            }
+        };
+    }
+
+    pub const Fetch = blk: {
+        const instruction_info = @typeInfo(Instruction).@"union";
+        const Type = std.builtin.Type;
+        var fields: [instruction_info.fields.len]Type.UnionField = undefined;
+        for (instruction_info.fields, 0..) |field, idx| {
+            fields[idx] = Type.UnionField{
+                .name = field.name,
+                .type = Accessor(@enumFromInt(idx)),
+                .alignment = @alignOf(void),
+            };
+        }
+        break :blk @Type(.{ .@"union" = .{
+            .tag_type = Instruction.Tag,
+            .decls = &.{},
+            .layout = .auto,
+            .fields = &fields,
+        } });
+    };
 };
 
 pub const InstructionEncoder = struct {

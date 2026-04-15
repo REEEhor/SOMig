@@ -733,15 +733,9 @@ pub const Interpreter = struct {
         };
 
         while (true) {
-            const instr_id = self.decoder.id_of_next_instruction();
-            const instruction: Instruction = self.decoder.next_instruction() orelse {
-                try self.report_info("The end of the bytecode has been reached.", .{});
-                return;
-            };
-            // if (DEBUG_STRESS_GC) {
-            //     try self.heap.run_garbage_collection();
-            // }
             if (DO_DEBUG_TRACE) {
+                const instr_id = self.decoder.id_of_next_instruction();
+                const instruction: Instruction = self.decoder.next_instruction().?;
                 const formatter = codegen_module.InstructionFormatter{
                     .base_constant_id = self.top_frame().constants_base_id(),
                     .constants_manager = &self.statics.constants_manager,
@@ -749,12 +743,19 @@ pub const Interpreter = struct {
                     .use_color = true,
                 };
                 std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
+                self.decoder.set_id_of_the_next_instruction(instr_id);
             }
-            switch_instruction: switch (instruction) {
+            const fetch = self.decoder.fetch_instruction() orelse {
+                @branchHint(.cold);
+                try self.report_info("The end of the bytecode has been reached.", .{});
+                return;
+            };
+            switch_instruction: switch (fetch) {
                 .pop => {
                     _ = self.pop_object();
                 },
-                .load_local => |info| {
+                .load_local => |access| {
+                    const info: Instruction.LoadLocal = access.get(&self.decoder);
                     // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
                     // NOTE: or maybe don't do that? The loop is pretty simple...
 
@@ -769,7 +770,8 @@ pub const Interpreter = struct {
                     const object: VmObject = result_frame.base_ptr[info.local_id.idx];
                     try self.push_object(object);
                 },
-                .set_local => |info| {
+                .set_local => |access| {
+                    const info: Instruction.SetLocal = access.get(&self.decoder);
                     // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
                     // NOTE: or maybe don't do that? The loop is pretty simple...
 
@@ -789,12 +791,14 @@ pub const Interpreter = struct {
                         block.add_to_escaping_blocks_list();
                     };
                 },
-                .load_instance_var => |info| {
+                .load_instance_var => |access| {
+                    const info: Instruction.LoadInstanceVar = access.get(&self.decoder);
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     const instance_variable = self_object.get_instance_fields()[info.instance_var_id.idx];
                     try self.push_object(instance_variable);
                 },
-                .set_instance_var => |info| {
+                .set_instance_var => |access| {
+                    const info: Instruction.SetInstanceVar = access.get(&self.decoder);
                     const top_object: VmObject = self.top_stack_object().*;
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
                     self_object.get_instance_fields()[info.instance_var_id.idx] = top_object;
@@ -806,7 +810,9 @@ pub const Interpreter = struct {
                         block.add_to_escaping_blocks_list();
                     }
                 },
-                .pop_into_new_array => |info| {
+                .pop_into_new_array => |access| {
+                    const info: Instruction.PopIntoNewArray = access.get(&self.decoder);
+
                     // Get the items slice from the stack
                     const items_count = info.number_of_items;
                     const len = self.stack.objects.len;
@@ -822,7 +828,9 @@ pub const Interpreter = struct {
 
                     try self.push_object(array_object);
                 },
-                .load_global => |global_symbol_id| {
+                .load_global => |access| {
+                    const global_symbol_id: SymbolId = access.get(&self.decoder);
+
                     const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
                     if (maybe_global_object) |global_object| {
                         try self.push_object(global_object);
@@ -834,19 +842,23 @@ pub const Interpreter = struct {
 
                         try self.push_object(global_name);
                         try self.push_object(self_object);
-                        try self.send_message(.{ .message_name = SymbolsManager.comptime_id_of("unknownGlobal:") });
+                        try self.send_message(SymbolsManager.comptime_id_of("unknownGlobal:"));
                     }
                 },
-                .set_global => |global_symbol_id| {
+                .set_global => |access| {
+                    const global_symbol_id: SymbolId = access.get(&self.decoder);
+
                     const object = self.top_stack_object();
                     if (object.as_block()) |block| block.add_to_escaping_blocks_list();
                     try self.globals.put(global_symbol_id, object.*);
                 },
-                .load_symbol => |symbol_id| {
+                .load_symbol => |access| {
+                    const symbol_id: SymbolId = access.get(&self.decoder);
                     const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
                     try self.push_object(object);
                 },
-                .load_constant => |constant_info| {
+                .load_constant => |access| {
+                    const constant_info: Instruction.LoadConstant = access.get(&self.decoder);
                     const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
                     const constant = self.statics.constants_manager.get_constant(constant_id);
                     const object: VmObject = switch (constant) {
@@ -857,12 +869,14 @@ pub const Interpreter = struct {
                     };
                     try self.push_object(object);
                 },
-                .resolved_method_call => |call_info| {
+                .resolved_method_call => |access| {
+                    const call_info = access.get(&self.decoder);
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
                     try self.call_method(method_ptr);
                 },
-                .send_message => |call_info| {
-                    try self.send_message(call_info);
+                .send_message => |access| {
+                    const send_info: Instruction.SendMessage = access.get(&self.decoder);
+                    try self.send_message(send_info.message_name);
                 },
                 .normal_return => {
                     const return_value: VmObject = self.top_stack_object().*;
@@ -914,7 +928,7 @@ pub const Interpreter = struct {
                                 try self.push_object(self_object);
 
                                 // Send the error message to `self` that is currently on the top of the stack.
-                                try self.send_message(.{ .message_name = SymbolsManager.comptime_id_of("escapedBlock:") });
+                                try self.send_message(SymbolsManager.comptime_id_of("escapedBlock:"));
 
                                 break :switch_instruction; // We are done with execution of this instruction
                             }
@@ -1272,10 +1286,10 @@ pub const Interpreter = struct {
         }
     }
 
-    pub fn send_message(self: *Self, call_info: Instruction.SendMessage) Error!void {
+    pub fn send_message(self: *Self, message_selector: SymbolId) Error!void {
         const receiver_object: VmObject = self.top_stack_object().*;
         const class: *const ClassDefinition = self.get_class_of(receiver_object);
-        const method: *const MethodDefinition = class.get_method(call_info.message_name) orelse {
+        const method: *const MethodDefinition = class.get_method(message_selector) orelse {
             @branchHint(.cold);
 
             // The method was not defined in the receiver's class.
@@ -1286,7 +1300,7 @@ pub const Interpreter = struct {
                 self.report_runtime_error(
                     "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
                     .{
-                        self.string_from_symbol(call_info.message_name),
+                        self.string_from_symbol(message_selector),
                         self.string_from_symbol(class.class_name),
                     },
                 );
@@ -1299,7 +1313,7 @@ pub const Interpreter = struct {
 
             // Create an `arguments` array containing the arguments for the original method,
             // since the method `doesNotUnderstand:arguments:` requires them.
-            const arity = primitives_module.helpers_module.get_method_arity_from_selector(self.string_from_symbol(call_info.message_name));
+            const arity = primitives_module.helpers_module.get_method_arity_from_selector(self.string_from_symbol(message_selector));
             const arguments_len = arity - 1;
             const arguments_start_index = self.stack.objects.len - arity;
             const arguments_slice = self.stack.objects[arguments_start_index..][0..arguments_len];
@@ -1316,7 +1330,7 @@ pub const Interpreter = struct {
             defer protector.unprotect();
 
             // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
-            const selector_symbol: VmObject = try types.Symbol.create_new(&self.heap, call_info.message_name);
+            const selector_symbol: VmObject = try types.Symbol.create_new(&self.heap, message_selector);
 
             // Pop the now-copied arguments from the stack.
             // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
