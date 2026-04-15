@@ -1396,7 +1396,6 @@ pub const BytecodeGenerator = struct {
                 const identifier_symbol: SymbolId = try self.symbol_from_token(assignment.variable);
                 const set_instr: Instruction = switch (self.lexical_scope_stack.lookup_variable(identifier_symbol)) {
                     .instance => |info| .{ .set_instance_var = .{
-                        .required_frame_up_steps = info.scope_depth_difference,
                         .instance_var_id = info.instance_variable_id,
                     } },
                     .local_or_method_argument => |info| .{ .set_local = .{
@@ -1804,7 +1803,7 @@ pub const InstructionFormatter = struct {
                     try writer.print(" id({d})", .{info.instance_var_id.idx});
                 },
                 .set_instance_var => |info| {
-                    try writer.print(" id({d}) up-frame-steps={d}", .{ info.instance_var_id.idx, info.required_frame_up_steps });
+                    try writer.print(" id({d})", .{info.instance_var_id.idx});
                 },
                 .pop_into_new_array => |info| {
                     try writer.print(" items-count={d}", .{info.number_of_items});
@@ -1977,7 +1976,6 @@ pub const Instruction = union(enum(u8)) {
 
     pub const SetInstanceVar = packed struct {
         instance_var_id: InstanceVarId,
-        required_frame_up_steps: u32,
     };
 
     pub const LoadLocal = packed struct {
