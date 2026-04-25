@@ -1,15 +1,9 @@
 Dbg = (
-    lol = (
-        blk := [
-            |hello how are you| 
-            some expr. )
-
-    hey: asdf a: b: = ( ) 
     
     run = (
-        b := [ :param1 :param2 :param3 :param4 :param5 | "<- This should not work"
+        "b := [ :param1 :param2 :param3 :param4 :param5 | 
             'hehe' println.
-        ].
+        ]."
 
         [ :arg | ] value.
 
@@ -18,4 +12,17 @@ Dbg = (
         system fullGC.
 
     )
+    
+    run = ( "2"
+    )
+    
+    lol: a = () 
+    
+    run = ( "3"
+    )
+    
+    
+    bruh: a = () 
+    
+    "hey: asdf a: b: = ( ) "
 )

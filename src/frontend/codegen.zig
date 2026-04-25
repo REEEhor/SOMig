@@ -1431,6 +1431,8 @@ pub const BytecodeGenerator = struct {
             .symbol => |original_tokens_span| {
                 // The symbol should consist of at least a `#` symbol and one more token
                 assert(original_tokens_span.number_of_tokens() > 1);
+                assert(std.mem.eql(u8, "#", self.ast.text_at(original_tokens_span.start_id)));
+                //
                 const token_span = Ast.TokenSpan.create(original_tokens_span.start_id.idx + 1, original_tokens_span.end_id.idx);
                 var symbol_as_string = self.ast.text_at(token_span);
                 if (self.ast.kind_of(token_span.start_id) == .string_literal) {
@@ -1709,10 +1711,7 @@ pub const InstructionEncoder = struct {
         try self.bytes.append(allocator, @intFromEnum(instruction.tag()));
 
         switch (instruction) {
-            inline else => |payload, tag| {
-                const Payload = @FieldType(Instruction, @tagName(tag));
-                try self.encode_value(allocator, Payload, payload);
-            },
+            inline else => |payload| try self.encode_value(allocator, @TypeOf(payload), payload),
         }
         const bytes_added = self.bytes.items.len - instruction_id.idx;
         assert(bytes_added == instruction.bytecode_size_in_bytes());
