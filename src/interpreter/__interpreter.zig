@@ -34,6 +34,8 @@ const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 const codegen_module = @import("../frontend/codegen.zig");
 const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
+const StringLiteralId = codegen_module.StringLiteralId;
+const BlockDefinitionId = codegen_module.BlockDefinitionId;
 const Bytecode = codegen_module.Bytecode;
 const InstructionDecoder = codegen_module.InstructionDecoder;
 const Instruction = codegen_module.Instruction;
@@ -544,13 +546,6 @@ pub const Stack = struct {
             return &self.base_ptr[number_of_args];
         }
 
-        pub fn constants_base_id(self: @This()) ConstantId {
-            return switch (self.kind) {
-                .method => |method| method.body.user_land.constants_base_id,
-                .block => |block| block.block_definition.body.constants_base_id,
-            };
-        }
-
         pub fn get_bytecode(self: @This()) Bytecode {
             return switch (self.kind) {
                 .method => |method| method.body.user_land.bytecode,
@@ -857,17 +852,28 @@ pub const Interpreter = struct {
                     const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
                     try self.push_object(object);
                 },
-                .load_constant => |access| {
-                    const constant_info: Instruction.LoadConstant = access.get(&self.decoder);
-                    const constant_id: ConstantId = constant_info.id.to_absolute(self.top_frame().constants_base_id());
-                    const constant = self.statics.constants_manager.get_constant(constant_id);
-                    const object: VmObject = switch (constant) {
-                        .integer => |value| try types.Integer.create_new(&self.heap, value),
-                        .float => |value| try types.Double.create_new(&self.heap, value),
-                        .string => |value| try types.String.create_new(&self.heap, value),
-                        .block => |block_info| try types.Block.create_new(&self.heap, block_info, self.top_frame()),
-                    };
-                    try self.push_object(object);
+                .load_integer_i8 => |access| {
+                    const value: i8 = access.get(&self.decoder);
+                    try self.push_object(try types.Integer.create_new(&self.heap, value));
+                },
+                .load_integer_i48 => |access| {
+                    const value: i48 = access.get(&self.decoder);
+                    try self.push_object(try types.Integer.create_new(&self.heap, value));
+                },
+                .load_double => |access| {
+                    const value: f64 = access.get(&self.decoder);
+                    try self.push_object(try types.Double.create_new(&self.heap, value));
+                },
+                .load_string => |access| {
+                    const string_literal_id: StringLiteralId = access.get(&self.decoder);
+                    const string_object: *types.String = self.statics.constants_manager.get_string(string_literal_id);
+                    try self.push_object(VmObject.from(string_object));
+                },
+                .load_block => |access| {
+                    const block_id: BlockDefinitionId = access.get(&self.decoder);
+                    const block_info: *const BlockDefinition = self.statics.constants_manager.get_block(block_id);
+                    const block_object: VmObject = try types.Block.create_new(&self.heap, block_info, self.top_frame());
+                    try self.push_object(block_object);
                 },
                 .resolved_method_call => |access| {
                     const call_info = access.get(&self.decoder);

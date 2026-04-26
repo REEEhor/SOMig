@@ -47,7 +47,6 @@ pub const Object = struct {
         try codegen_module.print_bytecode(
             &interpreter.statics.symbols_manager,
             &interpreter.statics.constants_manager,
-            interpreter.top_frame().constants_base_id(),
             bytecode,
             interpreter.stderr,
             .{},

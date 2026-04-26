@@ -357,12 +357,11 @@ fn allocate_heap_data(
             const opaque_header: *OpaqueHeader = try heap.allocate(header.object_size_in_bytes());
             break :sw @ptrCast(opaque_header);
         },
-        *Statics => {
-            const statics: *Statics = allocator;
-            const static_allocator = statics.allocator;
+        *Statics, std.mem.Allocator => {
+            const std_allocator: std.mem.Allocator = if (AllocatorType == *Statics) allocator.allocator else allocator;
             const alignment = comptime std.mem.Alignment.fromByteUnits(@alignOf(OpaqueHeader));
             const byte_size: usize = header.object_size_in_bytes();
-            const bytes_ptr = try static_allocator.alignedAlloc(u8, alignment, byte_size);
+            const bytes_ptr = try std_allocator.alignedAlloc(u8, alignment, byte_size);
             break :sw @ptrCast(bytes_ptr);
         },
         else => |Invalid| @compileError(std.fmt.comptimePrint(

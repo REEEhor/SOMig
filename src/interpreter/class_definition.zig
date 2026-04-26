@@ -78,5 +78,4 @@ pub const FunctionBody = struct {
     /// Number of local variables in the code of the function body.
     /// Used primarily for stackframe creation.
     number_of_locals: u16,
-    constants_base_id: ConstantId,
 };

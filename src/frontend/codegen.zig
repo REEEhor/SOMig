@@ -36,6 +36,7 @@ const parser_module = @import("../frontend/parser.zig");
 
 const interpreter_module = @import("../interpreter/__interpreter.zig");
 const VmObject = interpreter_module.VmObject;
+const OpaqueHeader = interpreter_module.OpaqueHeader;
 const ClassDefinition = interpreter_module.ClassDefinition;
 const FunctionBody = interpreter_module.FunctionBody;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
@@ -45,7 +46,7 @@ const HeapData = interpreter_module.HeapData;
 const primitives = interpreter_module.primitive_methods;
 const Statics = interpreter_module.Statics;
 const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
-const object_types = interpreter_module.types;
+const types = interpreter_module.types;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;
@@ -92,60 +93,61 @@ pub const BlockDefinition = struct {
     number_of_aditional_args: u16,
 };
 
-pub const Constant = union(enum) {
-    integer: i48,
-    float: f64,
-    string: []const u8,
-    block: *const BlockDefinition,
-};
-
 pub const ConstantsManager = struct {
-    const Self = @This();
-
-    constants: std.MultiArrayList(Constant),
+    strings: std.ArrayHashMapUnmanaged(*types.String, void, StringObjectContext, true),
+    blocks: std.ArrayList(*const BlockDefinition),
     allocator: Allocator,
-    current_base_id: ConstantId,
 
     /// TODO(speed): make a `init_with_capacity` version or call `ensureCapacity` on `self.constants` for initial capacity
     pub fn init(allocator: Allocator) ConstantsManager {
         return ConstantsManager{
             .allocator = allocator,
-            .constants = .empty,
-            .current_base_id = ConstantId{ .idx = 0 },
+            .strings = .empty,
+            .blocks = .empty,
         };
     }
 
-    pub fn next_constant_id(self: Self) ConstantId {
-        return ConstantId{ .idx = @truncate(self.constants.len) };
-    }
-
-    pub fn new_base_id_for_method(self: *Self) ConstantId {
-        self.current_base_id = self.next_constant_id();
-        return self.current_base_id;
-    }
-
-    pub fn add_block_constant(self: *Self, block_definition: BlockDefinition) Allocator.Error!RelativeConstantId {
+    pub fn add_block_definition(self: *Self, block_definition: BlockDefinition) (Allocator.Error || error{too_many_blocks})!BlockDefinitionId {
+        if (self.blocks.items.len + 1 > std.math.maxInt(BlockDefinitionId.IdxRepr)) {
+            @branchHint(.cold);
+            return error.too_many_blocks;
+        }
         const block_definition_ptr: *BlockDefinition = try self.allocator.create(BlockDefinition);
         block_definition_ptr.* = block_definition;
-        return try self.add_constant(.{ .block = block_definition_ptr });
+        try self.blocks.append(self.allocator, block_definition_ptr);
+        return BlockDefinitionId{ .idx = @intCast(self.blocks.items.len - 1) };
     }
 
-    pub fn add_constant(self: *Self, new_constant: Constant) Allocator.Error!RelativeConstantId {
-        const new_constant_id = self.next_constant_id();
-        try self.constants.append(self.allocator, new_constant);
-        const relative_id = new_constant_id.to_relative(self.current_base_id);
+    pub fn add_string(self: *Self, string_to_copy: []const u8) (Allocator.Error || error{too_many_string_literals})!StringLiteralId {
+        if (self.strings.count() + 1 > std.math.maxInt(StringLiteralId.IdxRepr)) {
+            @branchHint(.cold);
+            return error.too_many_string_literals;
+        }
+        const object: VmObject = try types.String.create_new(self.allocator, string_to_copy);
+        const string_object: *types.String = object.data.?.asserted_cast_to(.string);
+        const insert_result = try self.strings.getOrPut(self.allocator, string_object);
 
-        return relative_id;
+        return StringLiteralId{ .idx = @intCast(insert_result.index) };
     }
 
-    pub fn get_constant(self: *Self, id: ConstantId) Constant {
-        assert(id.idx < self.constants.len);
-        return self.constants.get(id.idx);
+    pub fn get_string(self: *Self, string_literal_id: StringLiteralId) *types.String {
+        return self.strings.keys()[string_literal_id.idx];
     }
 
-    pub fn deinit(self: *Self) void {
-        self.constants.deinit(self.allocator);
+    pub fn get_block(self: *Self, block_id: BlockDefinitionId) *const BlockDefinition {
+        return self.blocks.items[block_id.idx];
     }
+
+    const StringObjectContext = struct {
+        pub fn hash(_: @This(), str: *types.String) u32 {
+            return (std.array_hash_map.StringContext{}).hash(str.contents());
+        }
+        pub fn eql(_: @This(), lhs: *types.String, rhs: *types.String, b_index: usize) bool {
+            return (std.array_hash_map.StringContext{}).eql(lhs.contents(), rhs.contents(), b_index);
+        }
+    };
+
+    const Self = @This();
 };
 
 pub const LexicalScopesStack = struct {
@@ -726,7 +728,7 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        const class_as_som_object: VmObject = try object_types.Class.create_new(statics, .{
+        const class_as_som_object: VmObject = try types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
         });
@@ -747,7 +749,7 @@ pub fn compile_class(
             .primitive_methods_map = primitive_methods_map,
         });
         // Create a new global object which represents the newly compiled class
-        const class_as_som_object: VmObject = try object_types.Class.create_new(statics, .{
+        const class_as_som_object: VmObject = try types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = class_portion_definition,
         });
@@ -924,12 +926,11 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .as_vm_object = undefined,
                     .definition_order_index = @intCast(method_idx),
                 };
-                _ = try object_types.Method.create_new(statics, new_method_ptr);
+                _ = try types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
             .impl => |function_body| {
-                const method_constants_base_id: ConstantId = statics.constants_manager.new_base_id_for_method();
                 const bytecode: Bytecode = try bytecode_generator.compile_method(.{
                     .ast = &ast,
                     .scope_stack = &lexical_scopes,
@@ -955,13 +956,12 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     .body = MethodBody{ .user_land = .{
                         .bytecode = bytecode,
                         .number_of_locals = @truncate(number_of_locals),
-                        .constants_base_id = method_constants_base_id,
                     } },
                     .source_class = compiled_class,
                     .as_vm_object = undefined,
                     .definition_order_index = @intCast(method_idx),
                 };
-                _ = try object_types.Method.create_new(statics, new_method_ptr);
+                _ = try types.Method.create_new(statics, new_method_ptr);
                 compiled_methods[method_idx] = new_method_ptr;
                 method_idx += 1;
             },
@@ -1069,6 +1069,8 @@ pub const CompileError = error{
     too_many_arguments_in_a_block,
     invalid_string_literal,
     invalid_integer_literal,
+    too_many_string_literals,
+    too_many_blocks,
     /// FIXME: This shouldn't be here at the end of implementation
     TODO,
 } || Allocator.Error;
@@ -1301,7 +1303,7 @@ pub const BytecodeGenerator = struct {
         switch (expr) {
             .integer_literal => |literal_info| {
                 const text = self.ast.text_at(literal_info.absolute_value_token);
-                var number = literals.parse_integer_literal(text) orelse {
+                var number: i48 = literals.parse_integer_literal(text) orelse {
                     // TODO: Change how we parse this if we implement arbitrary-sized integers.
                     self.reporter.report_error(
                         .{ .pos = self.ast.pos_of(expr_id) },
@@ -1312,20 +1314,27 @@ pub const BytecodeGenerator = struct {
                 };
                 if (literal_info.is_negative) number *= -1;
 
-                const constant_id = try self.constants_manager.add_constant(Constant{ .integer = number });
-                try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
+                if (std.math.cast(i8, number)) |number_i8| {
+                    try self.add_instruction(.{ .load_integer_i8 = number_i8 });
+                } else {
+                    try self.add_instruction(.{ .load_integer_i48 = number });
+                }
             },
             .float_literal => |literal_info| {
                 const text = self.ast.text_at(literal_info.absolute_value_token);
-                var number = literals.parse_float_literal(text);
+                var number: f64 = literals.parse_float_literal(text);
                 if (literal_info.is_negative) number *= -1;
-                const constant_id = try self.constants_manager.add_constant(Constant{ .float = number });
-                try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
+                try self.add_instruction(.{ .load_double = number });
             },
             .string_literal => |token_id| {
-                const string = try self.parse_string_literal(self.constants_manager.allocator, token_id);
-                const constant_id = try self.constants_manager.add_constant(Constant{ .string = string });
-                try self.add_instruction(.{ .load_constant = Instruction.LoadConstant{ .id = constant_id } });
+                const string: []const u8 = try self.parse_string_literal(self.temporary_allocator, token_id);
+                const string_literal_id: StringLiteralId = self.constants_manager.add_string(string) catch |err| {
+                    if (err == error.too_many_string_literals) {
+                        self.reporter.report_error(.{ .pos = self.ast.pos_of(token_id) }, "Too many string literals in the codebase (>{d}).", .{std.math.maxInt(StringLiteralId.IdxRepr)});
+                    }
+                    return err;
+                };
+                try self.add_instruction(.{ .load_string = string_literal_id });
             },
             .unary_message_send => |unary_call| {
                 const message_symbol: SymbolId = try self.symbol_from_token(unary_call.message);
@@ -1443,8 +1452,8 @@ pub const BytecodeGenerator = struct {
                 try self.add_instruction(.{ .load_symbol = symbol_id });
             },
             .block_literal => |block_info| {
-                const constant_id: RelativeConstantId = try self.compile_block_literal(block_info);
-                try self.add_instruction(.{ .load_constant = .{ .id = constant_id } });
+                const block_id: BlockDefinitionId = try self.compile_block_literal(block_info, expr_id);
+                try self.add_instruction(.{ .load_block = block_id });
             },
         }
     }
@@ -1474,7 +1483,7 @@ pub const BytecodeGenerator = struct {
         return string;
     }
 
-    fn compile_block_literal(self: *Self, block_literal: Ast.BlockLiteral) CompileError!RelativeConstantId {
+    fn compile_block_literal(self: *Self, block_literal: Ast.BlockLiteral, block_expr_id: Ast.ExprId) CompileError!BlockDefinitionId {
         const old_are_we_compiling_block_right_now = self.currently_compiling_block;
         defer self.currently_compiling_block = old_are_we_compiling_block_right_now;
         self.currently_compiling_block = true;
@@ -1515,15 +1524,19 @@ pub const BytecodeGenerator = struct {
             .number_of_arguments_including_self = parameters_count_excluding_self + 1,
         });
 
-        const constant_id = try self.constants_manager.add_block_constant(BlockDefinition{
+        const block_id = self.constants_manager.add_block_definition(BlockDefinition{
             .body = FunctionBody{
                 .bytecode = bytecode,
-                .constants_base_id = self.constants_manager.current_base_id,
                 .number_of_locals = @intCast(body_ast.number_of_locals()),
             },
             .number_of_aditional_args = @intCast(parameters_count_excluding_self),
-        });
-        return constant_id;
+        }) catch |err| {
+            if (err == error.too_many_blocks) {
+                self.reporter.report_error(.{ .pos = self.ast.pos_of(block_expr_id) }, "Too many blocks in the codebase (>{d}).", .{std.math.maxInt(BlockDefinitionId.IdxRepr)});
+            }
+            return err;
+        };
+        return block_id;
     }
 };
 
@@ -1612,6 +1625,7 @@ pub const InstructionDecoder = struct {
         return switch (@typeInfo(ToDecode)) {
             .void => return,
             .int => self.read_integer(ToDecode),
+            .float => self.read_float(ToDecode),
             .@"struct" => |struct_info| blk: {
                 const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
                     "Cannot decode the struct `{s}`, because it is not a packed struct.",
@@ -1633,7 +1647,12 @@ pub const InstructionDecoder = struct {
         return self.bytes[self.next_idx - 1];
     }
 
-    pub inline fn read_integer(self: *Self, comptime IntegerType: anytype) IntegerType {
+    pub inline fn read_float(self: *Self, comptime FloatType: type) FloatType {
+        const bits = self.read_integer(IntWithTheSameBitsCountAsFloat(FloatType));
+        return @bitCast(bits);
+    }
+
+    pub inline fn read_integer(self: *Self, comptime IntegerType: type) IntegerType {
         const byte_size = @divExact(@typeInfo(IntegerType).int.bits, 8);
         assert(self.next_idx + byte_size <= self.bytes.len); // NOTE the `<=` here!
 
@@ -1651,6 +1670,7 @@ pub const InstructionDecoder = struct {
                 return switch (@typeInfo(Payload)) {
                     .void => return,
                     .int => decoder.read_integer(Payload),
+                    .float => decoder.read_float(Payload),
                     .@"struct" => |struct_info| blk: {
                         const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
                             "Cannot decode the struct `{s}`, because it is not a packed struct.",
@@ -1688,6 +1708,15 @@ pub const InstructionDecoder = struct {
     };
 };
 
+fn IntWithTheSameBitsCountAsFloat(comptime Float: type) type {
+    const bits_count = @typeInfo(Float).float.bits;
+    return std.meta.Int(.unsigned, bits_count);
+}
+
+fn bit_cast_float_to_int(float: anytype) IntWithTheSameBitsCountAsFloat(@TypeOf(float)) {
+    return @bitCast(float);
+}
+
 pub const InstructionEncoder = struct {
     const Self = @This();
     bytes: std.ArrayList(u8),
@@ -1724,6 +1753,7 @@ pub const InstructionEncoder = struct {
         switch (@typeInfo(Value)) {
             .void => return,
             .int => try self.write_integer(allocator, to_encode),
+            .float => try self.write_float(allocator, to_encode),
             .@"struct" => |struct_info| {
                 const BackingInteger: type = struct_info.backing_integer orelse @compileError(std.fmt.comptimePrint(
                     "Cannot encode the struct `{s}`, because it is not a packed struct.\nThe thought behind that we can just dump the struct into the memory, which is faster.",
@@ -1733,10 +1763,15 @@ pub const InstructionEncoder = struct {
                 try self.write_integer(allocator, value_raw);
             },
             else => @compileError(std.fmt.comptimePrint(
-                "Cannot encode the type `{s}` (which is `{t}`). Available types to encode are `void`, an integer or a struct.",
+                "Cannot encode the type `{s}` (which is `{t}`). Available types to encode are `void`, an integer, a float or a struct.",
                 .{ @typeName(Value), @typeInfo(Value) },
             )),
         }
+    }
+
+    fn write_float(self: *Self, allocator: Allocator, float: anytype) Allocator.Error!void {
+        const raw = bit_cast_float_to_int(float);
+        return self.write_integer(allocator, raw);
     }
 
     fn write_integer(self: *Self, allocator: Allocator, int: anytype) Allocator.Error!void {
@@ -1753,7 +1788,6 @@ pub const InstructionEncoder = struct {
 pub const InstructionFormatter = struct {
     symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
-    base_constant_id: ConstantId,
     use_color: bool,
 
     pub fn fmt(self: @This(), instruction: Instruction) Fmt {
@@ -1762,7 +1796,6 @@ pub const InstructionFormatter = struct {
             //
             .constants_manager = self.constants_manager,
             .symbols_manager = self.symbols_manager,
-            .base_constant_id = self.base_constant_id,
             .use_color = self.use_color,
         };
     }
@@ -1772,7 +1805,6 @@ pub const InstructionFormatter = struct {
         symbols_manager: *SymbolsManager,
         constants_manager: *ConstantsManager,
         instruction: Instruction,
-        base_constant_id: ConstantId,
         use_color: bool,
 
         pub fn format(self: @This(), writer: *Writer) Writer.Error!void {
@@ -1782,11 +1814,31 @@ pub const InstructionFormatter = struct {
             if (self.use_color) try writer.print(terminal.RESET, .{});
 
             switch (self.instruction) {
-                .load_constant => |load_constant| {
-                    const relative_id = load_constant.id;
-                    const absolute_id = relative_id.to_absolute(self.base_constant_id);
-                    try writer.print(" id({d:03}+{d:03}={d:03}) ", .{ self.base_constant_id.idx, relative_id.idx, absolute_id.idx });
-                    try self.print_constant(writer, self.constants_manager.get_constant(absolute_id));
+                .load_integer_i8 => |integer_value| {
+                    try writer.print(" {d}", .{integer_value});
+                },
+                .load_integer_i48 => |integer_value| {
+                    try writer.print(" {d}", .{integer_value});
+                },
+                .load_double => |double_value| {
+                    try writer.print(" {d}", .{double_value});
+                },
+                .load_string => |string_literal_id| {
+                    const string_object = self.constants_manager.get_string(string_literal_id);
+                    try writer.print(" ", .{});
+                    try print_escaped_string(writer, string_object.contents());
+                    try writer.print(" ", .{});
+                },
+                .load_block => |block_id| {
+                    const block_info = self.constants_manager.get_block(block_id);
+                    try writer.print(
+                        "block id{d} body-arguments-cnt={d} locals-cnt={d}",
+                        .{
+                            block_id.idx,
+                            block_info.number_of_aditional_args,
+                            block_info.body.number_of_locals,
+                        },
+                    );
                 },
                 .send_message => |send_message| {
                     const message_name = self.symbols_manager.symbol_with_id(send_message.message_name);
@@ -1842,32 +1894,32 @@ pub const InstructionFormatter = struct {
             try writer.print("\n", .{});
         }
 
-        fn print_constant(self: @This(), writer: *Writer, constant: Constant) Writer.Error!void {
-            _ = self;
-            switch (constant) {
-                .integer => |value| {
-                    try writer.print("integer({d})", .{value});
-                },
-                .float => |value| {
-                    try writer.print("float({d})", .{value});
-                },
-                .string => |value| {
-                    try writer.print("string(", .{});
-                    try print_escaped_string(writer, value);
-                    try writer.print(")", .{});
-                },
-                .block => |block_info| {
-                    try writer.print(
-                        "block body-arguments-cnt={d} locals-cnt={d} constant-base-id={d}",
-                        .{
-                            block_info.number_of_aditional_args,
-                            block_info.body.number_of_locals,
-                            block_info.body.constants_base_id.idx,
-                        },
-                    );
-                },
-            }
-        }
+        // fn print_constant(self: @This(), writer: *Writer, constant: Constant) Writer.Error!void {
+        //     _ = self;
+        //     switch (constant) {
+        //         .integer => |value| {
+        //             try writer.print("integer({d})", .{value});
+        //         },
+        //         .float => |value| {
+        //             try writer.print("float({d})", .{value});
+        //         },
+        //         .string => |value| {
+        //             try writer.print("string(", .{});
+        //             try print_escaped_string(writer, value);
+        //             try writer.print(")", .{});
+        //         },
+        //         .block => |block_info| {
+        //             try writer.print(
+        //                 "block body-arguments-cnt={d} locals-cnt={d} constant-base-id={d}",
+        //                 .{
+        //                     block_info.number_of_aditional_args,
+        //                     block_info.body.number_of_locals,
+        //                     block_info.body.constants_base_id.idx,
+        //                 },
+        //             );
+        //         },
+        //     }
+        // }
     };
 };
 
@@ -1890,7 +1942,6 @@ pub fn print_escaped_string(writer: *std.io.Writer, string_bytes: []const u8) st
 pub fn print_bytecode(
     symbols_manager: *SymbolsManager,
     constants_manager: *ConstantsManager,
-    base_constant_id: ConstantId,
     bytecode: Bytecode,
     writer: *std.io.Writer,
     options: struct {
@@ -1902,7 +1953,6 @@ pub fn print_bytecode(
     const f = InstructionFormatter{
         .constants_manager = constants_manager,
         .symbols_manager = symbols_manager,
-        .base_constant_id = base_constant_id,
         .use_color = options.use_color,
     };
     var decoder = InstructionDecoder.new(bytecode);
@@ -1915,17 +1965,14 @@ pub fn print_bytecode(
         instruction_idx = decoder.id_of_next_instruction();
         if (!options.print_recursive) continue;
 
-        sw: switch (instruction) {
-            .load_constant => |info| {
-                const absolute_id = info.id.to_absolute(base_constant_id);
-                const constant = constants_manager.get_constant(absolute_id);
-                const block_info: *const BlockDefinition = unions.get_payload(constant, .block) orelse break :sw;
+        switch (instruction) {
+            .load_block => |block_id| {
+                const block_info: *const BlockDefinition = constants_manager.get_block(block_id);
                 var options_copy = options;
                 options_copy.indent += 1;
                 try print_bytecode(
                     symbols_manager,
                     constants_manager,
-                    base_constant_id,
                     block_info.body.bytecode,
                     writer,
                     options_copy,
@@ -1936,8 +1983,23 @@ pub fn print_bytecode(
     }
 }
 
+pub const StringLiteralId = packed struct(u32) {
+    pub const IdxRepr = u32;
+    idx: IdxRepr,
+};
+
+pub const BlockDefinitionId = packed struct(u32) {
+    pub const IdxRepr = u32;
+    idx: IdxRepr,
+};
+
 pub const Instruction = union(enum(u8)) {
-    load_constant: LoadConstant,
+    load_integer_i8: i8,
+    load_integer_i48: i48,
+    load_double: f64,
+    load_string: StringLiteralId,
+    load_block: BlockDefinitionId,
+
     send_message: SendMessage,
 
     /// Pushes either a local variable or a method argument onto the stack.
