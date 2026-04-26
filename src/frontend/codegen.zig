@@ -731,6 +731,7 @@ pub fn compile_class(
         const class_as_som_object: VmObject = try types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
+            .class_fields_count = if (builtin_class_definitions.metaclass) |m| @intCast(m.identifiers_of_instance_variables.len) else 0,
         });
         try globals.put(compiled_class.class_name, class_as_som_object);
         break :blk compiled_class;
@@ -752,6 +753,7 @@ pub fn compile_class(
         const class_as_som_object: VmObject = try types.Class.create_new(statics, .{
             .represented_class = compiled_class,
             .class_of_represented_class = class_portion_definition,
+            .class_fields_count = @intCast(class_portion_definition.identifiers_of_instance_variables.len),
         });
         try globals.put(compiled_class.class_name, class_as_som_object);
         break :blk compiled_class;

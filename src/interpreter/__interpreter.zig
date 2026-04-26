@@ -732,7 +732,6 @@ pub const Interpreter = struct {
                 const instr_id = self.decoder.id_of_next_instruction();
                 const instruction: Instruction = self.decoder.next_instruction().?;
                 const formatter = codegen_module.InstructionFormatter{
-                    .base_constant_id = self.top_frame().constants_base_id(),
                     .constants_manager = &self.statics.constants_manager,
                     .symbols_manager = &self.statics.symbols_manager,
                     .use_color = true,

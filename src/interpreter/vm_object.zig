@@ -529,23 +529,24 @@ pub const types = struct {
 
         pub fn create_new(
             allocator: anytype,
-            classes: struct {
+            params: struct {
                 represented_class: *ClassDefinition,
                 class_of_represented_class: *ClassDefinition,
+                class_fields_count: i48,
             },
         ) std.mem.Allocator.Error!VmObject {
-            const number_of_class_fields: i48 = @intCast(classes.class_of_represented_class.identifiers_of_instance_variables.len);
+            const number_of_class_fields: i48 = params.class_fields_count;
             var self: *Class = @ptrCast(try allocate_heap_data(allocator, Header{
                 .number_of_class_fields = number_of_class_fields,
             }));
-            self.class_of_represented_class = classes.class_of_represented_class;
-            self.represented_class = classes.represented_class;
+            self.class_of_represented_class = params.class_of_represented_class;
+            self.represented_class = params.represented_class;
 
             for (self.get_class_fields()) |*field_object| {
                 field_object.* = VmObject.nil;
             }
 
-            classes.represented_class.as_vm_object = self;
+            params.represented_class.as_vm_object = self;
             return VmObject.from(self);
         }
 
