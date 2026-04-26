@@ -882,7 +882,6 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     for (ast_portion.methods) |method_ast| {
         const method_selector: SymbolId = try get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter);
 
-        // TODO: if we ever want to mark methods if they are inherited or defined in the class, we can mark them as such here :D
         switch (method_ast.body) {
             .primitive => {
                 const primitive_class = maybe_primitive_class orelse {
