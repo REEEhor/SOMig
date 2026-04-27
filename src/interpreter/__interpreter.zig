@@ -635,7 +635,6 @@ pub const Interpreter = struct {
     statics: *Statics,
     heap: Heap,
 
-    heap_allocator: Allocator,
     temporary_arena: *std.heap.ArenaAllocator,
 
     stdout: *Writer,
@@ -708,7 +707,6 @@ pub const Interpreter = struct {
             .stderr = stderr,
             .statics = statics,
             .heap = heap,
-            .heap_allocator = undefined,
             .timer = null,
             .primitive_methods = primitive_methods,
             .globals = .init(allocator_for_globals),
