@@ -52,6 +52,19 @@ pub const ErrorReporter = struct {
         }
     }
 
+    pub fn report_warning(self: *Self, position: ReportPosition, comptime fmt: []const u8, args: anytype) void {
+        defer self.writer.flush() catch {};
+        self.print("\n", .{});
+        switch (position) {
+            .eof => self.report_internal_eof("WARN", fmt, args, YELLOW),
+            .no_location => {
+                self.color_print("[WARN] ", .{}, YELLOW);
+                self.print(fmt ++ "\n", args);
+            },
+            .pos => |pos| self.report_internal(pos, "WARN", fmt, args, YELLOW),
+        }
+    }
+
     pub fn add_note(self: *Self, position: ReportPosition, comptime fmt: []const u8, args: anytype) void {
         defer self.writer.flush() catch {};
 

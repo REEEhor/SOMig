@@ -554,7 +554,7 @@ pub const CompileClassIgnoringParents = struct {
     primitive_methods_map: PrimitiveMethodsMap,
     /// Used for lookup of class definitions.
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
-    builtin_class_definitions: *BuiltinClassDefinitions,
+    metaclass_definition: ?*ClassDefinition,
 };
 
 /// Sets the parent to null.
@@ -569,7 +569,7 @@ pub fn compile_class_ignoring_parents(
     const error_writer = params.error_writer;
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
-    const builtin_class_definitions = params.builtin_class_definitions;
+    const metaclass_definition = params.metaclass_definition;
 
     const ast = try find_file_and_parse_it(class_name, source_code_files, statics, error_writer, temporary_allocator);
     var reporter = ErrorReporter{
@@ -587,10 +587,344 @@ pub fn compile_class_ignoring_parents(
         &reporter,
         primitive_methods_map,
         globals,
-        builtin_class_definitions,
+        metaclass_definition,
     );
     return class_pair;
 }
+
+pub const ClassLoader = struct {
+    statics: *Statics,
+    temporary_arena: *std.heap.ArenaAllocator,
+    source_code_files: *SourceCodeFiles,
+    error_writer: *std.io.Writer,
+    primitive_methods_map: *const PrimitiveMethodsMap,
+    globals: *std.AutoArrayHashMap(SymbolId, VmObject),
+    metaclass_definition: ?*ClassDefinition,
+    object_definition: ?*ClassDefinition,
+
+    /// Loads a class together with its parents.
+    /// WARN: `metaclass_definition` cannot be `null` at this point
+    /// NOTE: `metaclass_definition` is set by the method `load_builtin_classes`, you can call that first.
+    pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
+        const metaclass_definition: *ClassDefinition = self.metaclass_definition orelse {
+            std.debug.panic("The metaclass is not provided!", .{});
+        };
+        defer _ = self.temporary_arena.reset(.retain_capacity);
+        const class_definition_pair = try compile_class_with_its_parents(.{
+            .bottom_class_name = class_name,
+            .statics = self.statics,
+            .temporary_allocator = self.temporary_arena.allocator(),
+            .source_code_files = self.source_code_files,
+            .error_writer = self.error_writer,
+            .primitive_methods_map = self.primitive_methods_map,
+            .globals = self.globals,
+            .metaclass_definition = metaclass_definition,
+        });
+        return class_definition_pair.class;
+    }
+
+    pub fn load_builtin_classes(self: *Self) !BuiltinClassDefinitions {
+        const base_classes: BuiltinBaseHierarchy = try self.load_builtin_base_hierarchy();
+
+        return BuiltinClassDefinitions{
+            .object = base_classes.class_of_object,
+            .class = base_classes.class_of_class,
+            .metaclass = base_classes.class_of_metaclass,
+            //                                                               FIXME: Fix these comments (the "potential" part) after done with implementation
+            .nil = try self.load_builtin_class("Nil", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
+            .true = try self.load_builtin_class("True", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
+            .false = try self.load_builtin_class("False", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
+            .system = try self.load_builtin_class("System", .{ .can_inherit_from_whatever = true, .can_have_fields = true }),
+            .integer = try self.load_builtin_class("Integer", .{}),
+            .double = try self.load_builtin_class("Double", .{}),
+            .array = try self.load_builtin_class("Array", .{}),
+            .string = try self.load_builtin_class("String", .{}),
+            .symbol = try self.load_builtin_class("Symbol", .{ .expected_parent_apart_from_none_or_object = "String" }),
+            .block1 = try self.load_builtin_class("Block1", .{ .expected_parent_apart_from_none_or_object = "Block" }),
+            .block2 = try self.load_builtin_class("Block2", .{ .expected_parent_apart_from_none_or_object = "Block" }),
+            .block3 = try self.load_builtin_class("Block3", .{ .expected_parent_apart_from_none_or_object = "Block" }),
+            .method = try self.load_builtin_class("Method", .{}),
+            .primitive = try self.load_builtin_class("Primitive", .{}),
+        };
+    }
+
+    fn load_builtin_class(self: *Self, comptime class_name: []const u8, params: struct {
+        expected_parent_apart_from_none_or_object: ?[]const u8 = null,
+        can_inherit_from_whatever: bool = false,
+        can_have_fields: bool = false,
+    }) !*ClassDefinition {
+        const err = try_block: {
+            const class_definition = self.load_class(SymbolsManager.comptime_id_of(class_name)) catch |err| break :try_block err;
+            if (!params.can_inherit_from_whatever) {
+                self.report_if_class_has_invalid_parent(class_definition, params.expected_parent_apart_from_none_or_object);
+            }
+            if (!params.can_have_fields) {
+                self.validate_class_has_no_fields(class_definition) catch |err| break :try_block err;
+            }
+            return class_definition;
+        };
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        reporter.report_error(.no_location, "Could not load the builtin class {s}.", .{class_name});
+        return err;
+    }
+
+    fn report_if_class_has_invalid_parent(self: *Self, class: *ClassDefinition, expected_parent_apart_from_none_or_object: ?[]const u8) void {
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        const actual_parent = class.parent orelse return;
+        const actual_parent_name: []const u8 = self.statics.symbols_manager.symbol_with_id(actual_parent.class_name);
+        const class_name: []const u8 = self.statics.symbols_manager.symbol_with_id(class.class_name);
+
+        if (expected_parent_apart_from_none_or_object) |expected_parent_name| {
+            if (!std.mem.eql(u8, actual_parent_name, expected_parent_name) and actual_parent != self.object_definition) {
+                reporter.report_warning(
+                    .no_location,
+                    "The class {s} has unexpected parent {s} (expected either none, Object, or {s}). Inherited methods may cause runtime errors.",
+                    .{ class_name, actual_parent_name, expected_parent_name },
+                );
+            }
+        } else if (actual_parent != self.object_definition) {
+            reporter.report_warning(
+                .no_location,
+                "The class {s} has unexpected parent {s} (expected either none or Object). Inherited methods may cause runtime errors.",
+                .{ class_name, actual_parent_name },
+            );
+        }
+    }
+
+    const BuiltinBaseHierarchy = struct {
+        class_of_object: *ClassDefinition,
+        class_of_class: *ClassDefinition,
+        class_of_metaclass: *ClassDefinition,
+    };
+    /// Loads the builtin classes `Object`, `Class`, and `Metaclass`,
+    /// which have more complicated structure than other classes.
+    fn load_builtin_base_hierarchy(self: *Self) !BuiltinBaseHierarchy {
+        // Parse the source code of the classes
+        const object_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Object"));
+        const class_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Class"));
+        const metaclass_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Metaclass"));
+
+        // Validate the hierarchy
+        try self.validate_parent_is_nil(object_ast);
+        try self.validate_parent_name_is(class_ast, "Object");
+        try self.validate_parent_name_is(metaclass_ast, "Class");
+
+        // Compile the classes
+        const object = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = object_ast,
+            .portion = object_ast.class_ast.instance_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Object"),
+            .compiled_parent = null,
+        });
+        const class = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = class_ast,
+            .portion = class_ast.class_ast.instance_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Class"),
+            .compiled_parent = object,
+        });
+        const object_class = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = object_ast,
+            .portion = object_ast.class_ast.class_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Object class"),
+            .compiled_parent = class,
+        });
+        const class_class = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = class_ast,
+            .portion = class_ast.class_ast.class_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Class class"),
+            .compiled_parent = object_class,
+        });
+        const metaclass = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = metaclass_ast,
+            .portion = metaclass_ast.class_ast.instance_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Metaclass"),
+            .compiled_parent = class,
+        });
+        const metaclass_class = try self.compile_portion_of_builtin_class___do_not_set_as_vm_object(.{
+            .ast = metaclass_ast,
+            .portion = metaclass_ast.class_ast.instance_portion,
+            .class_name_symbol = SymbolsManager.comptime_id_of("Metaclass class"),
+            .compiled_parent = class_class,
+        });
+
+        // Setup "is instance of" relationships through `as_vm_object`
+        //    X is instance of X_class:
+        try self.set_is_instance_of(object, object_class);
+        try self.set_is_instance_of(class, class_class);
+        try self.set_is_instance_of(metaclass, metaclass_class);
+        //    X_class is instance of metaclass:
+        try self.set_is_instance_of(object_class, metaclass);
+        try self.set_is_instance_of(class_class, metaclass);
+        try self.set_is_instance_of(metaclass_class, metaclass);
+
+        // Assert that the classes do not have any fields
+        try self.validate_class_has_no_fields(object);
+        try self.validate_class_has_no_fields(object_class);
+        try self.validate_class_has_no_fields(class);
+        try self.validate_class_has_no_fields(class_class);
+        try self.validate_class_has_no_fields(metaclass);
+        try self.validate_class_has_no_fields(metaclass_class);
+
+        // Put the classes into globals
+        try self.globals.put(SymbolsManager.comptime_id_of("Object"), VmObject.from(object.as_vm_object));
+        try self.globals.put(SymbolsManager.comptime_id_of("Class"), VmObject.from(class.as_vm_object));
+        try self.globals.put(SymbolsManager.comptime_id_of("Metaclass"), VmObject.from(metaclass.as_vm_object));
+        //
+        try self.globals.put(SymbolsManager.comptime_id_of("Object class"), VmObject.from(object_class.as_vm_object));
+        try self.globals.put(SymbolsManager.comptime_id_of("Class class"), VmObject.from(class_class.as_vm_object));
+        try self.globals.put(SymbolsManager.comptime_id_of("Metaclass class"), VmObject.from(metaclass_class.as_vm_object));
+
+        // Set our class definition fields
+        self.metaclass_definition = metaclass;
+        self.object_definition = object;
+
+        // Return the loaded classes
+        return BuiltinBaseHierarchy{
+            .class_of_object = object,
+            .class_of_class = class,
+            .class_of_metaclass = metaclass,
+        };
+    }
+
+    fn set_is_instance_of(self: *Self, instance: *ClassDefinition, class_of_instance: *ClassDefinition) !void {
+        const vm_object: VmObject = try types.Class.create_new(self.statics, .{
+            .class_fields_count = @intCast(class_of_instance.identifiers_of_instance_variables.len),
+            .represented_class = instance,
+            .class_of_represented_class = class_of_instance,
+        });
+        const class_object: *types.Class = vm_object.as(.class).?;
+        instance.as_vm_object = class_object;
+    }
+
+    fn validate_class_has_no_fields(self: *Self, class: *ClassDefinition) !void {
+        const fields = class.identifiers_of_instance_variables;
+        const fields_count = fields.len;
+        if (fields_count == 0) return;
+        const FieldsPrinter = struct {
+            fields: []SymbolId,
+            symbols_manager: *SymbolsManager,
+            pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+                for (this.fields, 0..) |field_symbol, idx| {
+                    const field_text: []const u8 = this.symbols_manager.symbol_with_id(field_symbol);
+                    if (idx != 0) try writer.print(", ", .{});
+                    try writer.print("'{s}'", .{field_text});
+                }
+            }
+        };
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        const class_name: []const u8 = self.statics.symbols_manager.symbol_with_id(class.class_name);
+        const plurar_s: []const u8 = if (fields_count == 1) "" else "s";
+
+        reporter.report_error(.no_location, "The class {s} has {d} field{s}: {f}. This class cannot have fields.", .{
+            class_name,
+            fields_count,
+            plurar_s,
+            (FieldsPrinter{ .fields = fields, .symbols_manager = &self.statics.symbols_manager }),
+        });
+        if (class.parent) |parent| if (parent.identifiers_of_instance_variables.len != 0) {
+            const parent_fields = parent.identifiers_of_instance_variables;
+            const parent_name = self.statics.symbols_manager.symbol_with_id(parent.class_name);
+            reporter.add_note(.no_location, "The fields {f} are inherited from the parent class {s}.", .{
+                (FieldsPrinter{ .fields = parent_fields, .symbols_manager = &self.statics.symbols_manager }),
+                parent_name,
+            });
+        };
+
+        return error.class_has_fields;
+    }
+
+    fn validate_parent_is_nil(self: *Self, ast: ParsedFile) !void {
+        var reporter = ErrorReporter{
+            .source = ast.source_code,
+            .source_path = ast.source_code_filepath,
+            .use_color = true,
+            .writer = self.error_writer,
+        };
+        const class_name_text: []const u8 = ast.text_at(ast.class_ast.class_name);
+        if (ast.class_ast.parent_class_name) |parent_name_token| {
+            const parent_name_text: []const u8 = ast.text_at(parent_name_token);
+            if (!std.mem.eql(u8, parent_name_text, "nil")) {
+                reporter.report_error(.{ .pos = ast.pos_of(parent_name_token) }, "The parent of {s} is expected to be nil, but it is {s}.", .{ class_name_text, parent_name_text });
+                return error.builtin_class_has_incorrect_parent;
+            }
+        }
+        // The parent is unspecified, but in that case, it is implicitly `Object`, which is error.
+        else {
+            const error_pos = ast.pos_of( // TokenSpan describing the "NameOfClass = (" section in the source code
+                Ast.TokenSpan.create(ast.class_ast.class_name.idx, ast.class_ast.class_name.idx + 2),
+            );
+            reporter.report_error(.{ .pos = ast.pos_of(error_pos) }, "The class {s} has no parent specified, therefore it is implicitly Object. But the class {s} is expected to have no parent.", .{ class_name_text, class_name_text });
+            reporter.add_note(.no_location, "To say that class has no parent, explicitly specify that the class inherits from `nil`.", .{});
+            return error.builtin_class_has_incorrect_parent;
+        }
+    }
+
+    fn validate_parent_name_is(self: *Self, ast: ParsedFile, expected_parent_name: []const u8) !void {
+        var reporter = ErrorReporter{
+            .source = ast.source_code,
+            .source_path = ast.source_code_filepath,
+            .use_color = true,
+            .writer = self.error_writer,
+        };
+        const class_name_text: []const u8 = ast.text_at(ast.class_ast.class_name);
+        if (ast.class_ast.parent_class_name) |parent_name_token| {
+            const parent_name_text: []const u8 = ast.text_at(parent_name_token);
+            if (!std.mem.eql(u8, parent_name_text, expected_parent_name)) {
+                reporter.report_error(.{ .pos = ast.pos_of(parent_name_token) }, "The parent of {s} is expected to be nil, but it is {s}.", .{ class_name_text, parent_name_text });
+                return error.builtin_class_has_incorrect_parent;
+            }
+        } else if (!std.mem.eql(u8, expected_parent_name, "Object")) {
+            const error_pos = ast.pos_of( // TokenSpan describing the "NameOfClass = (" section in the source code
+                Ast.TokenSpan.create(ast.class_ast.class_name.idx, ast.class_ast.class_name.idx + 2),
+            );
+            reporter.report_error(.{ .pos = error_pos }, "The parent of {s} has no parent specified, therefore it is implicitly Object. But the parent of class {s} is expected to be {s}.", .{
+                class_name_text,
+                class_name_text,
+                expected_parent_name,
+            });
+            return error.builtin_class_has_incorrect_parent;
+        }
+    }
+
+    fn parse_file(self: *Self, class_name: SymbolId) !ParsedFile {
+        return find_file_and_parse_it(
+            class_name,
+            self.source_code_files,
+            self.statics,
+            self.error_writer,
+            self.temporary_arena.allocator(),
+        );
+    }
+
+    fn compile_portion_of_builtin_class___do_not_set_as_vm_object(self: *Self, params: struct {
+        ast: ParsedFile,
+        portion: Ast.ClassAstPortion,
+        class_name_symbol: SymbolId,
+        compiled_parent: ?*ClassDefinition,
+    }) !*ClassDefinition {
+        var reporter = ErrorReporter{
+            .source = params.ast.source_code,
+            .source_path = params.ast.source_code_filepath,
+            .use_color = true,
+            .writer = self.error_writer,
+        };
+
+        return compile_portion(.{
+            .ast = params.ast,
+            .ast_portion = params.portion,
+            .class_name_symbol = params.class_name_symbol,
+            .compiled_parent = params.compiled_parent,
+            .temporary_allocator = self.temporary_arena.allocator(),
+            .statics = self.statics,
+            .reporter = &reporter,
+            .primitive_methods_map = self.primitive_methods_map,
+        });
+    }
+
+    const Self = @This();
+};
+
+const ParsedFileToCompile = struct { name: SymbolId, ast: ParsedFile };
 
 pub const CompileClassWithItsParentsParams = struct {
     bottom_class_name: SymbolId,
@@ -598,15 +932,12 @@ pub const CompileClassWithItsParentsParams = struct {
     temporary_allocator: Allocator,
     source_code_files: *SourceCodeFiles,
     error_writer: *std.io.Writer,
-    primitive_methods_map: PrimitiveMethodsMap,
+    primitive_methods_map: *const PrimitiveMethodsMap,
     /// Used for lookup of class definitions.
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
-    builtin_class_definitions: *BuiltinClassDefinitions,
+    metaclass_definition: *ClassDefinition,
 };
 
-const ParsedFileToCompile = struct { name: SymbolId, ast: ParsedFile };
-
-/// The metaclass has the VM object set to undefined.
 pub fn compile_class_with_its_parents(
     params: CompileClassWithItsParentsParams,
 ) !ClassDefinitionPair {
@@ -617,7 +948,7 @@ pub fn compile_class_with_its_parents(
     const error_writer = params.error_writer;
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
-    const builtin_class_definitions = params.builtin_class_definitions;
+    const metaclass_definition = params.metaclass_definition;
 
     var error_reporter = ErrorReporter{
         .source = undefined,
@@ -685,7 +1016,7 @@ pub fn compile_class_with_its_parents(
             &error_reporter,
             primitive_methods_map,
             globals,
-            builtin_class_definitions,
+            metaclass_definition,
         );
         current_parent = compiled_class;
     }
@@ -771,9 +1102,9 @@ pub fn compile_class(
     temporary_allocator: Allocator,
     statics: *Statics,
     reporter: *ErrorReporter,
-    primitive_methods_map: PrimitiveMethodsMap,
+    primitive_methods_map: *const PrimitiveMethodsMap,
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
-    builtin_class_definitions: *BuiltinClassDefinitions,
+    metaclass_definition: ?*ClassDefinition,
 ) !ClassDefinitionPair {
     // Concatenated name of the class with the string " class" (yes, with the space in front of it).
     const class_class_name_symbol: SymbolId = blk: {
@@ -797,8 +1128,8 @@ pub fn compile_class(
         // Create a new global object which represents the newly compiled class
         const class_as_som_object: VmObject = try types.Class.create_new(statics, .{
             .represented_class = compiled_class,
-            .class_of_represented_class = builtin_class_definitions.metaclass orelse undefined,
-            .class_fields_count = if (builtin_class_definitions.metaclass) |m| @intCast(m.identifiers_of_instance_variables.len) else 0,
+            .class_of_represented_class = metaclass_definition orelse undefined,
+            .class_fields_count = if (metaclass_definition) |m| @intCast(m.identifiers_of_instance_variables.len) else 0,
         });
         try globals.put(compiled_class.class_name, class_as_som_object);
         break :blk compiled_class;
@@ -826,30 +1157,6 @@ pub fn compile_class(
         break :blk compiled_class;
     };
 
-    register_builtin_class: {
-        const builtin_class: *?*ClassDefinition = switch (class_name_symbol.idx) {
-            SymbolsManager.comptime_id_of("Nil").idx => &builtin_class_definitions.nil,
-            SymbolsManager.comptime_id_of("Object").idx => &builtin_class_definitions.object,
-            SymbolsManager.comptime_id_of("Class").idx => &builtin_class_definitions.class,
-            SymbolsManager.comptime_id_of("Metaclass").idx => &builtin_class_definitions.metaclass,
-            SymbolsManager.comptime_id_of("True").idx => &builtin_class_definitions.true,
-            SymbolsManager.comptime_id_of("False").idx => &builtin_class_definitions.false,
-            SymbolsManager.comptime_id_of("Integer").idx => &builtin_class_definitions.integer,
-            SymbolsManager.comptime_id_of("Double").idx => &builtin_class_definitions.double,
-            SymbolsManager.comptime_id_of("Array").idx => &builtin_class_definitions.array,
-            SymbolsManager.comptime_id_of("String").idx => &builtin_class_definitions.string,
-            SymbolsManager.comptime_id_of("Symbol").idx => &builtin_class_definitions.symbol,
-            SymbolsManager.comptime_id_of("Block1").idx => &builtin_class_definitions.block1,
-            SymbolsManager.comptime_id_of("Block2").idx => &builtin_class_definitions.block2,
-            SymbolsManager.comptime_id_of("Block3").idx => &builtin_class_definitions.block3,
-            SymbolsManager.comptime_id_of("System").idx => &builtin_class_definitions.system,
-            SymbolsManager.comptime_id_of("Method").idx => &builtin_class_definitions.method,
-            SymbolsManager.comptime_id_of("Primitive").idx => &builtin_class_definitions.primitive,
-            else => break :register_builtin_class,
-        };
-        builtin_class.* = instance_portion_definition;
-    }
-
     return .{
         .class = instance_portion_definition,
         .metaclass = class_portion_definition,
@@ -864,7 +1171,7 @@ pub const CompilePortionParams = struct {
     temporary_allocator: Allocator,
     statics: *Statics,
     reporter: *ErrorReporter,
-    primitive_methods_map: PrimitiveMethodsMap,
+    primitive_methods_map: *const PrimitiveMethodsMap,
 };
 
 /// WARN: The returned class has the `ClassDefinition.as_vm_object` set to `undefined`!

@@ -287,30 +287,30 @@ pub const Heap = struct {
                 std.debug.print("  • ", .{});
                 self.interpreter.print_object(stack_object) catch unreachable;
             }
-            stack_object.gc_mark_as_reachable_ignore_if_class_method_system();
+            stack_object.gc_mark_as_reachable_ignore_if_class_method();
         }
 
         // Mark blocks which currently have stack frames
         for (self.interpreter.stack.frames) |frame| {
             const block: *types.Block = unions.get_payload(frame.kind, .block) orelse continue;
-            VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method_system();
+            VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method();
         }
 
         // Mark global objects
         for (self.interpreter.globals.values()) |global_object| {
-            global_object.gc_mark_as_reachable_ignore_if_class_method_system();
+            global_object.gc_mark_as_reachable_ignore_if_class_method();
         }
 
         // Mark protected objects
         for (self.protected_objects.items) |protected_object| {
-            protected_object.gc_mark_as_reachable_ignore_if_class_method_system();
+            protected_object.gc_mark_as_reachable_ignore_if_class_method();
         }
 
         // Mark static objects
         var it_classes = self.interpreter.statics.all_classes.iterator(0);
         while (it_classes.next()) |class| {
             for (class.as_vm_object.get_class_fields()) |object| {
-                object.gc_mark_as_reachable_ignore_if_class_method_system();
+                object.gc_mark_as_reachable_ignore_if_class_method();
             }
         }
 
@@ -599,31 +599,44 @@ pub const Stack = struct {
 };
 
 pub const BuiltinClassDefinitions = struct {
-    nil: ?*ClassDefinition = null,
-    object: ?*ClassDefinition = null,
-    class: ?*ClassDefinition = null,
-    metaclass: ?*ClassDefinition = null,
-    true: ?*ClassDefinition = null,
-    false: ?*ClassDefinition = null,
-    integer: ?*ClassDefinition = null,
-    double: ?*ClassDefinition = null,
-    array: ?*ClassDefinition = null,
-    string: ?*ClassDefinition = null,
-    symbol: ?*ClassDefinition = null,
-    block1: ?*ClassDefinition = null,
-    block2: ?*ClassDefinition = null,
-    block3: ?*ClassDefinition = null,
-    system: ?*ClassDefinition = null,
-    method: ?*ClassDefinition = null,
-    primitive: ?*ClassDefinition = null,
+    nil: *ClassDefinition,
+    object: *ClassDefinition,
+    class: *ClassDefinition,
+    metaclass: *ClassDefinition,
+    true: *ClassDefinition,
+    false: *ClassDefinition,
+    integer: *ClassDefinition,
+    double: *ClassDefinition,
+    array: *ClassDefinition,
+    string: *ClassDefinition,
+    symbol: *ClassDefinition,
+    block1: *ClassDefinition,
+    block2: *ClassDefinition,
+    block3: *ClassDefinition,
+    system: *ClassDefinition,
+    method: *ClassDefinition,
+    primitive: *ClassDefinition,
 
-    pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) ?*const ClassDefinition {
+    pub fn block_from_number_of_non_self_arguments(self: @This(), number_of_non_self_arguments: u16) *ClassDefinition {
         return switch (number_of_non_self_arguments) {
             0 => self.block1,
             1 => self.block2,
             2 => self.block3,
             else => unreachable,
         };
+    }
+};
+
+pub const Singletons = struct {
+    true_object: VmObject,
+    false_object: VmObject,
+    system_object: VmObject,
+
+    pub fn get_boolean_object(self: @This(), boolean: bool) VmObject {
+        if (boolean) {
+            return self.true_object;
+        }
+        return self.false_object;
     }
 };
 
@@ -641,7 +654,8 @@ pub const Interpreter = struct {
     stderr: *Writer,
 
     primitive_methods: PrimitiveMethodsMap,
-    builtin_class_definitions: BuiltinClassDefinitions = undefined,
+    /// TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
+    builtin_class_definitions: BuiltinClassDefinitions,
 
     source_code_files: *SourceCodeFiles,
 
@@ -652,18 +666,7 @@ pub const Interpreter = struct {
     /// TODO: put this into an argument and maybe set it to `false` by default
     nil_out_items_of_new_array: bool = true,
 
-    singletons: struct {
-        true_object: VmObject,
-        false_object: VmObject,
-        system: VmObject,
-
-        pub fn get_boolean_object(self: @This(), boolean: bool) VmObject {
-            if (boolean) {
-                return self.true_object;
-            }
-            return self.false_object;
-        }
-    } = undefined, // TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
+    singletons: Singletons,
 
     stack: Stack,
 
@@ -690,7 +693,7 @@ pub const Interpreter = struct {
 
     pub fn new(
         heap: Heap,
-        allocator_for_globals: Allocator,
+        globals: std.AutoArrayHashMap(SymbolId, VmObject),
         temporary_arena: *std.heap.ArenaAllocator,
         stdout: *Writer,
         stderr: *Writer,
@@ -699,6 +702,8 @@ pub const Interpreter = struct {
         primitive_methods: PrimitiveMethodsMap,
         preallocated_object_stack: []VmObject,
         preallocated_frame_stack: []Stack.Frame,
+        builtin_class_definitions: BuiltinClassDefinitions,
+        singletons: Singletons,
     ) Interpreter {
         const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
@@ -709,10 +714,11 @@ pub const Interpreter = struct {
             .heap = heap,
             .timer = null,
             .primitive_methods = primitive_methods,
-            .globals = .init(allocator_for_globals),
+            .globals = globals,
             .source_code_files = source_code_files,
-            .builtin_class_definitions = .{},
+            .builtin_class_definitions = builtin_class_definitions,
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
+            .singletons = singletons,
         };
 
         return interpreter;
@@ -1023,9 +1029,6 @@ pub const Interpreter = struct {
                 });
                 try self.print_object_no_newline(VmObject.from(block.home_method().as_vm_object));
             },
-            .system => {
-                std.debug.print("system_singleton", .{});
-            },
             .method => |method| {
                 std.debug.print("Method '{s}' from '{s}'", .{
                     self.string_from_symbol(method.method().method_name),
@@ -1108,35 +1111,23 @@ pub const Interpreter = struct {
         }
     }
 
-    pub fn load_class_ignore_parent(self: *Self, class_name: SymbolId) !*ClassDefinition {
-        const class_pair = try compile_class_ignoring_parents(.{
-            .class_name = class_name,
-            .error_writer = self.stderr,
-            .globals = &self.globals,
-            .primitive_methods_map = self.primitive_methods,
-            .source_code_files = self.source_code_files,
-            .statics = self.statics,
-            .temporary_allocator = self.statics.allocator, // TODO: use an actual *temporary* allocator
-            .builtin_class_definitions = &self.builtin_class_definitions,
-        });
-        return class_pair.class;
-    }
-
     pub fn load_class(self: *Self, class_name: SymbolId) !*ClassDefinition {
-        const class_definition_pair: ClassDefinitionPair = try compile_class_with_its_parents(.{
-            .bottom_class_name = class_name,
+        var class_loader = codegen_module.ClassLoader{
             .error_writer = self.stderr,
             .globals = &self.globals,
-            .primitive_methods_map = self.primitive_methods,
+            .metaclass_definition = self.builtin_class_definitions.metaclass,
+            .object_definition = self.builtin_class_definitions.object,
+            .primitive_methods_map = &self.primitive_methods,
             .source_code_files = self.source_code_files,
             .statics = self.statics,
-            .temporary_allocator = self.temporary_arena.allocator(),
-            .builtin_class_definitions = &self.builtin_class_definitions,
-        });
-        _ = self.temporary_arena.reset(.retain_capacity);
+            .temporary_arena = self.temporary_arena,
+        };
+        const loaded_class = try class_loader.load_class(class_name);
 
         // The bytecode array might have gotten reallocated during the compilation
-        return class_definition_pair.class;
+        self.decoder.bytes = self.top_frame().get_bytecode().bytes;
+
+        return loaded_class;
     }
 
     pub fn push_frame(
@@ -1363,29 +1354,28 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
-        const opaque_header_ptr: *OpaqueHeader = object.data orelse return self.builtin_class_definitions.nil.?;
+        const opaque_header_ptr: *OpaqueHeader = object.data orelse return self.builtin_class_definitions.nil;
         return switch (opaque_header_ptr.tag) {
             .class => opaque_header_ptr.asserted_cast_to(.class).class_of_represented_class,
             .generic_object => opaque_header_ptr.asserted_cast_to(.generic_object).class,
 
-            .integer => self.builtin_class_definitions.integer.?,
-            .double => self.builtin_class_definitions.double.?,
-            .string => self.builtin_class_definitions.string.?,
-            .nil => self.builtin_class_definitions.nil.?,
-            .array => self.builtin_class_definitions.array.?,
-            .symbol => self.builtin_class_definitions.symbol.?,
-            .system => self.builtin_class_definitions.system.?,
+            .integer => self.builtin_class_definitions.integer,
+            .double => self.builtin_class_definitions.double,
+            .string => self.builtin_class_definitions.string,
+            .nil => self.builtin_class_definitions.nil,
+            .array => self.builtin_class_definitions.array,
+            .symbol => self.builtin_class_definitions.symbol,
 
             .block => blk: {
                 const block = opaque_header_ptr.asserted_cast_to(.block);
                 break :blk self.builtin_class_definitions.block_from_number_of_non_self_arguments(
                     block.block_definition.number_of_aditional_args,
-                ).?;
+                );
             },
             .method => blk: {
-                const method = opaque_header_ptr.asserted_cast_to(.method);
-                if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive.?;
-                break :blk self.builtin_class_definitions.method.?;
+                const method: *types.Method = opaque_header_ptr.asserted_cast_to(.method);
+                if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive;
+                break :blk self.builtin_class_definitions.method;
             },
 
             .frame_header => unreachable,

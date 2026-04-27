@@ -78,11 +78,11 @@ pub const VmObject = struct {
         return @ptrCast(data);
     }
 
-    /// We ignore `types.(Class|Method|System)` because they are allocated
+    /// We ignore `types.(Class|Method)` because they are allocated
     /// in the static space. We have to mark their references manually
     /// in order for this to make sense.
-    /// NOTE: Only `types.Class` has actuall references - class fields. `types.(Method|System)` doesn't store object references.
-    pub fn gc_mark_as_reachable_ignore_if_class_method_system(self: VmObject) void {
+    /// NOTE: Only `types.Class` has actuall references - class fields - so we mark only those manualy in `gc_mark()`. `types.Method` doesn't store object references.
+    pub fn gc_mark_as_reachable_ignore_if_class_method(self: VmObject) void {
         const header: *OpaqueHeader = self.data orelse return;
         switch (header.tag) {
             .empty_heap_segment,
@@ -90,7 +90,6 @@ pub const VmObject = struct {
             .nil,
             => unreachable,
 
-            .system,
             .method,
             .class,
             => return,
@@ -232,7 +231,6 @@ pub const Tag = enum(u8) {
     empty_heap_segment,
     frame_header,
     nil,
-    system,
     method,
 };
 
@@ -252,9 +250,6 @@ pub const Kind = union(Tag) {
 
     /// Does not have a payload since it is a singleton with no fields.
     nil,
-
-    /// TODO: remove the payload once we have NaN boxing, `System` is a singleton with no state
-    system: *types.System,
 
     method: *types.Method,
 
@@ -489,7 +484,7 @@ pub const types = struct {
 
         pub fn gc_mark_references(self: *Self) void {
             for (self.get_fields()) |field_object| {
-                field_object.gc_mark_as_reachable_ignore_if_class_method_system();
+                field_object.gc_mark_as_reachable_ignore_if_class_method();
             }
         }
 
@@ -610,7 +605,7 @@ pub const types = struct {
 
         pub fn gc_mark_references(self: *Self) void {
             for (self.get_items()) |item| {
-                item.gc_mark_as_reachable_ignore_if_class_method_system();
+                item.gc_mark_as_reachable_ignore_if_class_method();
             }
         }
 
@@ -797,27 +792,6 @@ pub const types = struct {
         const Self = @This();
     };
 
-    /// TODO: remove this class
-    pub const System = extern struct {
-        header: Header,
-        pub const Header = packed struct(u64) {
-            tag: Tag = tag,
-            is_marked: bool = false,
-            _padding: u55 = undefined,
-
-            pub fn object_size_in_bytes(header: @This()) usize {
-                _ = header;
-                return @sizeOf(Header);
-            }
-        };
-        pub const tag = Tag.system;
-
-        pub fn create_new(allocator: anytype) std.mem.Allocator.Error!VmObject {
-            const self: *System = @ptrCast(try allocate_heap_data(allocator, Header{}));
-            return VmObject.from(self);
-        }
-    };
-
     pub const Method = extern struct {
         header: Header,
 
@@ -907,12 +881,12 @@ pub const FrameOnHeap = struct {
 
             const frame = FrameOnHeap.frame_from_header(header);
             switch (frame.kind) {
-                .block => |block| VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method_system(),
+                .block => |block| VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method(),
                 .method => {},
             }
 
             for (FrameOnHeap.get_arguments_and_locals(header)) |local| {
-                local.gc_mark_as_reachable_ignore_if_class_method_system();
+                local.gc_mark_as_reachable_ignore_if_class_method();
             }
         }
     };

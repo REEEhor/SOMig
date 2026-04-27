@@ -710,10 +710,10 @@ pub const @"Array class" = struct {
 
 pub const System = struct {
     // ========================= Globals =========================
-    pub fn @"global:"(_: SystemPlaceholder, global_name: SymbolId, interpreter: *Interpreter) VmObject {
+    pub fn @"global:"(_: VmObject, global_name: SymbolId, interpreter: *Interpreter) VmObject {
         return interpreter.globals.get(global_name) orelse VmObject.nil;
     }
-    pub fn @"global:put:"(_: SystemPlaceholder, global_name: SymbolId, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"global:put:"(_: VmObject, global_name: SymbolId, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         if (new_value.as_block()) |block| {
             @branchHint(.cold);
             block.add_to_escaping_blocks_list();
@@ -721,12 +721,12 @@ pub const System = struct {
         try interpreter.globals.put(global_name, new_value);
         return .{};
     }
-    pub fn @"hasGlobal:"(_: SystemPlaceholder, global_name: SymbolId, interpreter: *Interpreter) bool {
+    pub fn @"hasGlobal:"(_: VmObject, global_name: SymbolId, interpreter: *Interpreter) bool {
         return interpreter.globals.contains(global_name);
     }
 
     // ========================= File support =========================
-    pub fn @"loadFile:"(_: SystemPlaceholder, filepath: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
+    pub fn @"loadFile:"(_: VmObject, filepath: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
         // TODO: maybe use working directory of the interpreter here. Meaning we have to add `working_directory` into the interpreter which will be passes via a console argument
         var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch return VmObject.nil;
         defer file.close();
@@ -745,13 +745,13 @@ pub const System = struct {
     }
 
     // ========================= Loading =========================
-    pub fn @"load:"(_: SystemPlaceholder, class_name: SymbolId, interpreter: *Interpreter) VmObject {
+    pub fn @"load:"(_: VmObject, class_name: SymbolId, interpreter: *Interpreter) VmObject {
         const loaded_class: *ClassDefinition = interpreter.load_class(class_name) catch return VmObject.nil;
         return VmObject.from(loaded_class.as_vm_object);
     }
 
     // ========================= Exiting =========================
-    pub fn @"exit:"(_: SystemPlaceholder, error_code: i48, interpreter: *Interpreter) Interpreter.Error!void {
+    pub fn @"exit:"(_: VmObject, error_code: i48, interpreter: *Interpreter) Interpreter.Error!void {
         const error_code_as_u8: u8 = std.math.cast(u8, error_code) orelse {
             interpreter.report_runtime_error("Invalid argument, got integer {d} but only integers from the range [0,255] are expected.", .{error_code});
             return Interpreter.Error.generic_runtime_error;
@@ -766,25 +766,25 @@ pub const System = struct {
     }
 
     // ========================= Printing =========================
-    pub fn printNewline(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn printNewline(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stdout.writeAll(newline);
         try interpreter.stdout.flush();
         return .{};
     }
-    pub fn @"printString:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"printString:"(_: VmObject, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stdout.writeAll(string);
         if (interpreter.do_flush_on_every_print) {
             try interpreter.stdout.flush();
         }
         return .{};
     }
-    pub fn @"errorPrintln:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"errorPrintln:"(_: VmObject, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stderr.writeAll(string);
         _ = try interpreter.stderr.writeAll(newline);
         try interpreter.stderr.flush();
         return .{};
     }
-    pub fn @"errorPrint:"(_: SystemPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"errorPrint:"(_: VmObject, string: []const u8, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stderr.writeAll(string);
         if (interpreter.do_flush_on_every_print) {
             try interpreter.stderr.flush();
@@ -792,7 +792,7 @@ pub const System = struct {
         return .{};
     }
     /// TODO: Make this prettier
-    pub fn printStackTrace(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn printStackTrace(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         for (interpreter.stack.frames) |frame| {
             switch (frame.kind) {
                 .method => |method| {
@@ -815,13 +815,13 @@ pub const System = struct {
     }
 
     // ========================= Time =========================
-    pub fn time(_: SystemPlaceholder, interpreter: *Interpreter) i48 {
+    pub fn time(_: VmObject, interpreter: *Interpreter) i48 {
         var timer = interpreter.timer orelse return 0;
         const nanos = timer.read();
         const millis = nanos / 1000 / 1000;
         return std.math.lossyCast(i48, millis);
     }
-    pub fn ticks(_: SystemPlaceholder, interpreter: *Interpreter) i48 {
+    pub fn ticks(_: VmObject, interpreter: *Interpreter) i48 {
         var timer = interpreter.timer orelse return 0;
         const nanos = timer.read();
         const micros = nanos / 1000;
@@ -831,7 +831,7 @@ pub const System = struct {
     // ========================= Force Garbage Collection =========================
     /// FIXME: implement actual GC
     /// NOTE: yes, it should really return a `bool`, see `IntegrationTests/Tests/fullgc.com`
-    pub fn fullGC(_: SystemPlaceholder, interpreter: *Interpreter) Interpreter.Error!bool {
+    pub fn fullGC(_: VmObject, interpreter: *Interpreter) Interpreter.Error!bool {
         try interpreter.heap.run_garbage_collection();
         return true;
     }
@@ -1046,7 +1046,6 @@ const SymbolsManager = interning_module.SymbolsManager;
 
 const helpers_module = @import("helpers.zig");
 const NilPlaceholder = helpers_module.NilPlaceholder;
-const SystemPlaceholder = helpers_module.SystemPlaceholder;
 const PrimitiveMethodWrapper = helpers_module.PrimitiveMethodWrapper;
 const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
 const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;

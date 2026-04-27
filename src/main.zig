@@ -10,17 +10,21 @@ const dbg = debug_module.dbg;
 const parser_module = @import("frontend/parser.zig");
 const Parser = parser_module.Parser;
 
-const SymbolsManager = @import("interning/symbols_manager.zig").SymbolsManager;
+const interning_module = @import("interning/__interning.zig");
+const SymbolsManager = interning_module.SymbolsManager;
+const SymbolId = interning_module.SymbolId;
 
 const codegen = @import("frontend/codegen.zig");
 
 const interpreter_module = @import("interpreter/__interpreter.zig");
 const Interpreter = interpreter_module.Interpreter;
+const ClassDefinition = interpreter_module.ClassDefinition;
 const Statics = interpreter_module.Statics;
 const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
 const types = interpreter_module.types;
 const VmObject = interpreter_module.VmObject;
 const Heap = interpreter_module.Heap;
+const Singletons = interpreter_module.Singletons;
 
 const lexer_module = @import("frontend/lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -96,7 +100,7 @@ pub fn main() !void {
         }
     }
 
-    try run(.{
+    run(.{
         .gpa = gpa,
         .stdout = stdout,
         .stderr = stderr,
@@ -107,7 +111,10 @@ pub fn main() !void {
         .program_arguments_as_strings = arguments_for_som.items,
         .root_directories = root_directories.items,
         .skip_bootstrap = interpreter_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
-    });
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => std.process.exit(1),
+    };
 }
 
 fn parse(allocator: std.mem.Allocator, filepath: []const u8) !void {
@@ -203,12 +210,6 @@ pub fn run(params: RunParams) !void {
         .constants_manager = codegen.ConstantsManager.init(static_allocator),
     };
 
-    // Make program arguments into VM strings
-    const programs_arguments = try types.Array.create_with_undefined_items(&statics, program_arguments_as_strings.len);
-    for (programs_arguments.get_items(), program_arguments_as_strings) |*argument, argument_as_string| {
-        argument.* = try interpreter_module.types.String.create_new(&statics, argument_as_string);
-    }
-
     // Prepare primitive methods
     const primitive_methods_map = try PrimitiveMethodsMap.init_from(
         static_allocator,
@@ -231,10 +232,43 @@ pub fn run(params: RunParams) !void {
     var temporary_arena = std.heap.ArenaAllocator.init(gpa);
     defer temporary_arena.deinit();
 
+    // Set up globals
+    var globals = std.AutoArrayHashMap(SymbolId, VmObject).init(static_allocator);
+
+    // Load builtin classes
+    var class_loader = codegen.ClassLoader{
+        .statics = &statics,
+        .temporary_arena = &temporary_arena,
+        .source_code_files = &source_code_files,
+        .error_writer = stderr,
+        .primitive_methods_map = &primitive_methods_map,
+        .globals = &globals,
+        .metaclass_definition = null,
+        .object_definition = null,
+    };
+    const builtin_classes = try class_loader.load_builtin_classes();
+
+    // Load singletons
+    const singletons = get_singletons: {
+        const true_object = try types.GenericObject.create_new(&statics, builtin_classes.true);
+        const false_object = try types.GenericObject.create_new(&statics, builtin_classes.false);
+        const system_object = try types.GenericObject.create_new(&statics, builtin_classes.system);
+        const singletons = Singletons{
+            .true_object = true_object,
+            .false_object = false_object,
+            .system_object = system_object,
+        };
+        try globals.put(SymbolsManager.comptime_id_of("system"), singletons.system_object);
+        try globals.put(SymbolsManager.comptime_id_of("true"), singletons.true_object);
+        try globals.put(SymbolsManager.comptime_id_of("false"), singletons.false_object);
+        try globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
+        break :get_singletons singletons;
+    };
+
     // Setup interpreter
     var interpreter = Interpreter.new(
         Heap{ .backing_allocator = gpa, .interpreter = undefined },
-        static_allocator,
+        globals,
         &temporary_arena,
         stdout,
         stderr,
@@ -243,79 +277,17 @@ pub fn run(params: RunParams) !void {
         primitive_methods_map,
         objects,
         frames,
+        builtin_classes,
+        singletons,
     );
     interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();
     try interpreter.heap.reserve_at_least(.{ .total_minimum_number_of_bytes = 1 });
 
-    // Setup the base class hiearchy
-    // TODO: assert correct hiearchy (meaning the classes actually point to each other)
-    {
-        const object_definition, const object_class_definition = blk: {
-            const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Object"));
-            break :blk .{ class, class.get_metaclass_through_vm_object() };
-        };
-        const class_definition, const class_class_definition = blk: {
-            const class = try interpreter.load_class_ignore_parent(SymbolsManager.comptime_id_of("Class"));
-            break :blk .{ class, class.get_metaclass_through_vm_object() };
-        };
-
-        // Assign the parents
-        try codegen.set_parent_and_leak_original_methods(class_definition, object_definition, interpreter.statics);
-        try codegen.set_parent_and_leak_original_methods(object_class_definition, class_definition, interpreter.statics);
-        try codegen.set_parent_and_leak_original_methods(class_class_definition, object_class_definition, interpreter.statics);
-
-        const metaclass_definition = try interpreter.load_class(SymbolsManager.comptime_id_of("Metaclass"));
-
-        // Update all VM objects which represent some metaclass in the runtime,
-        // so the "class of the class they are representing" is actually metaclass and not undefined.
-        object_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
-        class_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
-        {
-            const metaclass_class_definition = metaclass_definition.get_metaclass_through_vm_object();
-            metaclass_class_definition.as_vm_object.class_of_represented_class = metaclass_definition;
-            assert(metaclass_class_definition.get_metaclass_through_vm_object() == metaclass_definition);
-        }
-    }
-
-    // Force load required builtin classes
-    {
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Nil"));
-        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Object")); // NOTE: this was loaded above
-        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Class")); // NOTE: this was loaded above
-        // _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Metaclass")); // NOTE: this was loaded above
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("True"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("False"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Integer"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Double"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Array"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("String"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Symbol"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block1"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block2"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Block3"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("System"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Method"));
-        _ = try interpreter.load_class(SymbolsManager.comptime_id_of("Primitive"));
-        inline for (std.meta.fields(interpreter_module.BuiltinClassDefinitions)) |field| {
-            assert(@field(interpreter.builtin_class_definitions, field.name) != null);
-        }
-    }
-
-    // Load singletons
-    {
-        const true_object = try types.GenericObject.create_new(&statics, interpreter.builtin_class_definitions.true.?);
-        const false_object = try types.GenericObject.create_new(&statics, interpreter.builtin_class_definitions.false.?);
-        const system_object = try types.System.create_new(&statics);
-        interpreter.singletons = .{
-            .true_object = true_object,
-            .false_object = false_object,
-            .system = system_object,
-        };
-        try interpreter.globals.put(SymbolsManager.comptime_id_of("system"), system_object);
-        try interpreter.globals.put(SymbolsManager.comptime_id_of("true"), true_object);
-        try interpreter.globals.put(SymbolsManager.comptime_id_of("false"), false_object);
-        try interpreter.globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
+    // Make program arguments into VM strings
+    const programs_arguments = try types.Array.create_with_undefined_items(&statics, program_arguments_as_strings.len);
+    for (programs_arguments.get_items(), program_arguments_as_strings) |*argument, argument_as_string| {
+        argument.* = try interpreter_module.types.String.create_new(&statics, argument_as_string);
     }
 
     if (skip_bootstrap) {
@@ -346,12 +318,12 @@ pub fn run(params: RunParams) !void {
             return err;
         };
     } else {
-        const initialize_method = interpreter.builtin_class_definitions.system.?.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
+        const initialize_method = interpreter.builtin_class_definitions.system.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
             interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
             return error.no_initialize_method;
         };
         try interpreter.push_object(VmObject.from(programs_arguments));
-        try interpreter.push_object(interpreter.singletons.system);
+        try interpreter.push_object(interpreter.singletons.system_object);
         try interpreter.call_method(initialize_method);
         interpreter.run() catch |err| {
             interpreter.stderr.flush() catch {};

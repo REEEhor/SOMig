@@ -242,10 +242,6 @@ pub const PrimitiveMethodsMap = struct {
                             break :blk PrimitiveMethodWrapper.init(method_object.method());
                         },
 
-                        SystemPlaceholder => if (interpreter.pop_object().as(.system) != null) .{} else {
-                            return invalid_argument(interpreter, som_parameter_idx, "System");
-                        },
-
                         ArrayClassPlaceholder => try pop_specific_class("Array", ArrayClassPlaceholder, som_parameter_idx, interpreter),
                         IntegerClassPlaceholder => try pop_specific_class("Integer", IntegerClassPlaceholder, som_parameter_idx, interpreter),
                         DoubleClassPlaceholder => try pop_specific_class("Double", DoubleClassPlaceholder, som_parameter_idx, interpreter),

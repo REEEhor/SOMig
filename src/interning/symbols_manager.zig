@@ -16,11 +16,8 @@ pub fn GenericSymbolsManager(
     comptime comptime_known_symbols: []const []const u8,
 ) type {
     return struct {
-        const Self = @This();
-        pub const OrderedStringSet = std.StringArrayHashMapUnmanaged(void);
-
         allocator: Allocator,
-        string_set: OrderedStringSet,
+        string_set: std.StringArrayHashMapUnmanaged(void),
 
         pub fn create(
             allocator: Allocator,
@@ -29,7 +26,7 @@ pub fn GenericSymbolsManager(
             const real_init_capacity = additional_init_capacity + comptime_known_symbols.len;
             var manager = Self{
                 .allocator = allocator,
-                .string_set = OrderedStringSet.empty,
+                .string_set = .empty,
             };
             try manager.string_set.ensureTotalCapacity(allocator, @intCast(real_init_capacity));
 
@@ -92,6 +89,15 @@ pub fn GenericSymbolsManager(
         pub fn symbol_with_id(self: Self, id: SymbolId) []const u8 {
             return self.string_set.keys()[id.idx];
         }
+
+        pub fn dump(self: Self) void {
+            std.debug.print("Dumping SymbolsManager:\n", .{});
+            for (self.string_set.keys(), 0..) |string, idx| {
+                std.debug.print("  {d:3}:  >{s}<\n", .{ idx, string });
+            }
+        }
+
+        const Self = @This();
     };
 }
 

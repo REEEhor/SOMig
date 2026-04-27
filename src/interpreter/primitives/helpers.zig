@@ -44,11 +44,6 @@ pub fn get_method_arity_from_selector(selector: []const u8) u32 {
 /// a `nil`.
 pub const NilPlaceholder = struct {};
 
-/// Represents the `system` value in SOM. Since the representation of `system` in `VmObject`
-/// does not cary any infromation, we use this zero-sized struct to indicate
-/// that a primitive method accepts or returns an instance of the `System` class.
-pub const SystemPlaceholder = struct {};
-
 pub const PrimitiveMethodWrapper = struct {
     method_definition: *const MethodDefinition,
 
