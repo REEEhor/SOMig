@@ -503,7 +503,10 @@ pub fn find_file_and_parse_it(
         .symbols_manager = &statics.symbols_manager,
     })) orelse {
         const class_name_str = statics.symbols_manager.symbol_with_id(class_name);
-        reporter.report_error(.no_location, "Could not find the source code for the class: {s}", .{class_name_str});
+        reporter.report_error(.no_location, "Could not find the source code for the class '{s}'.", .{class_name_str});
+        if (std.mem.endsWith(u8, class_name_str, ".som")) {
+            reporter.add_note(.no_location, "The class name ends with '.som', you probably wanted to load the class '{s}'.", .{class_name_str[0 .. class_name_str.len - ".som".len]});
+        }
         return error.sourcecode_for_class_not_found;
     };
     reporter.source = lookup_result.source_code;
@@ -601,6 +604,8 @@ pub const CompileClassWithItsParentsParams = struct {
     builtin_class_definitions: *BuiltinClassDefinitions,
 };
 
+const ParsedFileToCompile = struct { name: SymbolId, ast: ParsedFile };
+
 /// The metaclass has the VM object set to undefined.
 pub fn compile_class_with_its_parents(
     params: CompileClassWithItsParentsParams,
@@ -613,6 +618,13 @@ pub fn compile_class_with_its_parents(
     const primitive_methods_map = params.primitive_methods_map;
     const globals = params.globals;
     const builtin_class_definitions = params.builtin_class_definitions;
+
+    var error_reporter = ErrorReporter{
+        .source = undefined,
+        .source_path = undefined,
+        .use_color = true,
+        .writer = error_writer,
+    };
 
     // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
@@ -627,24 +639,24 @@ pub fn compile_class_with_its_parents(
     //
     // The order of classes in this ArrayList is "reversed" like this, because we encounter and parse the classes in this order.
     //
-    const ParsedFileToCompile = struct { name: SymbolId, ast: ParsedFile };
     var classes_to_compile = try std.ArrayList(ParsedFileToCompile).initCapacity(temporary_allocator, 5);
     defer classes_to_compile.deinit(temporary_allocator);
     try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = bottom_class_name, .ast = bottom_ast });
 
     const parent_of_last_class: ?*ClassDefinition = while (maybe_parent_being_resolved) |parent_being_resolved| {
-
         // Check if the name is in `classes_to_compile`
-        for (classes_to_compile.items) |parsed_predecessor| {
-            if (parent_being_resolved.idx != parsed_predecessor.name.idx) continue;
-            return error.circular_dependency; // TODO: nice error report that lists out the loop in the hiearchy
+        for (classes_to_compile.items, 0..) |parsed_predecessor, idx| {
+            if (parent_being_resolved != parsed_predecessor.name) continue;
+            report_circular_dependency_error(&error_reporter, classes_to_compile.items[idx..]);
+            return error.circular_dependency;
         }
 
         if (globals.get(parent_being_resolved)) |parent_definition| {
-            break if (parent_definition.as(.class)) |class|
-                class.represented_class
-            else
-                return error.parent_is_not_a_class; // TODO: print the error
+            if (parent_definition.as(.class)) |class| {
+                break class.represented_class;
+            }
+            report_parent_is_not_a_class(&error_reporter, classes_to_compile.getLast().ast, parent_definition, statics.symbols_manager);
+            return error.parent_is_not_a_class;
         }
         const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
         try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });
@@ -662,19 +674,15 @@ pub fn compile_class_with_its_parents(
     };
     var iter = std.mem.reverseIterator(classes_to_compile.items);
     while (iter.nextPtr()) |class_to_compile| {
-        var reporter = ErrorReporter{
-            .source = class_to_compile.ast.source_code,
-            .source_path = class_to_compile.ast.source_code_filepath,
-            .use_color = true,
-            .writer = error_writer,
-        };
+        error_reporter.source = class_to_compile.ast.source_code;
+        error_reporter.source_path = class_to_compile.ast.source_code_filepath;
         const compiled_class: ClassDefinitionPair = try compile_class(
             class_to_compile.ast,
             class_to_compile.name,
             current_parent,
             temporary_allocator,
             statics,
-            &reporter,
+            &error_reporter,
             primitive_methods_map,
             globals,
             builtin_class_definitions,
@@ -690,6 +698,65 @@ pub fn compile_class_with_its_parents(
     const compiled_root_class = current_parent.?;
 
     return compiled_root_class;
+}
+
+fn report_parent_is_not_a_class(reporter: *ErrorReporter, ast: ParsedFile, actual_value: VmObject, symbols: SymbolsManager) void {
+    const Printer = struct {
+        symbols: *const SymbolsManager,
+        object: VmObject,
+        pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            switch (self.object.kind()) {
+                .generic_object => |generic_object| {
+                    const class_name = self.symbols.symbol_with_id(generic_object.class.class_name);
+                    try writer.print("an instance of {s}", .{class_name});
+                },
+                inline else => |_, tag| {
+                    const tag_name = @tagName(tag);
+                    if (std.mem.containsAtLeastScalar(u8, "aeio", 1, std.ascii.toLower(tag_name[0]))) {
+                        try writer.print("an {t}", .{tag});
+                    } else {
+                        try writer.print("a {t}", .{tag});
+                    }
+                },
+            }
+        }
+    };
+
+    reporter.source = ast.source_code;
+    reporter.source_path = ast.source_code_filepath;
+    const parent_name: Ast.TokenId = ast.class_ast.parent_class_name.?;
+    reporter.report_error(
+        .{ .pos = ast.pos_of(parent_name) },
+        "The specified parent '{s}' is a global that is not a class, it is {f}.",
+        .{ ast.text_at(parent_name), (Printer{ .symbols = &symbols, .object = actual_value }) },
+    );
+}
+
+fn report_circular_dependency_error(reporter: *ErrorReporter, cycle: []ParsedFileToCompile) void {
+    assert(cycle.len != 0);
+    if (cycle.len == 1) {
+        const ast = &cycle[0].ast;
+        const class_name: Ast.TokenId = ast.class_ast.class_name;
+        const parent_name: Ast.TokenId = ast.class_ast.parent_class_name.?;
+        const error_pos = ast.pos_of(Ast.TokenSpan.create(class_name.idx, parent_name.idx));
+        reporter.source = ast.source_code;
+        reporter.source_path = ast.source_code_filepath;
+        reporter.report_error(.{ .pos = error_pos }, "Class {s} inherits from itself.", .{ast.text_at(class_name)});
+        return;
+    }
+
+    const CyclePrinter = struct {
+        cycle: []ParsedFileToCompile,
+        pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            for (0..self.cycle.len + 1) |iteration_idx| {
+                const file = &self.cycle[iteration_idx % self.cycle.len];
+                if (iteration_idx != 0) try writer.print(" inherits ", .{});
+                const class_name: []const u8 = file.ast.text_at(file.ast.class_ast.parent_class_name.?);
+                try writer.print("{s}", .{class_name});
+            }
+        }
+    };
+    reporter.report_error(.no_location, "Detected circular inheritance of classes: {f}.", .{CyclePrinter{ .cycle = cycle }});
 }
 
 pub const ClassDefinitionPair = struct {

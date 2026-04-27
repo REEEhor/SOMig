@@ -1,0 +1,4 @@
+ClassWithInvalidParent = Parent (
+    "This class will be loaded by InvalidParent, check InvalidParent.som for more info."
+    "Try running SOMig with arguments: InvalidParent cat"
+)
