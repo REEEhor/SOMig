@@ -1,0 +1,7 @@
+MethodRedefinition = (
+    run = ( "orignal" )
+    
+    run = ( "second" )
+    
+    run = ( "third" )
+)
