@@ -1122,12 +1122,7 @@ pub const Interpreter = struct {
             .statics = self.statics,
             .temporary_arena = self.temporary_arena,
         };
-        const loaded_class = try class_loader.load_class(class_name);
-
-        // The bytecode array might have gotten reallocated during the compilation
-        self.decoder.bytes = self.top_frame().get_bytecode().bytes;
-
-        return loaded_class;
+        return class_loader.load_class(class_name);
     }
 
     pub fn push_frame(

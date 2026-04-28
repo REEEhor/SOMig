@@ -297,7 +297,7 @@ pub fn run(params: RunParams) !void {
             return error.no_entrypoint_class;
         }
         const main_class = try interpreter.load_class((try statics.symbols_manager.id_or_intern(program_arguments_as_strings[0])).id);
-        const main_object: VmObject = try types.GenericObject.create_new(&interpreter.heap, main_class);
+        const main_object: VmObject = try types.GenericObject.create_new(&statics, main_class);
         if (main_class.get_method((try statics.symbols_manager.id_or_intern("run")).id)) |run_method| {
             try interpreter.push_object(main_object);
             try interpreter.call_method(run_method);
@@ -332,24 +332,6 @@ pub fn run(params: RunParams) !void {
             return err;
         };
     }
-
-    // // Dump the bytecode
-    // try stdout.print("=" ** 20 ++ "Bytecode" ++ "=" ** 20 ++ "\n", .{});
-    // try codegen.print_bytecode(
-    //     &statics.symbols_manager,
-    //     &statics.constants_manager,
-    //     run_method.body.user_land.constants_base_id,
-    //     run_method.body.user_land.bytecode,
-    //     stdout,
-    //     .{},
-    // );
-    // try stdout.print("\n", .{});
-
-    // // Run the program
-    // try stdout.print("=" ** 20 ++ "Program output" ++ "=" ** 20 ++ "\n", .{});
-    // try interpreter.push_object(main_object);
-    // try interpreter.call_method(run_method);
-    // try interpreter.run();
 }
 
 // Forcing for `zig build test` to run tests in all files that
