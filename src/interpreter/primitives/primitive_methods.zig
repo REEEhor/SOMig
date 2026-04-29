@@ -11,22 +11,16 @@ pub const Object = struct {
     }
 
     pub fn objectSize(self: VmObject) i48 {
-        const heap_size: usize = switch (self.kind()) {
-            .nil => 0,
-            .empty_heap_segment => unreachable,
-            .frame_header => unreachable,
-            inline else => |object| object.header.object_size_in_bytes(),
+        const heap_size: usize = switch (self.identify()) {
+            .heap_object => self.as_asserted_ptr_to_heap().segment_size_in_bytes(),
+            else => 0,
         };
         const total_size = @sizeOf(VmObject) + heap_size;
         return @intCast(total_size);
     }
 
     pub fn @"=="(self: VmObject, other: VmObject) bool {
-        // TODO: If we ever have NaN boxing, we won't have to do this shenanigan.
-        if (self.as_symbol()) |lhs| if (other.as_symbol()) |rhs| if (lhs == rhs) {
-            return true;
-        };
-        return self.data == other.data;
+        return self.bits == other.bits;
     }
 
     /// FIXME: This will be a lot easier with NaN boxing, since same `Double`s must have the same hashcode
@@ -37,8 +31,10 @@ pub const Object = struct {
 
     /// FIXME: This probably does not provide that much useful info, check the output
     pub fn inspect(self: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        try interpreter.stderr.print("{any}\n", .{self.kind()});
-        try interpreter.stderr.flush();
+        _ = self;
+        _ = interpreter;
+        // try interpreter.stderr.print("{any}\n", .{self.kind()});
+        // try interpreter.stderr.flush();
         return .{};
     }
 
@@ -273,7 +269,7 @@ pub const Class = struct {
             //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
             array.header.is_marked = true;
 
-            array_item.* = try types.Symbol.create_new(&interpreter.heap, field_name);
+            array_item.* = VmObject.from_symbol(field_name);
             try gc_protector.protect(array_item.*);
         }
         return VmObject.from(array);
@@ -312,8 +308,8 @@ pub const Class = struct {
             fn less_than(_: void, lhs_obj: VmObject, rhs_obj: VmObject) bool {
                 // SAFETY: The array must contain only methods.
                 // We have just created this array and put only method objects into it.
-                const lhs = lhs_obj.as(.method).?.method().definition_order_index;
-                const rhs = rhs_obj.as(.method).?.method().definition_order_index;
+                const lhs = lhs_obj.as_heap_object(.method).?.method().definition_order_index;
+                const rhs = rhs_obj.as_heap_object(.method).?.method().definition_order_index;
                 return lhs < rhs;
             }
         }.less_than);
@@ -592,7 +588,7 @@ pub const String = struct {
     // ========================= Converting =========================
     pub fn asSymbol(self: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const symbol_id = (try interpreter.statics.symbols_manager.id_or_intern(self)).id;
-        return try types.Symbol.create_new(&interpreter.heap, symbol_id);
+        return VmObject.from_symbol(symbol_id);
     }
     pub fn hashcode(self: []const u8) i48 {
         const seed = 42;

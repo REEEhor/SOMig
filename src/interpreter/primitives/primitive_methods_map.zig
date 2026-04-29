@@ -217,17 +217,22 @@ pub const PrimitiveMethodsMap = struct {
                         []const u8 => (interpreter.pop_object().as_text(&interpreter.statics.symbols_manager)) orelse
                             return invalid_argument(interpreter, som_parameter_idx, "primitive String or primitive Symbol"),
 
-                        SymbolId => switch (interpreter.pop_object().kind()) {
-                            .symbol => |symbol| symbol.header.symbol_id,
-                            .string => return invalid_argument(interpreter, som_parameter_idx, "Symbol, use `asSymbol` if the interning of the string is an okay cost to pay"),
-                            else => return invalid_argument(interpreter, som_parameter_idx, "primitive Symbol"),
+                        SymbolId => blk: {
+                            const top_object = interpreter.pop_object();
+                            if (top_object.as_symbol()) |symbol_id| break :blk symbol_id;
+                            if (top_object.as_heap_object(.string) != null) {
+                                return invalid_argument(interpreter, som_parameter_idx, "Symbol, use `asSymbol` if the interning of the string is an okay cost to pay");
+                            }
+                            return invalid_argument(interpreter, som_parameter_idx, "primitive Symbol");
                         },
 
                         *types.Block => interpreter.pop_object().as_block() orelse
                             return invalid_argument(interpreter, som_parameter_idx, "primitive Block"),
 
                         *const MethodDefinition => blk: {
-                            const method_object: *types.Method = interpreter.pop_object().as(.method) orelse return invalid_argument(interpreter, som_parameter_idx, "Method");
+                            const method_object: *types.Method = interpreter.pop_object().as_heap_object(.method) orelse {
+                                return invalid_argument(interpreter, som_parameter_idx, "Method");
+                            };
                             if (method_object.is_primitive()) {
                                 return invalid_argument(interpreter, som_parameter_idx, "primitive Method, the class Primitive represents a method which is marked as `primitive` and is different to class Method");
                             }
@@ -235,7 +240,9 @@ pub const PrimitiveMethodsMap = struct {
                         },
 
                         PrimitiveMethodWrapper => blk: {
-                            const method_object: *types.Method = interpreter.pop_object().as(.method) orelse return invalid_argument(interpreter, som_parameter_idx, "primitive Primitive (as in Primitive not created via `Primitive new`)");
+                            const method_object: *types.Method = interpreter.pop_object().as_heap_object(.method) orelse {
+                                return invalid_argument(interpreter, som_parameter_idx, "primitive Primitive (as in Primitive not created via `Primitive new`)");
+                            };
                             if (!method_object.is_primitive()) {
                                 return invalid_argument(interpreter, som_parameter_idx, "Primitive, the class Method represents a method which is NOT marked as `primitive` and is different to class Primitive");
                             }
@@ -280,23 +287,21 @@ pub const PrimitiveMethodsMap = struct {
                 };
 
                 // Cast the result into a `VmObject`
-                const heap = &interpreter.heap;
                 return switch (ReturnType) {
                     VmObject => result,
                     NilPlaceholder => VmObject.nil,
                     Number => switch (result) {
-                        .integer => |value| try types.Integer.create_new(heap, value),
-                        .double => |value| try types.Double.create_new(heap, value),
+                        .integer => |value| VmObject.from_integer(value),
+                        .double => |value| VmObject.from_double(value),
                     },
                     void => null,
-                    i48 => try types.Integer.create_new(heap, result),
-                    f64 => try types.Double.create_new(heap, result),
-                    bool => interpreter.singletons.get_boolean_object(result),
-                    SymbolId => try types.Symbol.create_new(heap, result),
+                    i48 => VmObject.from_integer(result),
+                    f64 => VmObject.from_double(result),
+                    bool => VmObject.from_boolean(result),
+                    SymbolId => VmObject.from_symbol(result),
                     *types.String,
                     *types.Array,
                     *types.Class,
-                    *types.Symbol,
                     *types.Block,
                     => VmObject.from(result),
                     else => |Invalid| @compileError(std.fmt.comptimePrint(

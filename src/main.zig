@@ -249,21 +249,10 @@ pub fn run(params: RunParams) !void {
     const builtin_classes = try class_loader.load_builtin_classes();
 
     // Load singletons
-    const singletons = get_singletons: {
-        const true_object = try types.GenericObject.create_new(&statics, builtin_classes.true);
-        const false_object = try types.GenericObject.create_new(&statics, builtin_classes.false);
-        const system_object = try types.GenericObject.create_new(&statics, builtin_classes.system);
-        const singletons = Singletons{
-            .true_object = true_object,
-            .false_object = false_object,
-            .system_object = system_object,
-        };
-        try globals.put(SymbolsManager.comptime_id_of("system"), singletons.system_object);
-        try globals.put(SymbolsManager.comptime_id_of("true"), singletons.true_object);
-        try globals.put(SymbolsManager.comptime_id_of("false"), singletons.false_object);
-        try globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
-        break :get_singletons singletons;
-    };
+    try globals.put(SymbolsManager.comptime_id_of("system"), VmObject.system_object);
+    try globals.put(SymbolsManager.comptime_id_of("true"), VmObject.true_object);
+    try globals.put(SymbolsManager.comptime_id_of("false"), VmObject.false_object);
+    try globals.put(SymbolsManager.comptime_id_of("nil"), VmObject.nil);
 
     // Setup interpreter
     var interpreter = Interpreter.new(
@@ -278,7 +267,6 @@ pub fn run(params: RunParams) !void {
         objects,
         frames,
         builtin_classes,
-        singletons,
     );
     interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();
@@ -323,7 +311,7 @@ pub fn run(params: RunParams) !void {
             return error.no_initialize_method;
         };
         try interpreter.push_object(VmObject.from(programs_arguments));
-        try interpreter.push_object(interpreter.singletons.system_object);
+        try interpreter.push_object(VmObject.system_object);
         try interpreter.call_method(initialize_method);
         interpreter.run() catch |err| {
             interpreter.stderr.flush() catch {};

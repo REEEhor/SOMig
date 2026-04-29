@@ -128,7 +128,7 @@ pub const Heap = struct {
     /// and instad of doing `prev_segment_next_ptr: *?*EmptyHeapSegment`, we do `prev_segment: *EmptyHeapSegment`.
     ///
     free_list_dummy_before_head: EmptyHeapSegment = .{
-        .header = .{ .size_kind = undefined, .next_empty_segment = .new(null) },
+        .header = .{ .size_kind = undefined, .next_empty_segment = .init(null) },
     },
 
     minimum_number_of_pages_per_buffer: usize = 1,
@@ -418,7 +418,7 @@ pub const Heap = struct {
 
         // Now go through the free list and try to find an empty segment which we allocate into.
         var previous_segment: *EmptyHeapSegment = &self.free_list_dummy_before_head;
-        while (previous_segment.header.next_empty_segment.pointee()) |free_segment| {
+        while (previous_segment.header.next_empty_segment.ptr()) |free_segment| {
             defer previous_segment = free_segment;
 
             const alloc_result = free_segment.try_allocate_from(.{
@@ -627,19 +627,6 @@ pub const BuiltinClassDefinitions = struct {
     }
 };
 
-pub const Singletons = struct {
-    true_object: VmObject,
-    false_object: VmObject,
-    system_object: VmObject,
-
-    pub fn get_boolean_object(self: @This(), boolean: bool) VmObject {
-        if (boolean) {
-            return self.true_object;
-        }
-        return self.false_object;
-    }
-};
-
 // TODO: track the current function (which will be probably in the final `stack` implementation, which will also store stack frames)
 // and use it for error reporting.
 pub const Interpreter = struct {
@@ -665,8 +652,6 @@ pub const Interpreter = struct {
     do_flush_on_every_print: bool = true,
     /// TODO: put this into an argument and maybe set it to `false` by default
     nil_out_items_of_new_array: bool = true,
-
-    singletons: Singletons,
 
     stack: Stack,
 
@@ -703,7 +688,6 @@ pub const Interpreter = struct {
         preallocated_object_stack: []VmObject,
         preallocated_frame_stack: []Stack.Frame,
         builtin_class_definitions: BuiltinClassDefinitions,
-        singletons: Singletons,
     ) Interpreter {
         const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
@@ -718,7 +702,6 @@ pub const Interpreter = struct {
             .source_code_files = source_code_files,
             .builtin_class_definitions = builtin_class_definitions,
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
-            .singletons = singletons,
         };
 
         return interpreter;
@@ -836,7 +819,7 @@ pub const Interpreter = struct {
                         @branchHint(.unlikely);
                         // We have to invoke `unknownGlobal:` method on the `self` object.
                         const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                        const global_name = try types.Symbol.create_new(&self.heap, global_symbol_id);
+                        const global_name = VmObject.from_symbol(global_symbol_id);
 
                         try self.push_object(global_name);
                         try self.push_object(self_object);
@@ -852,20 +835,20 @@ pub const Interpreter = struct {
                 },
                 .load_symbol => |access| {
                     const symbol_id: SymbolId = access.get(&self.decoder);
-                    const object: VmObject = try types.Symbol.create_new(&self.heap, symbol_id);
+                    const object = VmObject.from_symbol(symbol_id);
                     try self.push_object(object);
                 },
                 .load_integer_i8 => |access| {
                     const value: i8 = access.get(&self.decoder);
-                    try self.push_object(try types.Integer.create_new(&self.heap, value));
+                    try self.push_object(VmObject.from_integer(value));
                 },
                 .load_integer_i48 => |access| {
                     const value: i48 = access.get(&self.decoder);
-                    try self.push_object(try types.Integer.create_new(&self.heap, value));
+                    try self.push_object(VmObject.from_integer(value));
                 },
                 .load_double => |access| {
                     const value: f64 = access.get(&self.decoder);
-                    try self.push_object(try types.Double.create_new(&self.heap, value));
+                    try self.push_object(VmObject.from_double(value));
                 },
                 .load_string => |access| {
                     const string_literal_id: StringLiteralId = access.get(&self.decoder);
@@ -880,7 +863,7 @@ pub const Interpreter = struct {
                 },
                 .resolved_method_call => |access| {
                     const call_info = access.get(&self.decoder);
-                    const method_ptr: *const MethodDefinition = call_info.method_ptr.pointee();
+                    const method_ptr: *const MethodDefinition = call_info.method_ptr.ptr();
                     try self.call_method(method_ptr);
                 },
                 .send_message => |access| {
@@ -968,75 +951,77 @@ pub const Interpreter = struct {
     }
 
     pub fn print_object_no_newline(self: *Self, object: VmObject) Error!void {
-        switch (DEBUG_PRINT_PTR) {
-            .none => {},
-            .modulo => |mod| {
-                std.debug.print(" [{d:04}] ", .{@intFromPtr(object.data) % mod});
-            },
-            .full_dec => {
-                std.debug.print(" {d:015}_dec ", .{@intFromPtr(object.data)});
-            },
-        }
-        switch (object.kind()) {
-            .integer => |int| std.debug.print("{d}", .{int.header.value}),
-            .double => |double| std.debug.print("{d}", .{double.value}),
-            .string => |string| {
-                std.debug.print("'", .{});
-                try codegen_module.print_escaped_string(self.stderr, string.contents());
-                try self.stderr.flush();
-                std.debug.print("'", .{});
-            },
-            .generic_object => |generic_object| {
-                const class_name: SymbolId = generic_object.class.class_name;
-                switch (class_name.idx) {
-                    SymbolsManager.comptime_id_of("True").idx => std.debug.print("true", .{}),
-                    SymbolsManager.comptime_id_of("False").idx => std.debug.print("false", .{}),
-                    else => {
+        switch (object.identify()) {
+            .nil => std.debug.print("nil", .{}),
+            .true => std.debug.print("true", .{}),
+            .false => std.debug.print("false", .{}),
+            .system => std.debug.print("system", .{}),
+            .integer => std.debug.print("int({d})", .{object.as_asserted_integer()}),
+            _ => std.debug.print("double({d})", .{object.as_asserted_double()}),
+            .symbol => std.debug.print("symbol('{s}', id={d})", .{ self.string_from_symbol(object.as_asserted_symbol()), object.as_asserted_symbol().idx }),
+            .heap_object => {
+                const heap_ptr: *OpaqueHeader = object.as_asserted_ptr_to_heap();
+                switch (DEBUG_PRINT_PTR) {
+                    .none => {},
+                    .modulo => |mod| {
+                        std.debug.print("[{d:04}] ", .{@intFromPtr(heap_ptr) % mod});
+                    },
+                    .full_dec => {
+                        std.debug.print("{d:015}_dec ", .{@intFromPtr(heap_ptr)});
+                    },
+                }
+                switch (heap_ptr.fetch()) {
+                    .string => |access| {
+                        const string = access.get(heap_ptr);
+                        std.debug.print("string('", .{});
+                        try codegen_module.print_escaped_string(self.stderr, string.contents());
+                        try self.stderr.flush();
+                        std.debug.print("')", .{});
+                    },
+                    .generic_object => |access| {
+                        const generic_object = access.get(heap_ptr);
+                        const class_name: SymbolId = generic_object.class.class_name;
                         const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
                         std.debug.print("Instance of class: '{s}'", .{class_name_string});
                     },
+                    .class => |access| {
+                        const class = access.get(heap_ptr);
+                        const class_name: SymbolId = class.represented_class.class_name;
+                        const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
+                        std.debug.print("Instance of class: '{s} class'", .{class_name_string});
+                    },
+                    .array => |access| {
+                        const array = access.get(heap_ptr);
+                        const items: []VmObject = array.get_items();
+                        std.debug.print("Array: #(", .{});
+                        for (items, 0..) |item, idx| {
+                            if (idx + 1 > DEBUG_ARRAY_ELEMENTS_TO_PRINT) {
+                                std.debug.print(", .. {d} more ", .{items.len - idx});
+                                break;
+                            }
+                            if (idx != 0) std.debug.print(", ", .{});
+                            try self.print_object_no_newline(item);
+                        }
+                        std.debug.print(")", .{});
+                    },
+                    .block => |access| {
+                        const block = access.get(heap_ptr);
+                        std.debug.print("block esc:{s} from: ", .{
+                            if (block.header.has_escaped_home_context) "true " else "false",
+                        });
+                        try self.print_object_no_newline(VmObject.from(block.home_method().as_vm_object));
+                    },
+                    .method => |access| {
+                        const method = access.get(heap_ptr);
+                        std.debug.print("Method '{s}' from '{s}'", .{
+                            self.string_from_symbol(method.method().method_name),
+                            self.string_from_symbol(method.method().source_class.class_name),
+                        });
+                    },
+                    .empty_heap_segment => unreachable,
+                    .frame_header => unreachable,
                 }
             },
-            .nil => {
-                std.debug.print("nil", .{});
-            },
-            .class => |class| {
-                const class_name: SymbolId = class.represented_class.class_name;
-                const class_name_string = self.statics.symbols_manager.symbol_with_id(class_name);
-                std.debug.print("Instance of class: '{s} class'", .{class_name_string});
-            },
-            .array => |array| {
-                const items: []VmObject = array.get_items();
-                std.debug.print("Array: #(", .{});
-                for (items, 0..) |item, idx| {
-                    if (idx + 1 > DEBUG_ARRAY_ELEMENTS_TO_PRINT) {
-                        std.debug.print(", .. {d} more ", .{items.len - idx});
-                        break;
-                    }
-                    if (idx != 0) std.debug.print(", ", .{});
-                    try self.print_object_no_newline(item);
-                }
-                std.debug.print(")", .{});
-            },
-            .symbol => |symbol| {
-                const symbol_id: SymbolId = symbol.header.symbol_id;
-                const symbol_string = self.statics.symbols_manager.symbol_with_id(symbol_id);
-                std.debug.print("symbol '{s}' id({d})", .{ symbol_string, symbol_id.idx });
-            },
-            .block => |block| {
-                std.debug.print("block esc:{s} from: ", .{
-                    if (block.header.has_escaped_home_context) "true " else "false",
-                });
-                try self.print_object_no_newline(VmObject.from(block.home_method().as_vm_object));
-            },
-            .method => |method| {
-                std.debug.print("Method '{s}' from '{s}'", .{
-                    self.string_from_symbol(method.method().method_name),
-                    self.string_from_symbol(method.method().source_class.class_name),
-                });
-            },
-            .empty_heap_segment => unreachable,
-            .frame_header => unreachable,
         }
     }
 
@@ -1075,7 +1060,7 @@ pub const Interpreter = struct {
         var next_frame_idx: usize = 1;
         while (next_frame_idx <= self.stack.frames_count()) : (next_frame_idx += 1) {
             const current_frame: Stack.Frame = self.stack.frames[next_frame_idx - 1];
-            const frame_format_string = "[{d:02} {s:<7} {s:<18} ret_inst={d:03}] ";
+            const frame_format_string = "[{d:02} {s:<7} {s:<18}] ";
             const frame_args = .{
                 next_frame_idx - 1,
                 switch (current_frame.kind) {
@@ -1086,7 +1071,6 @@ pub const Interpreter = struct {
                     .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
                     .block => "block",
                 },
-                current_frame.after_return_instruction_id.idx,
             };
             const frame_length = std.fmt.count(frame_format_string, frame_args) + 2;
             std.debug.print("• " ++ frame_format_string, frame_args);
@@ -1104,7 +1088,7 @@ pub const Interpreter = struct {
                     for (0..frame_length) |_| std.debug.print(" ", .{});
                 }
                 first_iteration = false;
-                std.debug.print("[{d:02}]", .{object_idx});
+                std.debug.print("[{d:02}] ", .{object_idx});
                 const obj = self.stack.objects[object_idx];
                 try self.print_object(obj);
             }
@@ -1319,7 +1303,7 @@ pub const Interpreter = struct {
             defer protector.unprotect();
 
             // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
-            const selector_symbol: VmObject = try types.Symbol.create_new(&self.heap, message_selector);
+            const selector_symbol: VmObject = VmObject.from_symbol(message_selector);
 
             // Pop the now-copied arguments from the stack.
             // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
@@ -1349,32 +1333,53 @@ pub const Interpreter = struct {
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
-        const opaque_header_ptr: *OpaqueHeader = object.data orelse return self.builtin_class_definitions.nil;
-        return switch (opaque_header_ptr.tag) {
-            .class => opaque_header_ptr.asserted_cast_to(.class).class_of_represented_class,
-            .generic_object => opaque_header_ptr.asserted_cast_to(.generic_object).class,
-
-            .integer => self.builtin_class_definitions.integer,
-            .double => self.builtin_class_definitions.double,
-            .string => self.builtin_class_definitions.string,
+        return switch (object.identify()) {
+            _ => self.builtin_class_definitions.double,
             .nil => self.builtin_class_definitions.nil,
-            .array => self.builtin_class_definitions.array,
+            .true => self.builtin_class_definitions.true,
+            .false => self.builtin_class_definitions.false,
+            .system => self.builtin_class_definitions.system,
             .symbol => self.builtin_class_definitions.symbol,
-
-            .block => blk: {
-                const block = opaque_header_ptr.asserted_cast_to(.block);
-                break :blk self.builtin_class_definitions.block_from_number_of_non_self_arguments(
-                    block.block_definition.number_of_aditional_args,
-                );
+            .integer => self.builtin_class_definitions.integer,
+            .heap_object => {
+                const header_ptr: *OpaqueHeader = object.as_asserted_ptr_to_heap();
+                return switch (header_ptr.fetch()) {
+                    .frame_header => unreachable,
+                    .empty_heap_segment => unreachable,
+                    .array => self.builtin_class_definitions.array,
+                    .string => self.builtin_class_definitions.string,
+                    .class => |access| access.get(header_ptr).class_of_represented_class,
+                    .generic_object => |access| access.get(header_ptr).class,
+                    .method => |access| blk: {
+                        const method: *types.Method = access.get(header_ptr);
+                        if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive;
+                        break :blk self.builtin_class_definitions.method;
+                    },
+                    .block => |access| blk: {
+                        const block: *types.Block = access.get(header_ptr);
+                        break :blk self.builtin_class_definitions.block_from_number_of_non_self_arguments(
+                            block.block_definition.number_of_aditional_args,
+                        );
+                    },
+                };
             },
-            .method => blk: {
-                const method: *types.Method = opaque_header_ptr.asserted_cast_to(.method);
-                if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive;
-                break :blk self.builtin_class_definitions.method;
-            },
+            // .class => opaque_header_ptr.asserted_cast_to(.class).class_of_represented_class,
+            // .generic_object => opaque_header_ptr.asserted_cast_to(.generic_object).class,
 
-            .frame_header => unreachable,
-            .empty_heap_segment => unreachable,
+            // .block => blk: {
+            //     const block = opaque_header_ptr.asserted_cast_to(.block);
+            //     break :blk self.builtin_class_definitions.block_from_number_of_non_self_arguments(
+            //         block.block_definition.number_of_aditional_args,
+            //     );
+            // },
+            // .method => blk: {
+            //     const method: *types.Method = opaque_header_ptr.asserted_cast_to(.method);
+            //     if (method.is_primitive()) break :blk self.builtin_class_definitions.primitive;
+            //     break :blk self.builtin_class_definitions.method;
+            // },
+
+            // .frame_header => unreachable,
+            // .empty_heap_segment => unreachable,
         };
     }
 
@@ -1443,7 +1448,7 @@ pub const Interpreter = struct {
     fn debug_validate_escaping_blocks_list(self: *Self) void {
         for (self.stack.frames) |*frame| {
             if (frame.escaping_blocks_list_head) |first_block| {
-                const from_block: *?*types.Block = first_block.header.next_of_previous_escaping_block.pointee().?;
+                const from_block: *?*types.Block = first_block.header.next_of_previous_escaping_block.ptr().?;
                 if (from_block.*) |b| {
                     assert(b.header.tag == .block);
                 }
@@ -1457,7 +1462,7 @@ pub const Interpreter = struct {
 
                 // Blocks in the home context should not be marked as escaped
                 assert(block.header.has_escaped_home_context == false);
-                assert(block.header.next_of_previous_escaping_block.pointee().?.*.? == block);
+                assert(block.header.next_of_previous_escaping_block.ptr().?.*.? == block);
             }
         }
     }

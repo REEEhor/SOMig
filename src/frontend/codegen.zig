@@ -124,7 +124,7 @@ pub const ConstantsManager = struct {
             return error.too_many_string_literals;
         }
         const object: VmObject = try types.String.create_new(self.allocator, string_to_copy);
-        const string_object: *types.String = object.data.?.asserted_cast_to(.string);
+        const string_object: *types.String = object.as_heap_object(.string).?;
         const insert_result = try self.strings.getOrPut(self.allocator, string_object);
 
         return StringLiteralId{ .idx = @intCast(insert_result.index) };
@@ -630,21 +630,21 @@ pub const ClassLoader = struct {
             .object = base_classes.class_of_object,
             .class = base_classes.class_of_class,
             .metaclass = base_classes.class_of_metaclass,
-            //                                                               FIXME: Fix these comments (the "potential" part) after done with implementation
-            .nil = try self.load_builtin_class("Nil", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
-            .true = try self.load_builtin_class("True", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
-            .false = try self.load_builtin_class("False", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to potential nan-boxing
-            .system = try self.load_builtin_class("System", .{ .can_inherit_from_whatever = true, .can_have_fields = true }),
-            .integer = try self.load_builtin_class("Integer", .{}),
-            .double = try self.load_builtin_class("Double", .{}),
             .array = try self.load_builtin_class("Array", .{}),
             .string = try self.load_builtin_class("String", .{}),
+            .double = try self.load_builtin_class("Double", .{}),
+            .integer = try self.load_builtin_class("Integer", .{}),
             .symbol = try self.load_builtin_class("Symbol", .{ .expected_parent_apart_from_none_or_object = "String" }),
             .block1 = try self.load_builtin_class("Block1", .{ .expected_parent_apart_from_none_or_object = "Block" }),
             .block2 = try self.load_builtin_class("Block2", .{ .expected_parent_apart_from_none_or_object = "Block" }),
             .block3 = try self.load_builtin_class("Block3", .{ .expected_parent_apart_from_none_or_object = "Block" }),
             .method = try self.load_builtin_class("Method", .{}),
             .primitive = try self.load_builtin_class("Primitive", .{}),
+            //                      NOTE: These classes are 100% user level defined, so they could have fields if we did not NaN boxed them (but we NaN box them)
+            .nil = try self.load_builtin_class("Nil", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to NaN boxing
+            .true = try self.load_builtin_class("True", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to NaN boxing
+            .false = try self.load_builtin_class("False", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to NaN boxing
+            .system = try self.load_builtin_class("System", .{ .can_inherit_from_whatever = true }), // Cannot have fields due to NaN boxing
         };
     }
 
@@ -792,7 +792,7 @@ pub const ClassLoader = struct {
             .represented_class = instance,
             .class_of_represented_class = class_of_instance,
         });
-        const class_object: *types.Class = vm_object.as(.class).?;
+        const class_object: *types.Class = vm_object.as_heap_object(.class).?;
         instance.as_vm_object = class_object;
     }
 
@@ -983,7 +983,7 @@ pub fn compile_class_with_its_parents(
         }
 
         if (globals.get(parent_being_resolved)) |parent_definition| {
-            if (parent_definition.as(.class)) |class| {
+            if (parent_definition.as_heap_object(.class)) |class| {
                 break class.represented_class;
             }
             report_parent_is_not_a_class(&error_reporter, classes_to_compile.getLast().ast, parent_definition, statics.symbols_manager);
@@ -1036,17 +1036,30 @@ fn report_parent_is_not_a_class(reporter: *ErrorReporter, ast: ParsedFile, actua
         symbols: *const SymbolsManager,
         object: VmObject,
         pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            switch (self.object.kind()) {
-                .generic_object => |generic_object| {
-                    const class_name = self.symbols.symbol_with_id(generic_object.class.class_name);
-                    try writer.print("an instance of {s}", .{class_name});
-                },
-                inline else => |_, tag| {
-                    const tag_name = @tagName(tag);
-                    if (std.mem.containsAtLeastScalar(u8, "aeio", 1, std.ascii.toLower(tag_name[0]))) {
-                        try writer.print("an {t}", .{tag});
-                    } else {
-                        try writer.print("a {t}", .{tag});
+            switch (self.object.identify()) {
+                .nil => try writer.print("a nil", .{}),
+                .true => try writer.print("the true object", .{}),
+                .false => try writer.print("the false object", .{}),
+                .system => try writer.print("the system object", .{}),
+                .integer => try writer.print("an integer", .{}),
+                .symbol => try writer.print("a symbol", .{}),
+                _ => try writer.print("a double", .{}),
+                .heap_object => {
+                    const header: *OpaqueHeader = self.object.as_asserted_ptr_to_heap();
+                    switch (header.identify_heap_object()) {
+                        .class => @panic("We should never get into this point"),
+                        .generic_object => |generic_object| {
+                            const class_name = self.symbols.symbol_with_id(generic_object.class.class_name);
+                            try writer.print("an instance of {s}", .{class_name});
+                        },
+                        inline else => |_, tag| {
+                            const tag_name = @tagName(tag);
+                            if (std.mem.containsAtLeastScalar(u8, "aeio", 1, std.ascii.toLower(tag_name[0]))) {
+                                try writer.print("an {t}", .{tag});
+                            } else {
+                                try writer.print("a {t}", .{tag});
+                            }
+                        },
                     }
                 },
             }
@@ -1669,7 +1682,7 @@ pub const BytecodeGenerator = struct {
             .local_id = local_self.local_variable_id,
         } });
         try self.add_instruction(Instruction{
-            .resolved_method_call = .{ .method_ptr = SmallPtr(*const MethodDefinition).new(method_ptr) },
+            .resolved_method_call = .{ .method_ptr = SmallPtr(*const MethodDefinition).init(method_ptr) },
         });
     }
 
@@ -2070,6 +2083,8 @@ pub const InstructionDecoder = struct {
         for (instruction_info.fields, 0..) |field, idx| {
             fields[idx] = Type.UnionField{
                 .name = field.name,
+                // FIXME: Do not use the index for construction!
+                // TODO: Use `std.meta.stringToEnum(field.name).?`
                 .type = Accessor(@enumFromInt(idx)),
                 .alignment = @alignOf(void),
             };
@@ -2200,9 +2215,9 @@ pub const InstructionFormatter = struct {
                 },
                 .load_string => |string_literal_id| {
                     const string_object = self.constants_manager.get_string(string_literal_id);
-                    try writer.print(" ", .{});
+                    try writer.print("'", .{});
                     try print_escaped_string(writer, string_object.contents());
-                    try writer.print(" ", .{});
+                    try writer.print("'", .{});
                 },
                 .load_block => |block_id| {
                     const block_info = self.constants_manager.get_block(block_id);
@@ -2247,7 +2262,7 @@ pub const InstructionFormatter = struct {
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
                 },
                 .resolved_method_call => |info| {
-                    const method_ptr: *const MethodDefinition = info.method_ptr.pointee();
+                    const method_ptr: *const MethodDefinition = info.method_ptr.ptr();
                     try writer.print(
                         " method-name=\"{s}\" is_primitive={s} ptr={x}",
                         .{

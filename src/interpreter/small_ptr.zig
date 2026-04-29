@@ -24,11 +24,11 @@ pub fn SmallPtr(comptime Ptr: type) type {
         pub const BitsRepresentation = u48;
         const Self = @This();
 
-        pub fn pointee(self: Self) Ptr {
+        pub fn ptr(self: Self) Ptr {
             return @ptrFromInt(@as(u64, self.bits));
         }
 
-        pub fn new(full_ptr: Ptr) Self {
+        pub fn init(full_ptr: Ptr) Self {
             const all_bits: u64 = @intFromPtr(full_ptr);
             assert(all_bits <= std.math.maxInt(u48));
             const truncated_bits: u48 = @truncate(all_bits);
