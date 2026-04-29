@@ -23,18 +23,13 @@ pub const Object = struct {
         return self.bits == other.bits;
     }
 
-    /// FIXME: This will be a lot easier with NaN boxing, since same `Double`s must have the same hashcode
     pub fn hashcode(self: VmObject) i48 {
-        _ = self;
-        return 0;
+        const hash_u64: u64 = std.hash.int(self.bits);
+        return @truncate(@as(i64, @bitCast(hash_u64)));
     }
 
-    /// FIXME: This probably does not provide that much useful info, check the output
     pub fn inspect(self: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
-        _ = self;
-        _ = interpreter;
-        // try interpreter.stderr.print("{any}\n", .{self.kind()});
-        // try interpreter.stderr.flush();
+        try interpreter.print_object(self);
         return .{};
     }
 
@@ -51,7 +46,6 @@ pub const Object = struct {
         return .{};
     }
 
-    /// FIXME: It would be better to maybe call a precompiled bytecode with the `halt` instruction...
     pub fn halt(self: VmObject, interpreter: *Interpreter) void {
         _ = self;
         interpreter.report_info("Stopped execution due to the `halt` method being invoked.", .{}) catch {};
@@ -825,7 +819,6 @@ pub const System = struct {
     }
 
     // ========================= Force Garbage Collection =========================
-    /// FIXME: implement actual GC
     /// NOTE: yes, it should really return a `bool`, see `IntegrationTests/Tests/fullgc.com`
     pub fn fullGC(_: VmObject, interpreter: *Interpreter) Interpreter.Error!bool {
         try interpreter.heap.run_garbage_collection();
