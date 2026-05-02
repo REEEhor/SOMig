@@ -73,9 +73,18 @@ pub fn main() !void {
 
     // Parse command line arguments
     var arg_idx: usize = 0;
+    var has_enountered_cp_flag: bool = false;
     while (arg_idx < args.len) : (arg_idx += 1) {
+        var reset_encounter_of_cp_flag = true;
+        defer {
+            if (reset_encounter_of_cp_flag) has_enountered_cp_flag = false;
+        }
         const arg = args[arg_idx];
-        if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--include")) {
+        if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--include") or std.mem.eql(u8, arg, "-cp")) {
+            if (std.mem.eql(u8, arg, "-cp")) {
+                has_enountered_cp_flag = true;
+                reset_encounter_of_cp_flag = false;
+            }
             arg_idx += 1;
             if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
             try root_directories.append(gpa, .{
@@ -95,6 +104,31 @@ pub fn main() !void {
             break;
         } else if (std.mem.eql(u8, arg, "--no-bs")) {
             skip_bootstrap = true;
+        } else if (std.mem.endsWith(u8, arg, ".som")) {
+            arg_idx += 1;
+            var components = std.fs.path.componentIterator(arg) catch |err| {
+                std.debug.print("Problem while resolving the path '{s}': {t}.\n", .{err});
+                return err;
+            };
+            const filename = components.last().?.name;
+            const class_name = filename[0 .. filename.len - ".som".len];
+            const containing_directory_path = arg[0 .. arg.len - filename.len];
+
+            try root_directories.append(gpa, .{
+                .can_be_searched_recursively = false,
+                .path = containing_directory_path,
+            });
+            try arguments_for_som.append(gpa, class_name);
+            try arguments_for_som.appendSlice(gpa, args[arg_idx..]);
+
+            break;
+        } else if (has_enountered_cp_flag) {
+            arg_idx += 1;
+            try root_directories.append(gpa, .{
+                .can_be_searched_recursively = false,
+                .path = arg,
+            });
+            reset_encounter_of_cp_flag = false;
         } else {
             std.debug.panic("Invalid flag '{s}'", .{arg});
         }
