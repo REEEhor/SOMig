@@ -1,5 +1,3 @@
-//! TODO: make this simpler
-
 const std = @import("std");
 const assert = std.debug.assert;
 const BuiltinClassType = @import("__interpreter.zig").BuiltinClassType;
@@ -84,6 +82,11 @@ pub const VmObject = packed struct(u64) {
         _,
     };
 
+    /// Cast the `VmObject` into the `Identity` enum, which describes what kind of `VmObject` `self` is.
+    pub fn identify(self: VmObject) Identity {
+        return @enumFromInt(self.bits & identification_mask);
+    }
+
     /// A 64 bit pattern of a 64 bit float, which cannot be created by a normal floating-point arithmetic on know CPUs.
     /// Meaning that all floats (even NaNs) that can be encountered have at least one 0 bit at the places `nan_mask` has 1 bits.
     /// ```
@@ -104,11 +107,6 @@ pub const VmObject = packed struct(u64) {
     /// bit index: 63  62  61  60  59  58  ...  51 50 49 48 47 46  ...  2  1  0
     /// ```
     const identification_mask: u64 = nan_boxed_pattern(~@as(u3, 0));
-
-    /// Cast the `VmObject` into the `Identity` enum, which describes what kind of `VmObject` `self` is.
-    pub fn identify(self: VmObject) Identity {
-        return @enumFromInt(self.bits & identification_mask);
-    }
 
     const symbol_pattern: u64 = @intFromEnum(Identity.symbol);
     const integer_pattern: u64 = @intFromEnum(Identity.integer);
@@ -363,6 +361,9 @@ pub const Number = union(enum) {
     const Self = @This();
 };
 
+/// Tag of the `HeapObject` - prefer to use the `HeapObject.Tag`.
+/// This enum is defined separatelly because implicit definition via `const HeapObject = union(enum(u64)) {...}` causes dependency-loop compile errors.
+/// These might be caused by the field `tag` in the payloads of the `HeapObject` variants, such as `types.String.Header.tag`.
 const TagOfHeapObject = enum(u8) {
     array,
     block,
@@ -385,12 +386,9 @@ pub const HeapObject = union(TagOfHeapObject) {
     frame_header: *FrameOnHeap.Header,
     empty_heap_segment: *EmptyHeapSegment,
 
-    pub const Tag = TagOfHeapObject;
-
     pub fn tag(self: Self) Tag {
         return std.meta.activeTag(self);
     }
-    const Self = @This();
 
     pub fn Accessor(comptime t: Tag) type {
         const PayloadType = @FieldType(HeapObject, @tagName(t));
@@ -421,10 +419,21 @@ pub const HeapObject = union(TagOfHeapObject) {
             .fields = &fields,
         } });
     };
+
+    pub const Tag = TagOfHeapObject;
+    const Self = @This();
 };
 
 /// Header which is at the beginning of every heap allocated segment (or a free segment that is on the heap).
 /// All heap allocated runtime objects must contain a header at their beginning which can be casted to this struct.
+/// FIXME: Try reordering the fields here for speed, because they are ordered from least to most significant.
+/// NOTE:  We want to try this, because most types store `SmallPtr` or integers in there, and we would like to not bit-shift that around uppon each access.
+/// ! TODO:
+///        [ ] 0. Check on godbolt, what code that this generate. Try `packed struct(u32) { value: u8, rest: u24 }` and `packed struct(u32) { rest: u24, value: u8 }`
+///        [ ] 1. Reorder the fields here in the `OpaqueHeader`
+///        [ ] 2. Reorder the fields in all the heap objects
+///        [ ] 3. Everything should work after fixing all compile errors? There will be probably some in the `VmObject.from` function, which does a bunch of `comptime` asserts.
+///        [ ] 4. Don't forget to reorder the fields also in the thesis code listings.
 pub const OpaqueHeader = packed struct(u64) {
     tag: HeapObject.Tag,
     is_marked: bool,
@@ -578,6 +587,7 @@ pub const types = struct {
                 .number_of_instance_fields = number_of_instance_fields,
             }));
             self.class = class;
+            // TODO: replace with memset
             for (self.get_fields()) |*field_object| {
                 field_object.* = VmObject.nil;
             }
@@ -769,7 +779,9 @@ pub const types = struct {
             const length: usize = @intCast(self.header.length);
             return slice_after(self, u8, length);
         }
-        pub fn gc_mark_references(_: *Self) void {}
+        pub fn gc_mark_references(_: *Self) void {
+            // Nothing to mark
+        }
 
         const Self = @This();
     };
@@ -1036,7 +1048,7 @@ pub const FrameOnHeap = struct {
 ///     segment_size_in_bytes: switch(self.header.size_kind) {
 ///         .big => u64,
 ///         .small => void,
-///     }
+///     },
 ///     empty_space: [size_in_bytes()-@sizeOf(Header)]u8,
 /// ```
 pub const EmptyHeapSegment = extern struct {
@@ -1086,6 +1098,7 @@ pub const EmptyHeapSegment = extern struct {
                 .next_empty_segment = next_empty_segment,
             },
             else => |total_size| {
+                assert(total_size > @sizeOf(Header));
                 self.header = Header{
                     .size_kind = .big,
                     .next_empty_segment = next_empty_segment,
@@ -1153,7 +1166,7 @@ pub const EmptyHeapSegment = extern struct {
         if (available_bytes < bytes_required) return null;
 
         if (available_bytes == bytes_required) {
-            // We managed to fill this entire empty segment => we have to remove from the free list
+            // We managed to fill this entire empty segment => we have to remove ourselves from the free list
             previous_segment.header.next_empty_segment = self.header.next_empty_segment;
             return .{
                 .allocated_data = @ptrCast(self),
