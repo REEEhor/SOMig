@@ -73,24 +73,18 @@ pub fn main() !void {
 
     // Parse command line arguments
     var arg_idx: usize = 0;
-    var has_enountered_cp_flag: bool = false;
     while (arg_idx < args.len) : (arg_idx += 1) {
-        var reset_encounter_of_cp_flag = true;
-        defer {
-            if (reset_encounter_of_cp_flag) has_enountered_cp_flag = false;
-        }
         const arg = args[arg_idx];
         if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--include") or std.mem.eql(u8, arg, "-cp")) {
-            if (std.mem.eql(u8, arg, "-cp")) {
-                has_enountered_cp_flag = true;
-                reset_encounter_of_cp_flag = false;
-            }
             arg_idx += 1;
             if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
-            try root_directories.append(gpa, .{
-                .can_be_searched_recursively = false,
-                .path = args[arg_idx],
-            });
+            var iter = std.mem.splitScalar(u8, args[arg_idx], ':');
+            while (iter.next()) |path| {
+                try root_directories.append(gpa, .{
+                    .can_be_searched_recursively = false,
+                    .path = path,
+                });
+            }
         } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "-ir") or std.mem.eql(u8, arg, "-ri") or std.mem.eql(u8, arg, "--recursively-include")) {
             arg_idx += 1;
             if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
@@ -122,19 +116,12 @@ pub fn main() !void {
             try arguments_for_som.appendSlice(gpa, args[arg_idx..]);
 
             break;
-        } else if (has_enountered_cp_flag) {
-            arg_idx += 1;
-            try root_directories.append(gpa, .{
-                .can_be_searched_recursively = false,
-                .path = arg,
-            });
-            reset_encounter_of_cp_flag = false;
         } else {
             std.debug.panic("Invalid flag '{s}'", .{arg});
         }
     }
 
-    run(.{
+    const exit_code = run(.{
         .gpa = gpa,
         .stdout = stdout,
         .stderr = stderr,
@@ -149,6 +136,7 @@ pub fn main() !void {
         error.OutOfMemory => return err,
         else => std.process.exit(1),
     };
+    std.process.exit(exit_code);
 }
 
 fn parse(allocator: std.mem.Allocator, filepath: []const u8) !void {
@@ -219,10 +207,11 @@ pub const RunParams = struct {
     stack_size: struct { objects_count: usize, frames_count: usize },
     root_directories: []const codegen.SourceCodeFiles.Directory,
     program_arguments_as_strings: []const []const u8,
+    print_stack_on_error: bool = true,
     skip_bootstrap: bool,
 };
 
-pub fn run(params: RunParams) !void {
+pub fn run(params: RunParams) !u8 {
     const gpa = params.gpa;
     const stdout = params.stdout;
     const stderr = params.stderr;
@@ -333,12 +322,6 @@ pub fn run(params: RunParams) !void {
             });
             return error.no_run_method;
         }
-        interpreter.run() catch |err| {
-            interpreter.stderr.flush() catch {};
-            interpreter.stdout.flush() catch {};
-            interpreter.debug_print_stack() catch {};
-            return err;
-        };
     } else {
         const initialize_method = interpreter.builtin_class_definitions.system.get_method(SymbolsManager.comptime_id_of("initialize:")) orelse {
             interpreter.report_runtime_error("The class `System` does not have the expected `initialize: arguments` method.", .{});
@@ -347,13 +330,22 @@ pub fn run(params: RunParams) !void {
         try interpreter.push_object(VmObject.from(programs_arguments));
         try interpreter.push_object(VmObject.system_object);
         try interpreter.call_method(initialize_method);
-        interpreter.run() catch |err| {
-            interpreter.stderr.flush() catch {};
-            interpreter.stdout.flush() catch {};
-            interpreter.debug_print_stack() catch {};
-            return err;
-        };
     }
+
+    var maybe_err: ?Interpreter.Error = null;
+    interpreter.run() catch |err| {
+        maybe_err = err;
+    };
+    interpreter.stderr.flush() catch {};
+    interpreter.stdout.flush() catch {};
+
+    const err = maybe_err orelse return interpreter.exit_code;
+    if (err == Interpreter.Error.interpreter_halted) return interpreter.exit_code;
+
+    if (params.print_stack_on_error) {
+        interpreter.debug_print_stack() catch {};
+    }
+    return err;
 }
 
 // Forcing for `zig build test` to run tests in all files that

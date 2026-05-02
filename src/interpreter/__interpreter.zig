@@ -637,6 +637,8 @@ pub const Interpreter = struct {
 
     temporary_arena: *std.heap.ArenaAllocator,
 
+    exit_code: u8 = 0,
+
     stdout: *Writer,
     stderr: *Writer,
 
@@ -671,6 +673,7 @@ pub const Interpreter = struct {
         compilation_error,
         block_escaped_its_home_scope,
         out_of_bounds,
+        interpreter_halted,
 
         /// TODO: remove this
         TODO,
@@ -882,7 +885,7 @@ pub const Interpreter = struct {
                     const next_instruction = (try self.pop_frame()).next_instruction;
                     if (self.stack.frames.len == 0) {
                         @branchHint(.unlikely);
-                        try self.report_info("The program's entry point function has returned", .{});
+                        // The program has ended
                         return;
                     }
 
@@ -1245,13 +1248,15 @@ pub const Interpreter = struct {
             },
             .primitive => |primitive_method| {
                 const result_object: ?VmObject = primitive_method(self) catch |err| {
-                    self.report_info(
-                        "Error happened in the primitive method `{s}` defined in class `{s}`.",
-                        .{
-                            self.string_from_symbol(method.method_name),
-                            self.string_from_symbol(method.source_class.class_name),
-                        },
-                    ) catch {};
+                    if (err != Error.interpreter_halted) {
+                        self.report_info(
+                            "Error happened in the primitive method `{s}` defined in class `{s}`.",
+                            .{
+                                self.string_from_symbol(method.method_name),
+                                self.string_from_symbol(method.source_class.class_name),
+                            },
+                        ) catch {};
+                    }
                     return err;
                 };
                 if (result_object) |object| try self.push_object(object);

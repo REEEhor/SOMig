@@ -1,28 +1,7 @@
 Dbg = (
     
     run = (
-        "b := [ :param1 :param2 :param3 :param4 :param5 | 
-            'hehe' println.
-        ]."
-
-        [ :arg | ] value.
-
-        [ :arg1 :arg2 | ] value.
-
-        system fullGC.
+        system exit: 43.        
 
     )
-    
-    run = ( "2"
-    )
-    
-    lol: a = () 
-    
-    run = ( "3"
-    )
-    
-    
-    bruh: a = () 
-    
-    "hey: asdf a: b: = ( ) "
 )

@@ -46,10 +46,9 @@ pub const Object = struct {
         return .{};
     }
 
-    pub fn halt(self: VmObject, interpreter: *Interpreter) void {
-        _ = self;
-        interpreter.report_info("Stopped execution due to the `halt` method being invoked.", .{}) catch {};
-        std.process.exit(0);
+    pub fn halt(_: VmObject, interpreter: *Interpreter) error{interpreter_halted}!void {
+        interpreter.exit_code = 0;
+        return error.interpreter_halted;
     }
 
     /// FIXME: Check what happens when doing `someObject perform: #perform: withArguments: #( #someMethod )` - probably stack overflow?
@@ -752,7 +751,8 @@ pub const System = struct {
             interpreter.debug_print_stack() catch {};
         }
 
-        std.process.exit(error_code_as_u8);
+        interpreter.exit_code = error_code_as_u8;
+        return Interpreter.Error.interpreter_halted;
     }
 
     // ========================= Printing =========================
