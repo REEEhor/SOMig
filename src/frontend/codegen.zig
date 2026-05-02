@@ -23,7 +23,7 @@ const dbgx = debug_module.dbgx;
 const dbg_assert_eql = debug_module.dbg_assert_eql;
 const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
-const SmallPtr = @import("../interpreter/small_ptr.zig").SmallPtr;
+const SmallPtr = @import("../runtime/small_ptr.zig").SmallPtr;
 
 const interning_module = @import("../interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
@@ -34,19 +34,19 @@ const lexer_module = @import("../frontend/lexer.zig");
 const TokenizedFile = lexer_module.TokenizedFile;
 const parser_module = @import("../frontend/parser.zig");
 
-const interpreter_module = @import("../interpreter/__interpreter.zig");
-const VmObject = interpreter_module.VmObject;
-const OpaqueHeader = interpreter_module.OpaqueHeader;
-const ClassDefinition = interpreter_module.ClassDefinition;
-const FunctionBody = interpreter_module.FunctionBody;
-const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
-const MethodDefinition = interpreter_module.MethodDefinition;
-const MethodBody = interpreter_module.MethodBody;
-const HeapData = interpreter_module.HeapData;
-const primitives = interpreter_module.primitive_methods;
-const Statics = interpreter_module.Statics;
-const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
-const types = interpreter_module.types;
+const runtime_module = @import("../runtime/__runtime.zig");
+const VmObject = runtime_module.VmObject;
+const OpaqueHeader = runtime_module.OpaqueHeader;
+const ClassDefinition = runtime_module.ClassDefinition;
+const FunctionBody = runtime_module.FunctionBody;
+const PrimitiveMethodsMap = runtime_module.PrimitiveMethodsMap;
+const MethodDefinition = runtime_module.MethodDefinition;
+const MethodBody = runtime_module.MethodBody;
+const HeapData = runtime_module.HeapData;
+const primitives = runtime_module.primitive_methods;
+const Statics = runtime_module.Statics;
+const BuiltinClassDefinitions = runtime_module.BuiltinClassDefinitions;
+const types = runtime_module.types;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;

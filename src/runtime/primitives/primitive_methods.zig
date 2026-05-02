@@ -746,7 +746,7 @@ pub const System = struct {
             return Interpreter.Error.generic_runtime_error;
         };
 
-        if (interpreter_module.DEBUG_PRINT_STACK_ON_EXIT) {
+        if (runtime_module.DEBUG_PRINT_STACK_ON_EXIT) {
             std.debug.print("The process will be terminated with the exit code: {d}.\n", .{error_code});
             interpreter.debug_print_stack() catch {};
         }
@@ -1040,12 +1040,12 @@ const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
 const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
 const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
 
-const interpreter_module = @import("../__interpreter.zig");
-const Interpreter = interpreter_module.Interpreter;
-const Heap = interpreter_module.Heap;
-const BlockDefinition = interpreter_module.BlockDefinition;
-const MethodDefinition = interpreter_module.MethodDefinition;
-const types = interpreter_module.types;
+const runtime_module = @import("../__runtime.zig");
+const Interpreter = runtime_module.Interpreter;
+const Heap = runtime_module.Heap;
+const BlockDefinition = runtime_module.BlockDefinition;
+const MethodDefinition = runtime_module.MethodDefinition;
+const types = runtime_module.types;
 
 const class_definition_module = @import("../class_definition.zig");
 const ClassDefinition = class_definition_module.ClassDefinition;

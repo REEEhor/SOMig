@@ -2,8 +2,8 @@ const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolArrayMap = interning_module.SymbolArrayMap;
 //
-const interpreter_module = @import("__interpreter.zig");
-const Interpreter = interpreter_module.Interpreter;
+const runtime_module = @import("__runtime.zig");
+const Interpreter = runtime_module.Interpreter;
 //
 const vm_object_module = @import("vm_object.zig");
 const VmObject = vm_object_module.VmObject;

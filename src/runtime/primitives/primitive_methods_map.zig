@@ -13,10 +13,10 @@ const ArrayClassPlaceholder = helpers_module.ArrayClassPlaceholder;
 const IntegerClassPlaceholder = helpers_module.IntegerClassPlaceholder;
 const DoubleClassPlaceholder = helpers_module.DoubleClassPlaceholder;
 
-const interpreter_module = @import("../__interpreter.zig");
-const Interpreter = interpreter_module.Interpreter;
-const MethodDefinition = interpreter_module.MethodDefinition;
-const ClassDefinition = interpreter_module.ClassDefinition;
+const runtime_module = @import("../__runtime.zig");
+const Interpreter = runtime_module.Interpreter;
+const MethodDefinition = runtime_module.MethodDefinition;
+const ClassDefinition = runtime_module.ClassDefinition;
 
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;

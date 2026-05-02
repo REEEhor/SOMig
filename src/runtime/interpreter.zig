@@ -1,15 +1,13 @@
-// pub const DO_DEBUG_TRACE: bool = true;
-pub const DO_DEBUG_TRACE: bool = false;
+const runtime_module = @import("__runtime.zig");
 
-pub const DEBUG_STRESS_GC: bool = false;
-pub const DEBUG_PRINT_GC_STATS: bool = false;
-
-pub const DEBUG_CLEAR_SCREEN: bool = false;
-pub const DEBUG_PRINT_PTR: union(enum) { none, modulo: usize, full_dec } = .{ .modulo = 10_000 };
-pub const DEBUG_SKIP_BOOTSTRAP: bool = false or (DO_DEBUG_TRACE and true);
-
-pub const DEBUG_ARRAY_ELEMENTS_TO_PRINT: usize = 3;
-pub const DEBUG_PRINT_STACK_ON_EXIT: bool = false or DO_DEBUG_TRACE;
+const DO_DEBUG_TRACE = runtime_module.DO_DEBUG_TRACE;
+const DEBUG_STRESS_GC = runtime_module.DEBUG_STRESS_GC;
+const DEBUG_PRINT_GC_STATS = runtime_module.DEBUG_PRINT_GC_STATS;
+const DEBUG_CLEAR_SCREEN = runtime_module.DEBUG_CLEAR_SCREEN;
+const DEBUG_PRINT_PTR = runtime_module.DEBUG_PRINT_PTR;
+const DEBUG_SKIP_BOOTSTRAP = runtime_module.DEBUG_SKIP_BOOTSTRAP;
+const DEBUG_ARRAY_ELEMENTS_TO_PRINT = runtime_module.DEBUG_ARRAY_ELEMENTS_TO_PRINT;
+const DEBUG_PRINT_STACK_ON_EXIT = runtime_module.DEBUG_PRINT_STACK_ON_EXIT;
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -51,27 +49,27 @@ const SourceCodeFiles = codegen_module.SourceCodeFiles;
 const InstructionEncoder = codegen_module.InstructionEncoder;
 pub const BlockDefinition = codegen_module.BlockDefinition;
 
-pub const vm_object_module = @import("vm_object.zig");
-pub const VmObject = vm_object_module.VmObject;
-pub const HeapData = vm_object_module.HeapData;
-pub const types = vm_object_module.types;
-pub const FrameOnHeap = vm_object_module.FrameOnHeap;
-pub const OpaqueHeader = vm_object_module.OpaqueHeader;
-pub const EmptyHeapSegment = vm_object_module.EmptyHeapSegment;
-pub const object_alignment_in_bytes = vm_object_module.object_alignment_in_bytes;
-pub const pointer_after = vm_object_module.pointer_after;
-pub const slice_after = vm_object_module.slice_after;
+const vm_object_module = @import("vm_object.zig");
+const VmObject = vm_object_module.VmObject;
+const HeapData = vm_object_module.HeapData;
+const types = vm_object_module.types;
+const FrameOnHeap = vm_object_module.FrameOnHeap;
+const OpaqueHeader = vm_object_module.OpaqueHeader;
+const EmptyHeapSegment = vm_object_module.EmptyHeapSegment;
+const object_alignment_in_bytes = vm_object_module.object_alignment_in_bytes;
+const pointer_after = vm_object_module.pointer_after;
+const slice_after = vm_object_module.slice_after;
 
 const primitives_module = @import("primitives/__primitives.zig");
-pub const primitive_methods_module = primitives_module.primitive_methods;
-pub const PrimitiveMethodsMap = primitives_module.PrimitiveMethodsMap;
-pub const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImplementation;
+const primitive_methods_module = primitives_module.primitive_methods;
+const PrimitiveMethodsMap = primitives_module.PrimitiveMethodsMap;
+const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImplementation;
 
-pub const class_definition_module = @import("class_definition.zig");
-pub const ClassDefinition = class_definition_module.ClassDefinition;
-pub const MethodBody = class_definition_module.MethodBody;
-pub const MethodDefinition = class_definition_module.MethodDefinition;
-pub const FunctionBody = class_definition_module.FunctionBody;
+const class_definition_module = @import("class_definition.zig");
+const ClassDefinition = class_definition_module.ClassDefinition;
+const MethodBody = class_definition_module.MethodBody;
+const MethodDefinition = class_definition_module.MethodDefinition;
+const FunctionBody = class_definition_module.FunctionBody;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {

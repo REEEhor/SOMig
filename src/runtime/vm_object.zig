@@ -1,13 +1,13 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const BuiltinClassType = @import("__interpreter.zig").BuiltinClassType;
+const BuiltinClassType = @import("__runtime.zig").BuiltinClassType;
 
-const interpreter_module = @import("__interpreter.zig");
-const ClassDefinition = interpreter_module.ClassDefinition;
-const Stack = interpreter_module.Stack;
-const MethodDefinition = interpreter_module.MethodDefinition;
-const Heap = interpreter_module.Heap;
-const Statics = interpreter_module.Statics;
+const runtime_module = @import("__runtime.zig");
+const ClassDefinition = runtime_module.ClassDefinition;
+const Stack = runtime_module.Stack;
+const MethodDefinition = runtime_module.MethodDefinition;
+const Heap = runtime_module.Heap;
+const Statics = runtime_module.Statics;
 
 const SmallPtr = @import("small_ptr.zig").SmallPtr;
 

@@ -16,15 +16,15 @@ const SymbolId = interning_module.SymbolId;
 
 const codegen = @import("frontend/codegen.zig");
 
-const interpreter_module = @import("interpreter/__interpreter.zig");
-const Interpreter = interpreter_module.Interpreter;
-const ClassDefinition = interpreter_module.ClassDefinition;
-const Statics = interpreter_module.Statics;
-const PrimitiveMethodsMap = interpreter_module.PrimitiveMethodsMap;
-const types = interpreter_module.types;
-const VmObject = interpreter_module.VmObject;
-const Heap = interpreter_module.Heap;
-const Singletons = interpreter_module.Singletons;
+const runtime_module = @import("runtime/__runtime.zig");
+const Interpreter = runtime_module.Interpreter;
+const ClassDefinition = runtime_module.ClassDefinition;
+const Statics = runtime_module.Statics;
+const PrimitiveMethodsMap = runtime_module.PrimitiveMethodsMap;
+const types = runtime_module.types;
+const VmObject = runtime_module.VmObject;
+const Heap = runtime_module.Heap;
+const Singletons = runtime_module.Singletons;
 
 const lexer_module = @import("frontend/lexer.zig");
 const Lexer = lexer_module.Lexer;
@@ -131,7 +131,7 @@ pub fn main() !void {
         },
         .program_arguments_as_strings = arguments_for_som.items,
         .root_directories = root_directories.items,
-        .skip_bootstrap = interpreter_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
+        .skip_bootstrap = runtime_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
     }) catch |err| switch (err) {
         error.OutOfMemory => return err,
         else => std.process.exit(1),
@@ -236,7 +236,7 @@ pub fn run(params: RunParams) !u8 {
     // Prepare primitive methods
     const primitive_methods_map = try PrimitiveMethodsMap.init_from(
         static_allocator,
-        interpreter_module.primitive_methods_module,
+        runtime_module.primitive_methods_module,
         &statics.symbols_manager,
     );
 
@@ -248,8 +248,8 @@ pub fn run(params: RunParams) !u8 {
     defer source_code_files.deinit();
 
     // Allocate stack
-    const frames = try static_allocator.alloc(interpreter_module.Stack.Frame, stack_size.frames_count);
-    const objects = try static_allocator.alloc(interpreter_module.VmObject, stack_size.objects_count);
+    const frames = try static_allocator.alloc(runtime_module.Stack.Frame, stack_size.frames_count);
+    const objects = try static_allocator.alloc(runtime_module.VmObject, stack_size.objects_count);
 
     // Set up temporary arena
     var temporary_arena = std.heap.ArenaAllocator.init(gpa);
@@ -298,7 +298,7 @@ pub fn run(params: RunParams) !u8 {
     // Make program arguments into VM strings
     const programs_arguments = try types.Array.create_with_undefined_items(&statics, program_arguments_as_strings.len);
     for (programs_arguments.get_items(), program_arguments_as_strings) |*argument, argument_as_string| {
-        argument.* = try interpreter_module.types.String.create_new(&statics, argument_as_string);
+        argument.* = try runtime_module.types.String.create_new(&statics, argument_as_string);
     }
 
     if (skip_bootstrap) {
