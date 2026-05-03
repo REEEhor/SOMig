@@ -1312,6 +1312,12 @@ pub const Interpreter = struct {
         // Reverse the arguments since they are in a reverse order on the stack due to the calling convention.
         std.mem.reverse(VmObject, arguments_slice);
 
+        for (arguments_slice) |object| {
+            if (object.as_block()) |block| {
+                block.add_to_escaping_blocks_list();
+            }
+        }
+
         // Create an object representing the arguments.
         const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
 
