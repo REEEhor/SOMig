@@ -1,0 +1,17 @@
+Simple = (
+    someMethod_1 = (
+        a
+    )
+
+    someMethod_2 = (
+        a b
+    )
+
+    someMethod_3 = (
+        a b c
+    )
+
+    someMethod_4 = (
+        f e d c b a
+    )
+)

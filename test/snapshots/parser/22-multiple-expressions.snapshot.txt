@@ -1,0 +1,70 @@
+AST of the class [  0..343]'TestedClass'
+==== Instance specific part ====
+	(no fields)
+[ 21.. 66]Method #1:
+	[ 21.. 28]Header: (unary-method) 'method_1'
+	[ 43.. 59]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 43.. 43](id=0) Variable(a)
+			Expression #2:
+				- [ 55.. 59](id=3) Binary message call '+', with lhs:
+					- [ 55.. 55](id=1) Integer literal(1)
+				  and rhs:
+					- [ 59.. 59](id=2) Integer literal(4)
+[ 75..135]Method #2:
+	[ 75.. 82]Header: (unary-method) 'method_2'
+	[ 97..128]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 97..109](id=5) Unary message 'println' to the object:
+					- [ 97..101](id=4) String literal(hi!)
+			Expression #2:
+				- [112..127](id=7) Unary message 'println' to the object:
+					- [112..119](id=6) String literal(hello!)
+[144..208]Method #3:
+	[144..147]Header: (unary-method) 'dots'
+	[162..201]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [162..174](id=9) Unary message 'println' to the object:
+					- [162..166](id=8) String literal(ABC)
+			Expression #2:
+				- [190..200](id=11) Unary message 'print' to the object:
+					- [190..194](id=10) String literal(DEF)
+[217..340]Method #4:
+	[217..237]Header: (unary-method) 'multipleArrayAccesses'
+	[252..333]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [252..261](id=14) Keyword message call on object:
+					- [252..255](id=12) Variable(arr1)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [261..261](id=13) Integer literal(4)
+			Expression #2:
+				- [273..309](id=21) Keyword message call on object:
+					- [273..276](id=15) Variable(arr2)
+				  and argument pairs:
+					- Keyword 'updateAtIdx:' and arg:
+						- [291..300](id=19) Unary message 'sum' to the object:
+							- [291..296](id=18) Binary message call ',', with lhs:
+								- [292..292](id=16) Integer literal(1)
+							  and rhs:
+								- [295..295](id=17) Integer literal(2)
+					- Keyword 'with:' and arg:
+						- [308..309](id=20) Integer literal(80)
+			Expression #3:
+				- [321..332](id=25) Exit expression with return value:
+					- [323..332](id=24) Keyword message call on object:
+						- [323..326](id=22) Variable(arr3)
+					  and argument pairs:
+						- Keyword 'at:' and arg:
+							- [332..332](id=23) Integer literal(6)
+==== Class specific part ====
+	(no fields)
+	(no methods)

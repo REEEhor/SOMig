@@ -1,0 +1,42 @@
+AST of the class [  0..194]'Simple'
+==== Instance specific part ====
+	(no fields)
+[ 16.. 49]Method #1:
+	[ 16.. 27]Header: (unary-method) 'someMethod_1'
+	[ 42.. 42]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 42.. 42](id=0) Variable(a)
+[ 58.. 93]Method #2:
+	[ 58.. 69]Header: (unary-method) 'someMethod_2'
+	[ 84.. 86]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 84.. 86](id=2) Unary message 'b' to the object:
+					- [ 84.. 84](id=1) Variable(a)
+[102..139]Method #3:
+	[102..113]Header: (unary-method) 'someMethod_3'
+	[128..132]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [128..132](id=5) Unary message 'c' to the object:
+					- [128..130](id=4) Unary message 'b' to the object:
+						- [128..128](id=3) Variable(a)
+[148..191]Method #4:
+	[148..159]Header: (unary-method) 'someMethod_4'
+	[174..184]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [174..184](id=11) Unary message 'a' to the object:
+					- [174..182](id=10) Unary message 'b' to the object:
+						- [174..180](id=9) Unary message 'c' to the object:
+							- [174..178](id=8) Unary message 'd' to the object:
+								- [174..176](id=7) Unary message 'e' to the object:
+									- [174..174](id=6) Variable(f)
+==== Class specific part ====
+	(no fields)
+	(no methods)

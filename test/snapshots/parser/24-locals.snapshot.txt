@@ -1,0 +1,65 @@
+AST of the class [  0..548]'LocalsTest'
+==== Instance specific part ====
+	(no fields)
+[ 22.. 85]Method #1:
+	[ 22.. 30]Header: (unary-method) 'one_local'
+	[ 45.. 78]Body:
+		Locals:
+			#1: 'someLocal'
+		Expressions:
+			Expression #1:
+				- [ 68.. 77](id=1) Unary message 'hello' to the object:
+					- [ 68.. 71](id=0) Variable(self)
+[ 94..150]Method #2:
+	[ 94..116]Header: (unary-method) 'one_local_no_expression'
+	[empty   ]Body:
+		Locals:
+			#1: 'someLocal'
+		(no expressions)
+[159..240]Method #3:
+	[159..168]Header: (unary-method) 'two_locals'
+	[183..233]Body:
+		Locals:
+			#1: 'someLocal'
+			#2: 'someAnotherLocal'
+		Expressions:
+			Expression #1:
+				- [223..232](id=3) Unary message 'hello' to the object:
+					- [223..226](id=2) Variable(self)
+[249..323]Method #4:
+	[249..272]Header: (unary-method) 'two_locals_no_expression'
+	[empty   ]Body:
+		Locals:
+			#1: 'someLocal'
+			#2: 'someAnotherLocal'
+		(no expressions)
+[332..427]Method #5:
+	[332..342]Header: (unary-method) 'many_locals'
+	[357..420]Body:
+		Locals:
+			#1: 'var1'
+			#2: 'var2'
+			#3: 'var3'
+			#4: 'var4'
+			#5: 'var5'
+			#6: 'var6'
+		Expressions:
+			Expression #1:
+				- [410..419](id=5) Unary message 'hello' to the object:
+					- [410..413](id=4) Variable(self)
+[436..490]Method #6:
+	[436..444]Header: (unary-method) 'no_locals'
+	[459..483]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [473..482](id=7) Unary message 'hello' to the object:
+					- [473..476](id=6) Variable(self)
+[499..545]Method #7:
+	[499..521]Header: (unary-method) 'no_locals_no_expression'
+	[empty   ]Body:
+		(no locals)
+		(no expressions)
+==== Class specific part ====
+	(no fields)
+	(no methods)

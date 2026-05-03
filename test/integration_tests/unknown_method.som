@@ -1,0 +1,12 @@
+"
+VM:
+  status: error
+  stdout:
+   |ERROR: Method f not found in class unknown_method
+"
+
+unknown_method = (
+    run = (
+        self f.
+    )
+)

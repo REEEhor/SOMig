@@ -1,0 +1,12 @@
+"
+VM:
+  stdout:
+   |nil
+"
+
+unassigned_var = (
+    run = (
+        |v|
+        v println.
+    )
+)

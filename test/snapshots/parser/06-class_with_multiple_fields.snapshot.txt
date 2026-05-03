@@ -1,0 +1,11 @@
+AST of the class [  0.. 73]'Example'
+==== Instance specific part ====
+	Fields:
+		- 'aField'
+		- 'someAnotherField'
+		- 'oneMoreField'
+		- 'lastField'
+	(no methods)
+==== Class specific part ====
+	(no fields)
+	(no methods)

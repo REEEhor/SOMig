@@ -1,0 +1,56 @@
+AST of the class [  0..312]'TestedClass'
+==== Instance specific part ====
+	(no fields)
+[ 21.. 71]Method #1:
+	[ 21.. 34]Header: (unary-method) 'access_array_1'
+	[ 49.. 64]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 49.. 64](id=2) Keyword message call on object:
+					- [ 49.. 57](id=0) Variable(someArray)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [ 63.. 64](id=1) Integer literal(20)
+[ 80..133]Method #2:
+	[ 80.. 93]Header: (unary-method) 'access_array_2'
+	[108..126]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [108..126](id=7) Keyword message call on object:
+					- [108..116](id=3) Variable(someArray)
+				  and argument pairs:
+					- Keyword 'at:' and arg:
+						- [122..126](id=6) Binary message call '+', with lhs:
+							- [122..122](id=4) Integer literal(1)
+						  and rhs:
+							- [126..126](id=5) Integer literal(2)
+[142..309]Method #3:
+	[142..161]Header: (unary-method) 'create_person_object'
+	[176..302]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [176..302](id=19) Keyword message call on object:
+					- [176..188](id=8) Variable(personFactory)
+				  and argument pairs:
+					- Keyword 'create:' and arg:
+						- [211..216](id=9) String literal(John)
+					- Keyword 'withSurname:' and arg:
+						- [244..266](id=13) Unary message 'concat' to the object:
+							- [244..259](id=12) Binary message call ',', with lhs:
+								- [245..251](id=10) String literal(Peter)
+							  and rhs:
+								- [254..258](id=11) String literal(son)
+					- Keyword 'withAge:' and arg:
+						- [290..302](id=18) Binary message call '+', with lhs:
+							- [290..291](id=14) Integer literal(10)
+						  and rhs:
+							- [295..302](id=17) Binary message call '*', with lhs:
+								- [296..296](id=15) Integer literal(1)
+							  and rhs:
+								- [300..301](id=16) Integer literal(30)
+==== Class specific part ====
+	(no fields)
+	(no methods)

@@ -1,0 +1,15 @@
+SomeClassIdentifier = (
+    parethesisMadness = (
+        someVar := 10.
+        (someVar) := 10.
+        anotherVar := ((someVar)) := 10.
+        someVar := ((((someVar))) := 10).
+        
+        super println. 
+        (super) println. 
+        ((super)) println. 
+        (((super)) println). 
+        
+        (((((((((((((((((self))))))))))))))))) hi.
+    )
+)

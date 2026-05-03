@@ -1,0 +1,14 @@
+"
+VM:
+  status: success
+  stdout:
+   |true
+"
+
+fullgc = (
+    run = (
+        | result |
+        result := system fullGC.
+        (result == true || (result == false)) println
+    )
+)

@@ -1,0 +1,18 @@
+AST of the class [  0.. 93]'Counter'
+==== Instance specific part ====
+	Fields:
+		- 'currentValue'
+[ 32.. 91]Method #1:
+	[ 32.. 42]Header: (binary-method) '+=' with parameter 'byAmount'
+	[ 50.. 88]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 50.. 88](id=4) Assignment of 'currentValue' to:
+					- [ 66.. 88](id=3) Binary message call '+', with lhs:
+						- [ 66.. 77](id=1) Variable(currentValue)
+					  and rhs:
+						- [ 81.. 88](id=2) Variable(byAmount)
+==== Class specific part ====
+	(no fields)
+	(no methods)

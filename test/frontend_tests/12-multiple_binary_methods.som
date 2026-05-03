@@ -1,0 +1,27 @@
+BinaryMethodsTest = (
+	&@,/=<-\>~|%+* someParameter = ( 'Why did you call this??' println )
+
+	getMessage = (
+		| ignored_parameter |
+		self &@,/=<-\>~|%+* ignored_parameter
+	)
+
+
+	&@,/=<-\>~|%+*@,/=<-\>~|%+* _ = ( self &@,/=<-\>~|%+*@,/=<-\>~|%+*- nil. self getMessage )
+
+	|||////\\\\//\/\/\/ _ = ( self |||////\\\\//\/\/\/ nil. )
+
+	- _ = ( self - 42 ) " <- The minus sign should be a binary method, not a minus sign of the number. "
+
+	~~ _ = ( self ~~ nil. )
+
+	><><><><><><><><><><><><><><><><><><><><>< _ = ( self ><><><><><><><><><><><><><><><><><><><><>< nil )
+
+	-- _ =  ( 'Not a separator :)' print )
+	--- _ = ( 'Still not a separator :)' print )
+
+	----
+
+	--- _ = ( 'Now it cannot be a separator :)' print )
+	&@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* = _ ( self &@,,/=<-,/=<-,/===,,,=-%+*@,/=<-\>~|%+* nil. )
+)

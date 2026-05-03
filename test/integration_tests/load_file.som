@@ -1,0 +1,16 @@
+"
+VM:
+  status: success
+  stdout:
+   |ClassB = ClassA (
+   |  | c d |
+   |  ----
+   |  | c4 c5 c6 |
+   |)
+"
+
+load_file = (
+    run = (
+        (system loadFile: 'TestSuite/ClassB.som') println.
+    )
+)

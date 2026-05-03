@@ -1,0 +1,7 @@
+Counter = (
+	| currentValue |
+
+	+= byAmount = (
+		currentValue := currentValue + byAmount
+	)
+)

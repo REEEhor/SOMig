@@ -1,0 +1,17 @@
+Simple = (
+    someMethod_1 = (
+        a + b
+    )
+
+    someMethod_2 = (
+        -4 * 1
+    )
+
+    someMethod_3 = (
+        a /* 10
+    )
+
+    someMethod_4 = (
+        a ++ b -- 12 ++ b
+    )
+)

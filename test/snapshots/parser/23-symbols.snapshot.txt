@@ -1,0 +1,55 @@
+AST of the class [  0..385]'SymbolsTest'
+==== Instance specific part ====
+	(no fields)
+[ 21..107]Method #1:
+	[ 21.. 30]Header: (unary-method) 'test_unary'
+	[ 45..100]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 45.. 46](id=0) Symbol '#a'
+			Expression #2:
+				- [ 58.. 60](id=1) Symbol '#ab'
+			Expression #3:
+				- [ 72.. 75](id=2) Symbol '#abc'
+			Expression #4:
+				- [ 87.. 99](id=3) Symbol '#__b0923902cd'
+[116..196]Method #2:
+	[116..126]Header: (unary-method) 'test_string'
+	[141..189]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [141..144](id=4) Symbol '#'a''
+			Expression #2:
+				- [156..173](id=5) Symbol '#'žčšě^asdf62''
+			Expression #3:
+				- [186..188](id=6) Symbol '#'''
+[205..267]Method #3:
+	[205..215]Header: (unary-method) 'test_binary'
+	[230..260]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [230..232](id=7) Symbol '#++'
+			Expression #2:
+				- [245..259](id=8) Symbol '#,**@>>/<\+%%,,'
+[276..382]Method #4:
+	[276..287]Header: (unary-method) 'test_keyword'
+	[302..375]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [302..304](id=9) Symbol '#a:'
+			Expression #2:
+				- [316..322](id=10) Symbol '#ab:cd:'
+			Expression #3:
+				- [334..352](id=11) Symbol '#hello:how:are:you:'
+			Expression #4:
+				- [364..374](id=14) Binary message call '+', with lhs:
+					- [364..370](id=12) Symbol '#ab:cd:'
+				  and rhs:
+					- [372..374](id=13) Symbol '#e:'
+==== Class specific part ====
+	(no fields)
+	(no methods)

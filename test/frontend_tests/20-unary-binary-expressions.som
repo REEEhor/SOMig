@@ -1,0 +1,17 @@
+Simple = (
+    someMethod_1 = (
+        object method + 1
+    )
+
+    someMethod_2 = (
+        1 + object method
+    )
+
+    someMethod_3 = (
+        cat speak eat ++++ dog sleep jump
+    )
+
+    someMethod_4 = (
+        (2 + 5) print
+    )
+)

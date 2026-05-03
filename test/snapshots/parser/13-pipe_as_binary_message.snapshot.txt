@@ -1,0 +1,42 @@
+AST of the class [  0..235]'PipeCanAlsoBeAnOperatorWhy'
+==== Instance specific part ====
+	(no fields)
+[ 32.. 86]Method #1:
+	[ 32.. 62]Header: (binary-method) '|' with parameter 'this_is_parameter_not_a_field'
+	[ 68.. 84]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [ 68.. 84](id=1) Unary message 'println' to the object:
+					- [ 68.. 76](id=0) String literal(Gotcha!)
+[ 90..148]Method #2:
+	[ 90..101]Header: (unary-method) 'testMethod_1'
+	[109..145]Body:
+		Locals:
+			#1: 'local_value'
+		Expressions:
+			Expression #1:
+				- [127..144](id=4) Binary message call '|', with lhs:
+					- [127..130](id=2) Variable(self)
+				  and rhs:
+					- [134..144](id=3) Variable(local_value)
+[152..184]Method #3:
+	[152..163]Header: (unary-method) 'testMethod_2'
+	[171..181]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [171..180](id=7) Binary message call '|', with lhs:
+					- [171..174](id=5) Variable(self)
+				  and rhs:
+					- [178..180](id=6) Variable(nil)
+==== Class specific part ====
+	(no fields)
+[194..233]Method #1:
+	[194..199]Header: (binary-method) '|' with parameter 'haha'
+	[205..231]Body:
+		(no locals)
+		Expressions:
+			Expression #1:
+				- [205..230](id=9) Unary message 'print' to the object:
+					- [205..224](id=8) String literal(Gotcha number two?)

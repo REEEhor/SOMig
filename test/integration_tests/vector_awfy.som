@@ -1,0 +1,17 @@
+"
+VM:
+    status: success
+    custom_classpath: $AWFY:$CLASSPATH
+    stdout:
+     |nil
+"
+
+vector_awfy = (
+    run = (
+        | vec |
+        vec := Vector new.
+        vec append: 10.
+        vec append: 20.
+        (vec at: 20) println.
+    )
+)

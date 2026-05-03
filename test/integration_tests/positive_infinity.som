@@ -1,0 +1,12 @@
+"
+VM:
+  status: success
+  stdout:
+   |inf
+"
+
+positive_infinity = (
+    run = (
+        Double PositiveInfinity println.
+    )
+)

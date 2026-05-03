@@ -1,0 +1,11 @@
+AST of the class [  0.. 30]'Example'
+==== Instance specific part ====
+	(no fields)
+[ 13.. 28]Method #1:
+	[ 13.. 22]Header: (unary-method) 'someMethod'
+	[empty   ]Body:
+		(no locals)
+		(no expressions)
+==== Class specific part ====
+	(no fields)
+	(no methods)
