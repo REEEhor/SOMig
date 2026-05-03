@@ -217,12 +217,8 @@ fn check_class_is_actually_a_superclass(
     }
 }
 
-fn failed_finding_method(method_selector: SymbolId, class_definition: *const ClassDefinition, interpreter: *Interpreter) Interpreter.Error {
-    interpreter.report_runtime_error(
-        "Failed to find method `{s}` defined in class `{s}`.",
-        .{ interpreter.string_from_symbol(method_selector), interpreter.string_from_symbol(class_definition.class_name) },
-    );
-    return Interpreter.Error.method_not_found;
+fn failed_finding_method(method_selector: SymbolId, class_definition: *const ClassDefinition, interpreter: *Interpreter) Interpreter.Error!void {
+    try interpreter.send_do_not_understand(class_definition, method_selector);
 }
 
 pub const Class = struct {

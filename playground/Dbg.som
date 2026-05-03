@@ -1,10 +1,8 @@
 Dbg = (
-    f = (
-        [ [ ^ 'a' ] ] value value.
-        ^'b'
-    )
-
     run = (
-        self f println
+        'hello' length println.
+        '_' length println. 
+        'hello _ world' length println.
+        ('abc' substringFrom: 1 to: 2) length println.
     )
 )

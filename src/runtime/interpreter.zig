@@ -1282,7 +1282,7 @@ pub const Interpreter = struct {
         try self.call_method(method);
     }
 
-    fn send_do_not_understand(self: *Self, maybe_class: ?*const ClassDefinition, message_selector: SymbolId) Error!void {
+    pub fn send_do_not_understand(self: *Self, maybe_class: ?*const ClassDefinition, message_selector: SymbolId) Error!void {
         // The method was not defined in the receiver's class.
         // We now have to send the error message `doesNotUnderstand:arguments:` to the `self` object.
         const self_object: VmObject = self.top_frame().self_object_ptr().*;
