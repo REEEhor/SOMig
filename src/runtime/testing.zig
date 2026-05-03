@@ -45,17 +45,17 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
                     };
                 },
                 .directory => {
-                    // try dirs.append(arena.allocator(), .{
-                    //     .can_be_searched_recursively = false,
-                    //     .path = entry.name,
-                    // });
+                    try dirs.append(arena.allocator(), .{
+                        .can_be_searched_recursively = false,
+                        .path = try root_dir.realpathAlloc(arena.allocator(), entry.name),
+                    });
 
                     const subpath = try std.fmt.allocPrint(arena.allocator(), "{s}/test.som", .{entry.name});
                     const path = try root_dir.realpathAlloc(arena.allocator(), subpath);
                     const contents = try root_dir.readFileAlloc(arena.allocator(), path, 1024 * 1024);
                     break :get_file TestFile{
                         .contents = contents,
-                        .class_name = "test.som",
+                        .class_name = "test",
                         .filepath = path,
                     };
                 },

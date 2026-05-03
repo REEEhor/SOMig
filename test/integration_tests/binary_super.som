@@ -2,6 +2,7 @@
 VM:
   status: error
   stdout:
+   |
    |ERROR: Method + not found in class binary_super
 "
 

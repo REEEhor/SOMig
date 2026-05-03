@@ -1,6 +1,10 @@
 Dbg = (
-    
+    f = (
+        [ [ ^ 'a' ] ] value value.
+        ^'b'
+    )
+
     run = (
-        ((1 << 200) // 0) println.
+        self f println
     )
 )

@@ -2,6 +2,7 @@
 VM:
   status: error
   stdout:
+   |
    |ERROR: Block has escaped and cannot be executed
 "
 

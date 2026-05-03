@@ -2,15 +2,14 @@
 VM:
   status: success
   stdout:
-   |ClassB = ClassA (
-   |  | c d |
-   |  ----
-   |  | c4 c5 c6 |
-   |)
+   |Hello!
+   |This is from a file
+   |that has been loaded :)
+   |
 "
 
 load_file = (
     run = (
-        (system loadFile: 'test/integration_tests/TestSuite/ClassB.som') println.
+        (system loadFile: 'test/integration_tests/load_file_target.txt') println.
     )
 )

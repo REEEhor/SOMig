@@ -801,6 +801,13 @@ pub const Interpreter = struct {
                     const items_start_idx = len - items_count;
                     const items: []VmObject = self.stack.objects[items_start_idx..len];
 
+                    for (items) |item| {
+                        if (item.as_block()) |block| {
+                            @branchHint(.cold);
+                            block.add_to_escaping_blocks_list();
+                        }
+                    }
+
                     // Create the array object
                     const array_object: VmObject = try types.Array.create_new(&self.heap, items);
                     // NOTE(GC): It is important to not trigger a GC until we put `array_object` on the stack below

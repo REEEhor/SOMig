@@ -1,5 +1,5 @@
-// pub const DO_DEBUG_TRACE: bool = true;
-pub const DO_DEBUG_TRACE: bool = false;
+pub const DO_DEBUG_TRACE: bool = true;
+// pub const DO_DEBUG_TRACE: bool = false;
 
 pub const DEBUG_STRESS_GC: bool = false;
 pub const DEBUG_PRINT_GC_STATS: bool = false;

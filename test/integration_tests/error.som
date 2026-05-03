@@ -2,6 +2,7 @@
 VM:
   status: error
   stdout:
+   |
    |ERROR: abc
 "
 

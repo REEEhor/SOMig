@@ -389,12 +389,14 @@ pub const SourceCodeFiles = struct {
                 },
             };
             const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
-            if (gop.found_existing and alert_duplicates) {
-                error_reporter.report_warning(
-                    .no_location,
-                    "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
-                    .{ class_name, gop.value_ptr.*, owned_path },
-                );
+            if (gop.found_existing) {
+                if (alert_duplicates) {
+                    error_reporter.report_warning(
+                        .no_location,
+                        "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
+                        .{ class_name, gop.value_ptr.*, owned_path },
+                    );
+                }
             } else {
                 gop.value_ptr.* = owned_path;
             }
@@ -418,17 +420,18 @@ pub const SourceCodeFiles = struct {
             const class_name = entry.name[0 .. entry.name.len - file_ending.len];
             const class_name_as_symbol: SymbolId = (try symbols_manager.id_or_intern(class_name)).id;
             const owned_path: []const u8 = root_dir.realpathAlloc(self.arena.allocator(), entry.name) catch |err| {
-                // TODO: if we ever have warnings, they would be nice here
-                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
+                error_reporter.report_warning(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
                 continue;
             };
             const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
-            if (gop.found_existing and alert_duplicates) {
-                error_reporter.report_warning(
-                    .no_location,
-                    "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
-                    .{ class_name, gop.value_ptr.*, owned_path },
-                );
+            if (gop.found_existing) {
+                if (alert_duplicates) {
+                    error_reporter.report_warning(
+                        .no_location,
+                        "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
+                        .{ class_name, gop.value_ptr.*, owned_path },
+                    );
+                }
             } else {
                 gop.value_ptr.* = owned_path;
             }
@@ -1693,14 +1696,13 @@ pub const BytecodeGenerator = struct {
         switch (expr) {
             .integer_literal => |literal_info| {
                 const text = self.ast.text_at(literal_info.absolute_value_token);
-                var number: i48 = literals.parse_integer_literal(text) orelse {
-                    // TODO: Change how we parse this if we implement arbitrary-sized integers.
-                    self.reporter.report_error(
+                var number: i48 = literals.parse_integer_literal(text) orelse blk: {
+                    self.reporter.report_warning(
                         .{ .pos = self.ast.pos_of(expr_id) },
                         "This integer literal is too big to fit into the VM representation of integers, which is 48 bits. The valid range is from {d} to {d}.",
                         .{ std.math.minInt(i48), std.math.maxInt(i48) },
                     );
-                    return CompileError.invalid_integer_literal;
+                    break :blk std.math.maxInt(i48);
                 };
                 if (literal_info.is_negative) number *= -1;
 

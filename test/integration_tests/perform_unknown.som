@@ -2,6 +2,7 @@
 VM:
   status: error
   stdout:
+   |
    |ERROR: Method f not found in class perform_unknown
 "
 

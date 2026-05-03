@@ -170,6 +170,10 @@ pub const Object = struct {
             .length = instance_fields.len,
             .access_index = index,
         });
+        if (new_object.as_block()) |block| {
+            @branchHint(.cold);
+            block.add_to_escaping_blocks_list();
+        }
         instance_fields[index_usize - 1] = new_object;
         return self; // Return `self` according to the `inst_var_at_put.som` integration test
     }
@@ -665,6 +669,10 @@ pub const Array = struct {
             .length = self.len,
             .access_index = index_raw,
         });
+        if (new_value.as_block()) |block| {
+            @branchHint(.cold);
+            block.add_to_escaping_blocks_list();
+        }
         self[index - 1] = new_value;
         return .{};
     }
