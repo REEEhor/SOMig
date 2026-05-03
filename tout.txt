@@ -1,3 +1,4 @@
+zig build -freference-trace=100 run
 ================== /home/rehor/FIT/baka/somig/test/integration_tests/mutate_methods.som ===============
 Mismatch: stdout is different than expected.
 ========= Config:
@@ -521,19 +522,6 @@ Include AWFY: false
 Expected stdout: (unspecified)
 ========= Program stdout:
 ========= Program stderr:
-================== /home/rehor/FIT/baka/somig/test/integration_tests/block_6.som ===============
-Mismatch: stdout is different than expected.
-========= Config:
-Status:       null
-Has stderr:   false
-Has stderr:   false
-Include AWFY: false
-Expected stdout:
-a
-========= Program stdout:
-
-ERROR: Block has escaped and cannot be executed
-========= Program stderr:
 ================== /home/rehor/FIT/baka/somig/test/integration_tests/unknown_field_write.som ===============
 Mismatch: expected 'error' status, but there was no error.
 Mismatch: expected the stderr to contain something, but it was empty.
@@ -760,21 +748,6 @@ Expected stdout:
 -2
 1
 -1
-========= Program stderr:
-================== /home/rehor/FIT/baka/somig/test/integration_tests/block_11.som ===============
-Mismatch: stdout is different than expected.
-========= Config:
-Status:       null
-Has stderr:   false
-Has stderr:   false
-Include AWFY: false
-Expected stdout:
-3
-3
-========= Program stdout:
-3
-
-ERROR: Block has escaped and cannot be executed
 ========= Program stderr:
 ================== /home/rehor/FIT/baka/somig/test/integration_tests/double_double_div_zero_err4.som ===============
 Mismatch: expected 'error' status, but there was no error.
@@ -1361,3 +1334,6 @@ Expected stdout:
 ========= Program stderr:
 [runtime-error] Could not convert '1267650600228229401496703205376' into an integer, because the integer is too large to fit into the internal representation of an integer.
 [runtime-info] Error happened in the primitive method `fromString:` defined in class `Integer class`.
+======================================
+TOTAL TESTS: 200
+SUCCESS TESTS: 142 (71.00%)

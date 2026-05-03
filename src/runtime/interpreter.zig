@@ -919,32 +919,30 @@ pub const Interpreter = struct {
                         @branchHint(.cold);
                         block.add_to_escaping_blocks_list();
                     }
-                    const wanted_frame: *Stack.Frame = switch (self.top_frame().kind) {
+                    const wanted_frame: *Stack.Frame, const block = switch (self.top_frame().kind) {
                         .method => unreachable, // We should never encounter a non local in a method
-                        .block => |block| blk: {
-                            if (block.header.has_escaped_home_context) {
-                                @branchHint(.cold);
-                                // We have to send a message `escapedBlock:` to the current `self`.
-                                const self_object: VmObject = self.top_frame().self_object_ptr().*;
-
-                                // Put arguments on the top of the stack `self`.
-                                try self.push_object(VmObject.from(block));
-                                try self.push_object(self_object);
-
-                                // Send the error message to `self` that is currently on the top of the stack.
-                                try self.send_message(SymbolsManager.comptime_id_of("escapedBlock:"));
-
-                                break :switch_instruction; // We are done with execution of this instruction
-                            }
-                            break :blk block.home_method_frame();
-                        },
+                        .block => |block| .{ block.home_method_frame(), block },
                     };
+
+                    const frame_is_still_on_stack = null != index_from_pointer(wanted_frame, self.stack.frames);
+                    if (!frame_is_still_on_stack) {
+                        @branchHint(.cold);
+                        // We have to send a message `escapedBlock:` to the current `self`.
+                        const self_object: VmObject = self.top_frame().self_object_ptr().*;
+
+                        // Put arguments on the top of the stack `self`.
+                        try self.push_object(VmObject.from(block));
+                        try self.push_object(self_object);
+
+                        // Send the error message to `self` that is currently on the top of the stack.
+                        try self.send_message(SymbolsManager.comptime_id_of("escapedBlock:"));
+
+                        break :switch_instruction; // We are done with execution of this instruction
+                    }
 
                     // We know that we want to pop at least one frame (the block frame)
                     _ = try self.pop_frame();
                     while (wanted_frame != self.top_frame()) {
-                        // We should never fail to pop frame here,
-                        // since we assert above, that the block has not escaped its home context.
                         _ = try self.pop_frame();
                     }
 
