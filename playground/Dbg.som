@@ -1,7 +1,6 @@
 Dbg = (
     
     run = (
-        system exit: 43.        
-
+        ((1 << 200) // 0) println.
     )
 )

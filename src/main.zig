@@ -48,6 +48,10 @@ pub fn main() !void {
         return parse(gpa, filepath);
     }
 
+    if (args.len == 1 and std.mem.eql(u8, args[0], "--itest")) {
+        return runtime_module.testing_module.run_tests(gpa);
+    }
+
     var stdout_buffer = [_]u8{0} ** 1024;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;

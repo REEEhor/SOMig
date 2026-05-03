@@ -11,6 +11,6 @@ VM:
 
 load_file = (
     run = (
-        (system loadFile: 'TestSuite/ClassB.som') println.
+        (system loadFile: 'test/integration_tests/TestSuite/ClassB.som') println.
     )
 )

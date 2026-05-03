@@ -5,11 +5,10 @@ const options = @import("integration_tests_options");
 
 test "run integration tests" {
     if (!options.run_integration_tests) return;
-    try run_tests();
+    try run_tests(std.testing.allocator);
 }
 
-fn run_tests() !void {
-    const gpa = std.testing.allocator;
+pub fn run_tests(gpa: std.mem.Allocator) !void {
     var static = std.heap.ArenaAllocator.init(gpa);
     defer static.deinit();
 
@@ -19,47 +18,57 @@ fn run_tests() !void {
     var error_configs = try std.ArrayList([]const u8).initCapacity(gpa, 100);
     defer error_configs.deinit(gpa);
 
+    var total_tests: usize = 0;
+    var failed_tests: usize = 0;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+
     var it = root_dir.iterate();
     while (try it.next()) |entry| {
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        defer arena.deinit();
+        _ = arena.reset(.retain_capacity);
+
+        var dirs = std.ArrayList(runtime_module.SourceCodeFiles.Directory).empty;
 
         const tested_file: TestFile = get_file: {
             switch (entry.kind) {
                 .file => {
+                    if (!std.mem.endsWith(u8, entry.name, ".som")) {
+                        std.debug.print("Skipped entry: {s}\n", .{entry.name});
+                        continue;
+                    }
                     const contents = try root_dir.readFileAlloc(arena.allocator(), entry.name, 1024 * 1024);
                     break :get_file TestFile{
                         .contents = contents,
                         .filepath = try root_dir.realpathAlloc(arena.allocator(), entry.name),
+                        .class_name = entry.name[0 .. entry.name.len - ".som".len],
                     };
                 },
                 .directory => {
-                    std.debug.print("Skipped entry: {s}\n", .{entry.name});
-                    continue;
+                    // try dirs.append(arena.allocator(), .{
+                    //     .can_be_searched_recursively = false,
+                    //     .path = entry.name,
+                    // });
+
+                    const subpath = try std.fmt.allocPrint(arena.allocator(), "{s}/test.som", .{entry.name});
+                    const path = try root_dir.realpathAlloc(arena.allocator(), subpath);
+                    const contents = try root_dir.readFileAlloc(arena.allocator(), path, 1024 * 1024);
+                    break :get_file TestFile{
+                        .contents = contents,
+                        .class_name = "test.som",
+                        .filepath = path,
+                    };
                 },
                 else => continue,
             }
         };
 
-        if (!std.mem.endsWith(u8, tested_file.filepath, ".som")) {
-            std.debug.print("Skipped entry: {s}\n", .{entry.name});
-            continue;
-        }
-
-        const class_name = entry.name[0 .. entry.name.len - ".som".len];
-
-        // std.debug.print("\n================== {s} ======== \n", .{entry.name});
         const config = parse_config(arena.allocator(), tested_file.contents) catch {
             std.debug.print("Error with entry '{s}/{s}'\n", .{ options.integration_tests_path, entry.name });
             std.debug.print("\n", .{});
             try error_configs.append(gpa, try static.allocator().dupe(u8, entry.name));
             continue;
         };
-        // std.debug.print("Parsed config: \n", .{});
-        // std.debug.print("  status:          {?}\n", .{config.status});
-        // std.debug.print("  has_stderr:      {}\n", .{config.has_stderr});
-        // std.debug.print("  exit_code:       {?}\n", .{config.exit_code});
-        // std.debug.print("  expected_stdout: >{?s}<\n", .{config.expected_stdout});
 
         var allocating_stdout = std.Io.Writer.Allocating.init(arena.allocator());
         const stdout = &allocating_stdout.writer;
@@ -67,42 +76,32 @@ fn run_tests() !void {
         var allocating_stderr = std.Io.Writer.Allocating.init(arena.allocator());
         const stderr = &allocating_stderr.writer;
 
-        const dirs = get_dirs: {
-            var dirs = std.ArrayList(runtime_module.SourceCodeFiles.Directory).empty;
-            if (config.include_awfy) {
-                try dirs.append(arena.allocator(), .{
-                    .path = options.core_awfy_path,
-                    .alert_on_duplicates = true,
-                    .can_be_searched_recursively = false,
-                });
-            }
+        if (config.include_awfy) {
             try dirs.append(arena.allocator(), .{
-                .path = options.integration_tests_path,
+                .path = options.core_awfy_path,
                 .alert_on_duplicates = true,
                 .can_be_searched_recursively = false,
             });
-            try dirs.append(arena.allocator(), .{
-                .path = options.core_lib_path,
-                .alert_on_duplicates = !config.include_awfy,
-                .can_be_searched_recursively = false,
-            });
-            // TODO: append parent of directory, if the entry was a directory
-            break :get_dirs dirs;
-        };
-
-        // for (dirs.items) |d| {
-        //     std.debug.print("dir: {s}\n", .{d.path});
-        // }
+        }
+        try dirs.append(arena.allocator(), .{
+            .path = options.integration_tests_path,
+            .alert_on_duplicates = true,
+            .can_be_searched_recursively = false,
+        });
+        try dirs.append(arena.allocator(), .{
+            .path = options.core_lib_path,
+            .alert_on_duplicates = !config.include_awfy,
+            .can_be_searched_recursively = false,
+        });
 
         const program_args = get_args: {
             var program_args = std.ArrayList([]const u8).empty;
-            try program_args.append(arena.allocator(), class_name);
+            try program_args.append(arena.allocator(), tested_file.class_name);
             break :get_args program_args;
         };
 
         var maybe_err: ?anyerror = null;
-        std.debug.print("=============== RUNNING: '{s}' ==============\n", .{entry.name});
-        _ = run_function(.{
+        const program_exit_value: ?u8 = run_function(.{
             .gpa = gpa,
             .stdout = stdout,
             .stderr = stderr,
@@ -113,17 +112,70 @@ fn run_tests() !void {
             .skip_bootstrap = false,
         }) catch |err| blk: {
             maybe_err = err;
-            break :blk 0;
+            break :blk null;
         };
-        std.debug.print("===== STDOUT:\n{s}", .{allocating_stdout.written()});
-        std.debug.print("===== STDERR:\n{s}", .{allocating_stderr.written()});
-        std.debug.print("===============================================\n", .{});
+
+        var allocating_issues_writer = std.Io.Writer.Allocating.init(arena.allocator());
+        const w = &allocating_issues_writer.writer;
+
+        if (config.status) |status| switch (status) {
+            .@"error" => if (maybe_err == null and program_exit_value == 0) {
+                try w.print("Mismatch: expected 'error' status, but there was no error.\n", .{});
+            },
+            .success => if (maybe_err) |err| {
+                try w.print("Mismatch: expected 'success' status, but there was error: {t}.\n", .{err});
+            },
+            .integer_value => |expected_value| if (program_exit_value) |actual_value| {
+                if (expected_value != actual_value) {
+                    try w.print("Mismatch: expected status to be {d}, but it is {d}.\n", .{ expected_value, actual_value });
+                }
+            } else {
+                try w.print("Mismatch: expected status to be {d}, but the program did not exit with such code.\n", .{expected_value});
+            },
+        };
+        if (config.has_stderr and allocating_stderr.written().len == 0) {
+            try w.print("Mismatch: expected the stderr to contain something, but it was empty.\n", .{});
+        }
+        if (config.expected_stdout) |expected_stdout| {
+            if (!str_eql(expected_stdout, allocating_stdout.written())) {
+                try w.print("Mismatch: stdout is different than expected.\n", .{});
+            }
+        }
+
+        total_tests += 1;
+        if (allocating_issues_writer.written().len != 0) {
+            failed_tests += 1;
+            const issues: []const u8 = allocating_issues_writer.written();
+            std.debug.print("================== {s} ===============\n", .{tested_file.filepath});
+            std.debug.print("{s}", .{issues});
+            std.debug.print("========= Config: \n", .{});
+            std.debug.print("Status:       {?}\n", .{config.status});
+            std.debug.print("Has stderr:   {}\n", .{config.has_stderr});
+            std.debug.print("Has stderr:   {}\n", .{config.has_stderr});
+            std.debug.print("Include AWFY: {}\n", .{config.include_awfy});
+            if (config.expected_stdout) |expected_stdout| {
+                std.debug.print("Expected stdout:\n{s}", .{expected_stdout});
+            } else {
+                std.debug.print("Expected stdout: (unspecified)\n", .{});
+            }
+            std.debug.print("========= Program stdout:\n", .{});
+            std.debug.print("{s}", .{allocating_stdout.written()});
+            std.debug.print("========= Program stderr:\n", .{});
+            std.debug.print("{s}", .{allocating_stderr.written()});
+        }
     }
+
+    std.debug.print("======================================\n", .{});
+    std.debug.print("TOTAL TESTS: {d}\n", .{total_tests});
+    const ok_tests = total_tests - failed_tests;
+    const percentage = (@as(f64, @floatFromInt(ok_tests)) * 100) / @as(f64, @floatFromInt(total_tests));
+    std.debug.print("SUCCESS TESTS: {d} ({d:.2}%)\n", .{ ok_tests, percentage });
 }
 
 pub const TestFile = struct {
     contents: []const u8,
     filepath: []const u8,
+    class_name: []const u8,
 };
 
 pub const Status = union(enum) { @"error", success, integer_value: i64 };
@@ -132,7 +184,6 @@ pub const TestConfig = struct {
     status: ?Status = null,
     has_stderr: bool = false,
     expected_stdout: ?[]const u8 = null,
-    exit_code: ?u8 = null,
     include_awfy: bool = false,
 };
 

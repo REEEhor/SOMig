@@ -18,6 +18,8 @@ pub const SymbolsManager = interning_module.SymbolsManager;
 pub const SymbolId = interning_module.SymbolId;
 pub const SymbolArrayMap = interning_module.SymbolArrayMap;
 
+pub const testing_module = @import("testing.zig");
+
 pub const codegen_module = @import("../frontend/codegen.zig");
 pub const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
 pub const StringLiteralId = codegen_module.StringLiteralId;

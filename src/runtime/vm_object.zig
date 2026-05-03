@@ -338,7 +338,7 @@ pub const Number = union(enum) {
                 return Number{ .integer = integer_value };
             }
         }
-        return Number{ .double = ceil };
+        return Number{ .double = value };
     }
 
     pub fn as_i48_maybe_lossy(self: Self) i48 {

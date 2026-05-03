@@ -144,12 +144,6 @@ pub const Object = struct {
             super_class,
             interpreter,
         );
-        if (method.number_of_aditional_args != 0) {
-            interpreter.report_runtime_error("Tried to call `perform:inSuperClass:` with a method `{s}`, which requires {d} arguments. Consider using the `perform:inSuperClass:withArgs:` method.", .{
-                interpreter.string_from_symbol(method_selector), method.number_of_aditional_args,
-            });
-            return Interpreter.Error.generic_runtime_error;
-        }
         try invoke(.{
             .receiver = self,
             .method = method,
@@ -169,7 +163,7 @@ pub const Object = struct {
         return instance_fields[index_usize - 1];
     }
 
-    pub fn @"instVarAt:put:"(self: VmObject, index: i48, new_object: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"instVarAt:put:"(self: VmObject, index: i48, new_object: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const instance_fields: []VmObject = self.get_instance_fields();
         const index_usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
             .accessee = "array of instance fields",
@@ -177,7 +171,7 @@ pub const Object = struct {
             .access_index = index,
         });
         instance_fields[index_usize - 1] = new_object;
-        return .{};
+        return self; // Return `self` according to the `inst_var_at_put.som` integration test
     }
 
     pub fn @"instVarNamed:"(self: VmObject, field_name: SymbolId, interpreter: *Interpreter) Interpreter.Error!VmObject {
@@ -407,11 +401,7 @@ pub const Integer = struct {
 
         switch (other_as_number) {
             .integer => |value| return self == value,
-            .double => |value_as_f64| {
-                const ceil = std.math.lossyCast(i48, std.math.ceil(value_as_f64));
-                const floor = std.math.lossyCast(i48, std.math.floor(value_as_f64));
-                return self == ceil and self == floor;
-            },
+            .double => |value| return int_equals_double(self, value),
         }
     }
     pub fn @"<"(self: i48, rhs: Number) bool {
@@ -527,11 +517,10 @@ pub const Double = struct {
     // ========================= Comparing =========================
     pub fn @"="(self: f64, other: VmObject) bool {
         const other_as_number = other.as_number() orelse return false;
-
-        // WARN:
-        // Yes, this does check for strict bit equivalence, same as in C and other languages.
-        // It's the user's fault if they are using this method for non-strict comparison.
-        return self == other_as_number.as_f64();
+        switch (other_as_number) {
+            .integer => |value| return int_equals_double(value, self),
+            .double => |value| return self == value,
+        }
     }
     pub fn @"<"(self: f64, other: Number) bool {
         return self < other.as_f64();
@@ -1021,6 +1010,12 @@ fn protect_args_from_gc(comptime location: std.builtin.SourceLocation, interpret
     assert(interpreter.stack.max_objects_len >= interpreter.stack.objects.len + args_to_protect);
     interpreter.stack.objects.len += args_to_protect;
     return .{};
+}
+
+fn int_equals_double(int: i48, double: f64) bool {
+    const ceil = std.math.lossyCast(i48, std.math.ceil(double));
+    const floor = std.math.lossyCast(i48, std.math.floor(double));
+    return int == ceil and int == floor;
 }
 
 const std = @import("std");
