@@ -1,8 +1,9 @@
 "
 VM:
   status: success
-  stderr: x
   stdout:
+  stderr:
+    x
 "
 
 errorprintln = (

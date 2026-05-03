@@ -1,5 +1,0 @@
-Example = (
-	getBlock0 = ( [                nil  print. ] )
-	getBlock1 = ( [ :arg1       | arg1  print. ] )
-	getBlock2 = ( [ :arg1 :arg2 | arg1  print. arg2 print. ] )
-)

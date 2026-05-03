@@ -1,9 +1,0 @@
-
-======== ERROR OUTPUT FROM THE PROGRAM ========
-
-[ERROR at line:2 column:14]
-Unexpected token identifier 'this_identifier_is_not_primitive'. Expected token '(' or 'primitive'.
-         |
- line: 2 |    method = this_identifier_is_not_primitive
-         |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Failed with parse error: 'unexpected_token'

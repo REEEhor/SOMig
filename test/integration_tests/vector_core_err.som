@@ -1,8 +1,8 @@
 "
 VM:
-    status: error
-    stdout:
-     |ERROR: Vector[1..3]: Index 20 out of bounds
+  status: error
+  stdout:
+   |ERROR: Vector[1..3]: Index 20 out of bounds
 "
 
 vector_core_err = (

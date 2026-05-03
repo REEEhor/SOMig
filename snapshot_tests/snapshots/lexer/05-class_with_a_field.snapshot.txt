@@ -1,8 +1,0 @@
-Position   Token                      String (according to position of the token)
-[  0..  6] identifier               | "Example"
-[  8..  8] binary_selector          | "="
-[ 10.. 10] open_parenthesis         | "("
-[ 13.. 13] binary_selector          | "|"
-[ 15.. 20] identifier               | "aField"
-[ 22.. 22] binary_selector          | "|"
-[ 24.. 24] close_parenthesis        | ")"

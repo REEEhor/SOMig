@@ -1,4 +1,0 @@
-# Ignore output of the tested program when doing snapshot testing.
-# Only `*.new.txt` files that are actually checked and turned into `*.snapshot.txt` files
-#  (by doing `zig build test -Dsnap-accept-all=true` or manual renaming of `*.new.txt` to `*.snapshot.txt`) should be commited.
-*.new.txt

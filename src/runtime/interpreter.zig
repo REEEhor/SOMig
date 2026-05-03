@@ -867,6 +867,10 @@ pub const Interpreter = struct {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.ptr();
                     try self.call_method(method_ptr);
                 },
+                .invalid_super_call => |access| {
+                    const call_info = access.get(&self.decoder);
+                    try self.send_do_not_understand(null, call_info.selector);
+                },
                 .send_message => |access| {
                     const send_info: Instruction.SendMessage = access.get(&self.decoder);
                     try self.send_message(send_info.message_name);
@@ -1267,63 +1271,66 @@ pub const Interpreter = struct {
         const class: *const ClassDefinition = self.get_class_of(receiver_object);
         const method: *const MethodDefinition = class.get_method(message_selector) orelse {
             @branchHint(.cold);
-
-            // The method was not defined in the receiver's class.
-            // We now have to send the error message `doesNotUnderstand:arguments:` to the `self` object.
-            const self_object: VmObject = self.top_frame().self_object_ptr().*;
-            const class_of_self: *const ClassDefinition = self.get_class_of(self_object);
-            const method__does_not_understand = class_of_self.get_method(SymbolsManager.comptime_id_of("doesNotUnderstand:arguments:")) orelse {
-                self.report_runtime_error(
-                    "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
-                    .{
-                        self.string_from_symbol(message_selector),
-                        self.string_from_symbol(class.class_name),
-                    },
-                );
-                self.report_runtime_error(
-                    "Therefore tried to call `doesNotUnderstand:arguments:` on `self` (with class '{s}'), but that class does not have that method defined as well.",
-                    .{self.string_from_symbol(class_of_self.class_name)},
-                );
-                return Error.method_not_found;
-            };
-
-            // Create an `arguments` array containing the arguments for the original method,
-            // since the method `doesNotUnderstand:arguments:` requires them.
-            const arity = primitives_module.helpers_module.get_method_arity_from_selector(self.string_from_symbol(message_selector));
-            const arguments_len = arity - 1;
-            const arguments_start_index = self.stack.objects.len - arity;
-            const arguments_slice = self.stack.objects[arguments_start_index..][0..arguments_len];
-
-            // Reverse the arguments since they are in a reverse order on the stack due to the calling convention.
-            std.mem.reverse(VmObject, arguments_slice);
-
-            // Create an object representing the arguments.
-            const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
-
-            // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
-            var protector = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
-            try protector.protect(arguments);
-            defer protector.unprotect();
-
-            // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
-            const selector_symbol: VmObject = VmObject.from_symbol(message_selector);
-
-            // Pop the now-copied arguments from the stack.
-            // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
-            //           since their creation might trigger a GC and we need to protect the objects from getting swept.
-            self.stack.objects.len -= arity;
-
-            // Push arguments for the `doesNotUnderstand:arguments:` method onto the stack.
-            try self.push_object(arguments);
-            try self.push_object(selector_symbol);
-            try self.push_object(self_object);
-
-            // Finally, call the method.
-            try self.call_method(method__does_not_understand);
+            try self.send_do_not_understand(class, message_selector);
             return;
         };
-
         try self.call_method(method);
+    }
+
+    fn send_do_not_understand(self: *Self, maybe_class: ?*const ClassDefinition, message_selector: SymbolId) Error!void {
+        // The method was not defined in the receiver's class.
+        // We now have to send the error message `doesNotUnderstand:arguments:` to the `self` object.
+        const self_object: VmObject = self.top_frame().self_object_ptr().*;
+        const class_of_self: *const ClassDefinition = self.get_class_of(self_object);
+        const method__does_not_understand = class_of_self.get_method(SymbolsManager.comptime_id_of("doesNotUnderstand:arguments:")) orelse {
+            self.report_runtime_error(
+                "Tried to call the method `{s}` on an instance of a class `{s}`, but that method is not defined on that class.",
+                .{
+                    self.string_from_symbol(message_selector),
+                    if (maybe_class) |class| self.string_from_symbol(class.class_name) else "(unknown)",
+                },
+            );
+            self.report_runtime_error(
+                "Therefore tried to call `doesNotUnderstand:arguments:` on `self` (with class '{s}'), but that class does not have that method defined as well.",
+                .{self.string_from_symbol(class_of_self.class_name)},
+            );
+            return Error.method_not_found;
+        };
+
+        // Create an `arguments` array containing the arguments for the original method,
+        // since the method `doesNotUnderstand:arguments:` requires them.
+        const arity = primitives_module.helpers_module.get_method_arity_from_selector(self.string_from_symbol(message_selector));
+        const arguments_len = arity - 1;
+        const arguments_start_index = self.stack.objects.len - arity;
+        const arguments_slice = self.stack.objects[arguments_start_index..][0..arguments_len];
+
+        // Reverse the arguments since they are in a reverse order on the stack due to the calling convention.
+        std.mem.reverse(VmObject, arguments_slice);
+
+        // Create an object representing the arguments.
+        const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
+
+        // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
+        var protector = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
+        try protector.protect(arguments);
+        defer protector.unprotect();
+
+        // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
+        const selector_symbol: VmObject = VmObject.from_symbol(message_selector);
+
+        // Pop the now-copied arguments from the stack.
+        // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
+        //           since their creation might trigger a GC and we need to protect the objects from getting swept.
+        self.stack.objects.len -= arity;
+
+        // Push arguments for the `doesNotUnderstand:arguments:` method onto the stack.
+        try self.push_object(arguments);
+        try self.push_object(selector_symbol);
+        try self.push_object(self_object);
+
+        // Finally, call the method.
+        try self.call_method(method__does_not_understand);
+        return;
     }
 
     inline fn fetch_class_by_name(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {

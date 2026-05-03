@@ -1,7 +1,0 @@
-SomeClass = (
-    someMethod = (
-        | x |
-        x := -5. " Ok "
-        x := +5. " Should fail "
-    )
-)

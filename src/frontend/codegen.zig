@@ -46,7 +46,7 @@ const HeapData = runtime_module.HeapData;
 const primitives = runtime_module.primitive_methods;
 const Statics = runtime_module.Statics;
 const BuiltinClassDefinitions = runtime_module.BuiltinClassDefinitions;
-const types = runtime_module.types;
+pub const types = runtime_module.types;
 
 const token_module = @import("token.zig");
 const IntegerRepresentation = token_module.IntegerRepresentation;
@@ -285,6 +285,7 @@ pub const SourceCodeFiles = struct {
     pub const Directory = struct {
         path: []const u8,
         can_be_searched_recursively: bool,
+        alert_on_duplicates: bool = true,
     };
 
     pub fn init(params: struct {
@@ -352,13 +353,13 @@ pub const SourceCodeFiles = struct {
                 return;
             };
             if (directory.can_be_searched_recursively) {
-                try self.refresh_single_directory_recursively(&root_dir, directory.path, params);
+                try self.refresh_single_directory_recursively(&root_dir, directory.path, directory.alert_on_duplicates, params);
             } else {
-                try self.refresh_single_directory(&root_dir, directory.path, params);
+                try self.refresh_single_directory(&root_dir, directory.path, directory.alert_on_duplicates, params);
             }
         }
     }
-    fn refresh_single_directory_recursively(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, params: RefreshParams) !void {
+    fn refresh_single_directory_recursively(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, alert_duplicates: bool, params: RefreshParams) !void {
         const temporary_allocator = params.temporary_allocator;
         const symbols_manager = params.symbols_manager;
         const error_reporter = params.error_reporter;
@@ -388,8 +389,8 @@ pub const SourceCodeFiles = struct {
                 },
             };
             const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
-            if (gop.found_existing) {
-                error_reporter.report_error(
+            if (gop.found_existing and alert_duplicates) {
+                error_reporter.report_warning(
                     .no_location,
                     "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
                     .{ class_name, gop.value_ptr.*, owned_path },
@@ -400,7 +401,7 @@ pub const SourceCodeFiles = struct {
         }
     }
 
-    fn refresh_single_directory(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, params: RefreshParams) RefreshError!void {
+    fn refresh_single_directory(self: *Self, root_dir: *std.fs.Dir, root_dir_name: []const u8, alert_duplicates: bool, params: RefreshParams) RefreshError!void {
         const symbols_manager = params.symbols_manager;
         const error_reporter = params.error_reporter;
         defer root_dir.close();
@@ -422,8 +423,8 @@ pub const SourceCodeFiles = struct {
                 continue;
             };
             const gop = try self.cached_source_filepaths.getOrPut(self.arena.allocator(), class_name_as_symbol);
-            if (gop.found_existing) {
-                error_reporter.report_error(
+            if (gop.found_existing and alert_duplicates) {
+                error_reporter.report_warning(
                     .no_location,
                     "Found the same class definition for '{s}' in multiple files. First '{s}' and now '{s}'. Ignoring the later entry.",
                     .{ class_name, gop.value_ptr.*, owned_path },
@@ -1668,13 +1669,14 @@ pub const BytecodeGenerator = struct {
             return CompileError.super_call_in_class_without_parent;
         };
         const method_ptr: *const MethodDefinition = parent_methods.get(message_selector) orelse {
-            // SAFETY: we can access `self.ast.class_ast.super_class_name.?` because the current class has a parent in this branch of code (we are currently compiling a call to a method from the parent)
-            const position_of_parent_declaration = self.ast.pos_of(self.ast.class_ast.parent_class_name.?);
-            const parent_name = self.ast.text_at(position_of_parent_declaration);
             const selector_as_string = self.symbols_manager.symbol_with_id(message_selector);
-            self.reporter.report_error(.{ .pos = self.ast.pos_of(receiver_id) }, "Call to a `super` with method `{s}`, but the parent class is `{s}`, which doesn't have that method defined.", .{ selector_as_string, parent_name });
-            self.reporter.add_note(.{ .pos = position_of_parent_declaration }, "The parent is defined here.", .{});
-            return CompileError.could_not_find_method_in_parent;
+            self.reporter.report_warning(
+                .{ .pos = self.ast.pos_of(receiver_id) },
+                "Call to `super` with the message `{s}`, but the parent does not have a corresponding method defined. This will cause a runtime error.",
+                .{selector_as_string},
+            );
+            try self.add_instruction(.{ .invalid_super_call = .{ .selector = message_selector } });
+            return;
         };
         const local_self = self.lexical_scope_stack.lookup_variable(SymbolsManager.comptime_id_of("self")).local_or_method_argument;
         try self.add_instruction(Instruction{ .load_local = .{
@@ -2261,6 +2263,10 @@ pub const InstructionFormatter = struct {
                     const string: []const u8 = self.symbols_manager.symbol_with_id(id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
                 },
+                .invalid_super_call => |info| {
+                    const string: []const u8 = self.symbols_manager.symbol_with_id(info.selector);
+                    try writer.print(" symbol=\"{s}\" id({d})", .{ string, info.selector.idx });
+                },
                 .resolved_method_call => |info| {
                     const method_ptr: *const MethodDefinition = info.method_ptr.ptr();
                     try writer.print(
@@ -2420,6 +2426,8 @@ pub const Instruction = union(enum(u8)) {
     load_symbol: SymbolId,
 
     resolved_method_call: packed struct { method_ptr: SmallPtr(*const MethodDefinition) },
+
+    invalid_super_call: packed struct { selector: SymbolId },
 
     pub const LoadInstanceVar = packed struct {
         instance_var_id: InstanceVarId,

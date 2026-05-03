@@ -96,11 +96,44 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    // Added by me :D
+    add_snapshot_testing_options(exe, b) catch @panic("fail");
+    add_integration_testing_options(exe, b) catch @panic("fail");
+
+    // Creates an executable that will run `test` blocks from the executable's
+    // root module. Note that test executables only test one module at a time,
+    // hence why we have to create two separate ones.
+    const exe_tests = b.addTest(.{
+        .root_module = exe.root_module,
+    });
+    b.installArtifact(exe_tests);
+
+    // A run step that will run the second test executable.
+    const run_exe_tests = b.addRunArtifact(exe_tests);
+
+    // A top level step for running all tests. dependOn can be called multiple
+    // times and since the two run steps do not depend on one another, this will
+    // make the two of them run in parallel.
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&run_exe_tests.step);
+
+    // Just like flags, top level steps are also listed in the `--help` menu.
+    //
+    // The Zig build system is entirely implemented in userland, which means
+    // that it cannot hook into private compiler APIs. All compilation work
+    // orchestrated by the build system will result in other Zig compiler
+    // subcommands being invoked with the right flags defined. You can observe
+    // these invocations when one fails (or you pass a flag to increase
+    // verbosity) to validate assumptions and diagnose problems.
+    //
+    // Lastly, the Zig build system is relatively simple and self-contained,
+    // and reading its source code will allow you to master it.
+}
+
+fn add_snapshot_testing_options(exe: *std.Build.Step.Compile, b: *std.Build) !void {
     const snapshot_test_options = b.addOptions();
     var buffer: [4096]u8 = undefined;
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/frontend_tests/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("test/frontend_tests", &buffer) catch unreachable;
         const tests_path = b.option(
             []const u8,
             "snap-lexer-test-files",
@@ -109,7 +142,7 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption([]const u8, "test_lexer_files_path", tests_path);
     }
     {
-        const default_path = std.fs.cwd().realpath("snapshot_tests/frontend_tests/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("test/frontend_tests", &buffer) catch unreachable;
         const tests_path = b.option(
             []const u8,
             "snap-parser-test-files",
@@ -117,18 +150,8 @@ pub fn build(b: *std.Build) void {
         ) orelse default_path;
         snapshot_test_options.addOption([]const u8, "test_parser_files_path", tests_path);
     }
-    // TODO: think about removing this
-    // {
-    //     const default_path = std.fs.cwd().realpath("snapshot_tests/interpreter_tests/", &buffer) catch unreachable;
-    //     const tests_path = b.option(
-    //         []const u8,
-    //         "snap-interpreter-test-files",
-    //         "Absolute path to the directory containing SOM code for the interpreter tests.",
-    //     ) orelse default_path;
-    //     snapshot_test_options.addOption([]const u8, "test_interpreter_files_path", tests_path);
-    // }
     {
-        const sub_path = "snapshot_tests/snapshots/";
+        const sub_path = "test/snapshots/";
         std.fs.cwd().makePath(sub_path) catch @panic("Could not assert the existance of a directory or create a new one");
         const default_path = std.fs.cwd().realpath(sub_path, &buffer) catch unreachable;
         const snapshots_path = b.option(
@@ -161,35 +184,47 @@ pub fn build(b: *std.Build) void {
         snapshot_test_options.addOption(bool, "show_diff", show_diff);
     }
 
-    // Added by me :D
     exe.root_module.addOptions("snapshot_test_options", snapshot_test_options);
+}
 
-    // Creates an executable that will run `test` blocks from the executable's
-    // root module. Note that test executables only test one module at a time,
-    // hence why we have to create two separate ones.
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-    b.installArtifact(exe_tests);
+fn add_integration_testing_options(exe: *std.Build.Step.Compile, b: *std.Build) !void {
+    const options = b.addOptions();
+    var buffer: [4096]u8 = undefined;
 
-    // A run step that will run the second test executable.
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-
-    // A top level step for running all tests. dependOn can be called multiple
-    // times and since the two run steps do not depend on one another, this will
-    // make the two of them run in parallel.
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_exe_tests.step);
-
-    // Just like flags, top level steps are also listed in the `--help` menu.
-    //
-    // The Zig build system is entirely implemented in userland, which means
-    // that it cannot hook into private compiler APIs. All compilation work
-    // orchestrated by the build system will result in other Zig compiler
-    // subcommands being invoked with the right flags defined. You can observe
-    // these invocations when one fails (or you pass a flag to increase
-    // verbosity) to validate assumptions and diagnose problems.
-    //
-    // Lastly, the Zig build system is relatively simple and self-contained,
-    // and reading its source code will allow you to master it.
+    {
+        const default_path = std.fs.cwd().realpath("test/integration_tests/", &buffer) catch unreachable;
+        const tests_path = b.option(
+            []const u8,
+            "integration-tests-path",
+            b.fmt("Path to the integrations tests, defaults to {s}.", .{default_path}),
+        ) orelse default_path;
+        options.addOption([]const u8, "integration_tests_path", tests_path);
+    }
+    {
+        const run_tests = b.option(
+            bool,
+            "run-integration-tests",
+            "Whether to run the integration tests. Defaults to false.",
+        ) orelse b.option(bool, "it", "Alias to 'run-integration-tests'.") orelse false;
+        options.addOption(bool, "run_integration_tests", run_tests);
+    }
+    {
+        const default_path = std.fs.cwd().realpath("original-som-repo/Smalltalk/", &buffer) catch unreachable;
+        const core_library_filepath = b.option(
+            []const u8,
+            "core-lib-path",
+            b.fmt("Path to the core library. Probably a directory named 'Smalltalk'. Defaults to {s}.", .{default_path}),
+        ) orelse default_path;
+        options.addOption([]const u8, "core_lib_path", core_library_filepath);
+    }
+    {
+        const default_path = std.fs.cwd().realpath("original-som-repo/Examples/AreWeFastYet/Core/", &buffer) catch unreachable;
+        const core_library_filepath = b.option(
+            []const u8,
+            "are-we-fast-yet-core-lib-path",
+            b.fmt("Path to the core library of the AreWeFastYet module. Defaults to {s}.", .{default_path}),
+        ) orelse b.option([]const u8, "awfy", "Alias to 'are-we-fast-yet-core-lib-path'.") orelse default_path;
+        options.addOption([]const u8, "core_awfy_path", core_library_filepath);
+    }
+    exe.root_module.addOptions("integration_tests_options", options);
 }

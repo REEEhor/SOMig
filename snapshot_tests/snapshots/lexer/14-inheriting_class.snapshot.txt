@@ -1,6 +1,0 @@
-Position   Token                      String (according to position of the token)
-[  0..  6] identifier               | "Example"
-[  8..  8] binary_selector          | "="
-[ 10.. 20] identifier               | "ExampleBase"
-[ 22.. 22] open_parenthesis         | "("
-[ 24.. 24] close_parenthesis        | ")"

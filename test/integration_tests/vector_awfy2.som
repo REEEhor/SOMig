@@ -1,9 +1,9 @@
 "
 VM:
-    status: success
-    custom_classpath: $AWFY:$CLASSPATH
-    stdout:
-     |nil
+  status: success
+  include_awfy:
+  stdout:
+   |nil
 "
 
 vector_awfy2 = (

@@ -1,11 +1,11 @@
 "
 VM:
-    status: success
-    custom_classpath: $AWFY:$CLASSPATH
-    stdout:
-     |50
-     |100
-     |10
+  status: success
+  include_awfy:
+  stdout:
+   |50
+   |100
+   |10
 "
 
 vector_awfy_capacity = (

@@ -1,9 +1,0 @@
-
-======== ERROR OUTPUT FROM THE PROGRAM ========
-
-[ERROR at line:5 column:14]
-Number literals can only have a single minus '-' in front of them.
-         |
- line: 5 |        x := +5. " Should fail "
-         |             ^^
-Failed with parse error: 'unexpected_token'

@@ -1,8 +1,0 @@
-AST of the class [ 34.. 71]'Example'
-==== Instance specific part ====
-	(no fields)
-	(no methods)
-==== Class specific part ====
-	Fields:
-		- 'staticVariable'
-	(no methods)
