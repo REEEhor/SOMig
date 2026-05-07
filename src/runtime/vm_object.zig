@@ -153,7 +153,7 @@ pub const VmObject = packed struct(u64) {
     }
 
     pub fn from(heap_object_ptr: anytype) VmObject {
-        comptime {
+        const supposed_tag: HeapObject.Tag = comptime blk: {
             // Assert that the pointer we got points to an extern struct
             // which has the field named `header` as its first field.
             const ObjectType = @typeInfo(@TypeOf(heap_object_ptr)).pointer.child;
@@ -169,11 +169,22 @@ pub const VmObject = packed struct(u64) {
             assert(header_type_info.fields[0].type == HeapObject.Tag);
             assert(header_type_info.fields[1].type == bool);
             assert(std.mem.eql(u8, header_type_info.fields[1].name, "is_marked"));
-        }
-        // The `VmObject` should never represent a `FrameOnHeap`.
-        assert(heap_object_ptr.header.tag != HeapObject.Tag.frame_header);
-        // The `VmObject` should never represent a `EmptyHeapSegment`.
-        assert(heap_object_ptr.header.tag != HeapObject.Tag.empty_heap_segment);
+
+            // Assert that the default value of the tag is correct.
+            const tag: HeapObject.Tag = header_type_info.fields[0].defaultValue().?;
+            assert(@field(ObjectType, "tag") == tag);
+            assert(@FieldType(HeapObject, @tagName(tag)) == @TypeOf(heap_object_ptr));
+
+            // The `VmObject` should never represent a `FrameOnHeap`.
+            assert(tag != HeapObject.Tag.frame_header);
+            // The `VmObject` should never represent a `EmptyHeapSegment`.
+            assert(tag != HeapObject.Tag.empty_heap_segment);
+
+            break :blk tag;
+        };
+
+        // Check for curruption or logic errors of the tag.
+        assert(heap_object_ptr.header.tag == supposed_tag);
 
         // Okay, we are done with the asserts...
         // Now we can cast the pointer to the `bits` field of an `VmObject`.

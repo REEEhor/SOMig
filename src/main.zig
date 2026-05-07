@@ -49,7 +49,7 @@ pub fn main() !void {
     }
 
     if (args.len == 1 and std.mem.eql(u8, args[0], "--itest")) {
-        if (true) { // HACK: Used to silent the LSP
+        if (false) { // HACK: Used to silent the LSP
             return runtime_module.testing_module.run_tests(gpa);
         } else {
             const src = @src();
