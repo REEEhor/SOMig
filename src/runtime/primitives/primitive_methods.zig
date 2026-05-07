@@ -433,19 +433,18 @@ pub const Integer = struct {
 
 pub const @"Integer class" = struct {
     pub fn @"fromString:"(_: IntegerClassPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!i48 {
+        const default_value = 0;
+        const fmt = "Could not convert '{s}' into an integer, because {s}. The value has been set to {d}.";
         return std.fmt.parseInt(i48, string, 10) catch |err| {
-            interpreter.report_runtime_error("Could not convert '{s}' into an integer, because {s}.", .{
-                string, get_reason: {
-                    if (string.len == 0) {
-                        break :get_reason "the string is empty";
-                    }
-                    break :get_reason switch (err) {
-                        std.fmt.ParseIntError.InvalidCharacter => "the string contains an invalid character",
-                        std.fmt.ParseIntError.Overflow => "the integer is too large to fit into the internal representation of an integer",
-                    };
+            interpreter.report_runtime_error(fmt, .{
+                string,
+                if (string.len == 0) "the string is empty" else switch (err) {
+                    std.fmt.ParseIntError.InvalidCharacter => "the string contains an invalid character",
+                    std.fmt.ParseIntError.Overflow => "the integer is too large to fit into the internal representation of an integer",
                 },
+                default_value,
             });
-            return Interpreter.Error.generic_runtime_error;
+            return default_value;
         };
     }
 };
