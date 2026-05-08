@@ -212,6 +212,7 @@ pub const VmObject = packed struct(u64) {
     }
 
     pub fn nan_boxed_pattern(deciding_bits: u3) u64 {
+        // TODO: reverse the order of these bits
         const bits: (packed struct(u3) { bit1: u1, bit2: u1, bit3: u1 }) = @bitCast(deciding_bits);
         return nan_mask //
         | (@as(u64, bits.bit1) << 63) //

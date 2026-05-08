@@ -1,3 +1,15 @@
+/// FIXME: Tidy up the main function, probably remove -lex and -parse options.
+///
+/// TODO: Create custom end-to-end tests:
+/// TODO        [ ] Not printing colors:
+/// TODO             [ ] Add field to interpreter to not print colors
+/// TODO             [ ] Propagate this field into compilation (ClassLoader) and runtime error reporting
+/// TODO             [ ] Add this option to the `runtime_module.run` function.
+/// TODO             [ ] Add this option to the arguments of the program.
+/// TODO        [ ] Skip all failing tests in `test/integration_tests`:
+/// TODO             [ ] Option for a skip file by the name of the test
+/// TODO             [ ] Just copy the output of the failed tests and vim-magick take out the failing test names
+/// TODO        [ ] Add custom tests, possibly make a field `exact-stderr:` which contains the exact error
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
