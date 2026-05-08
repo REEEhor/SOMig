@@ -874,7 +874,7 @@ pub const Interpreter = struct {
                     const method_ptr: *const MethodDefinition = call_info.method_ptr.ptr();
                     try self.call_method(method_ptr);
                 },
-                .invalid_super_call => |access| {
+                .invalid_super_send => |access| {
                     const call_info = access.get(&self.decoder);
                     try self.send_do_not_understand(null, call_info.selector);
                 },

@@ -1678,7 +1678,7 @@ pub const BytecodeGenerator = struct {
                 "Call to `super` with the message `{s}`, but the parent does not have a corresponding method defined. This will cause a runtime error.",
                 .{selector_as_string},
             );
-            try self.add_instruction(.{ .invalid_super_call = .{ .selector = message_selector } });
+            try self.add_instruction(.{ .invalid_super_send = .{ .selector = message_selector } });
             return;
         };
         const local_self = self.lexical_scope_stack.lookup_variable(SymbolsManager.comptime_id_of("self")).local_or_method_argument;
@@ -2265,7 +2265,7 @@ pub const InstructionFormatter = struct {
                     const string: []const u8 = self.symbols_manager.symbol_with_id(id);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, id.idx });
                 },
-                .invalid_super_call => |info| {
+                .invalid_super_send => |info| {
                     const string: []const u8 = self.symbols_manager.symbol_with_id(info.selector);
                     try writer.print(" symbol=\"{s}\" id({d})", .{ string, info.selector.idx });
                 },
@@ -2429,7 +2429,7 @@ pub const Instruction = union(enum(u8)) {
 
     resolved_method_call: packed struct { method_ptr: SmallPtr(*const MethodDefinition) },
 
-    invalid_super_call: packed struct { selector: SymbolId },
+    invalid_super_send: packed struct { selector: SymbolId },
 
     pub const LoadInstanceVar = packed struct {
         instance_var_id: InstanceVarId,
