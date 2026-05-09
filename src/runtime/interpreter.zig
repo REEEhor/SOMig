@@ -486,13 +486,13 @@ pub const Heap = struct {
                         switch (frame.kind) {
                             .method => |method| {
                                 std.debug.print("method '{s}' from '{s}'", .{
-                                    self.interpreter.string_from_symbol(method.method_name),
+                                    self.interpreter.string_from_symbol(method.selector),
                                     self.interpreter.string_from_symbol(method.source_class.class_name),
                                 });
                             },
                             .block => |block| {
                                 std.debug.print("block from method '{s}' from '{s}'", .{
-                                    self.interpreter.string_from_symbol(block.home_method().method_name),
+                                    self.interpreter.string_from_symbol(block.home_method().selector),
                                     self.interpreter.string_from_symbol(block.home_method().source_class.class_name),
                                 });
                             },
@@ -1024,7 +1024,7 @@ pub const Interpreter = struct {
                     .method => |access| {
                         const method = access.get(heap_ptr);
                         std.debug.print("Method '{s}' from '{s}'", .{
-                            self.string_from_symbol(method.method().method_name),
+                            self.string_from_symbol(method.method().selector),
                             self.string_from_symbol(method.method().source_class.class_name),
                         });
                     },
@@ -1078,7 +1078,7 @@ pub const Interpreter = struct {
                     .block => |block| self.string_from_symbol(block.home_method().source_class.class_name),
                 },
                 switch (current_frame.kind) {
-                    .method => |method| self.statics.symbols_manager.symbol_with_id(method.method_name),
+                    .method => |method| self.statics.symbols_manager.symbol_with_id(method.selector),
                     .block => "block",
                 },
             };
@@ -1259,7 +1259,7 @@ pub const Interpreter = struct {
                         self.report_info(
                             "Error happened in the primitive method `{s}` defined in class `{s}`.",
                             .{
-                                self.string_from_symbol(method.method_name),
+                                self.string_from_symbol(method.selector),
                                 self.string_from_symbol(method.source_class.class_name),
                             },
                         ) catch {};

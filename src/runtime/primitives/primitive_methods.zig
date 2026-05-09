@@ -780,14 +780,14 @@ pub const System = struct {
                 .method => |method| {
                     try interpreter.stderr.print("- Method {s}>>{s}\n", .{
                         interpreter.string_from_symbol(method.source_class.class_name),
-                        interpreter.string_from_symbol(method.method_name),
+                        interpreter.string_from_symbol(method.selector),
                     });
                 },
                 .block => |block| {
                     const method = block.home_method();
                     try interpreter.stderr.print("- Block from method {s}>>{s}\n", .{
                         interpreter.string_from_symbol(method.source_class.class_name),
-                        interpreter.string_from_symbol(method.method_name),
+                        interpreter.string_from_symbol(method.selector),
                     });
                 },
             }
@@ -859,7 +859,7 @@ fn invoke(
         };
 
         if (method.number_of_aditional_args != args_array.len) {
-            const method_selector = interpreter.statics.symbols_manager.symbol_with_id(method.method_name);
+            const method_selector = interpreter.statics.symbols_manager.symbol_with_id(method.selector);
             interpreter.report_runtime_error(
                 "Passed incorrect number of arguments for the method `{s}`. Expected {d} arguments, but the arguments array has length {d}.",
                 .{ method_selector, method.number_of_aditional_args, args_array.len },
@@ -883,7 +883,7 @@ fn invoke(
 
 pub const Method = struct {
     pub fn signature(method: *const MethodDefinition) SymbolId {
-        return method.method_name;
+        return method.selector;
     }
 
     pub fn holder(method: *const MethodDefinition) VmObject {
@@ -908,7 +908,7 @@ pub const Method = struct {
 
 pub const Primitive = struct {
     pub fn signature(method: PrimitiveMethodWrapper) SymbolId {
-        return method.method_definition.method_name;
+        return method.method_definition.selector;
     }
 
     pub fn holder(method: PrimitiveMethodWrapper) VmObject {

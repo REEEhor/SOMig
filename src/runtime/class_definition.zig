@@ -23,7 +23,7 @@ pub const ClassDefinition = struct {
     parent: ?*ClassDefinition,
 
     const Self = @This();
-    pub const MethodMap = SymbolArrayMap(*const MethodDefinition, "method_name");
+    pub const MethodMap = SymbolArrayMap(*const MethodDefinition, "selector");
 
     pub fn get_metaclass_through_vm_object(self: Self) *ClassDefinition {
         return self.as_vm_object.class_of_represented_class;
@@ -38,7 +38,7 @@ pub const ClassDefinition = struct {
 pub const MethodDefinition = struct {
     /// The method's selector as symbol.
     /// Some examples of selectors are: "value", "+++", "get:with:andWith:".
-    method_name: SymbolId,
+    selector: SymbolId,
 
     /// Number of arguments of this method **excluding** the first argument
     /// which is the message target object.

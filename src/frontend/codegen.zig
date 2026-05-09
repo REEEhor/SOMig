@@ -1311,7 +1311,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
 
                 const new_method_ptr: *MethodDefinition = try statics.all_methods.addOne(statics.allocator);
                 new_method_ptr.* = MethodDefinition{
-                    .method_name = method_selector,
+                    .selector = method_selector,
                     .number_of_aditional_args = primitive_method.args_cnt - 1,
                     .body = MethodBody{ .primitive = primitive_method.function },
                     .source_class = compiled_class,
@@ -1343,7 +1343,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                 }
                 const new_method_ptr: *MethodDefinition = try statics.all_methods.addOne(statics.allocator);
                 new_method_ptr.* = MethodDefinition{
-                    .method_name = method_selector,
+                    .selector = method_selector,
                     .number_of_aditional_args = @truncate(number_of_aditional_args),
                     .body = MethodBody{ .user_land = .{
                         .bytecode = bytecode,
@@ -2274,7 +2274,7 @@ pub const InstructionFormatter = struct {
                     try writer.print(
                         " method-name=\"{s}\" is_primitive={s} ptr={x}",
                         .{
-                            self.symbols_manager.symbol_with_id(method_ptr.method_name),
+                            self.symbols_manager.symbol_with_id(method_ptr.selector),
                             if (std.meta.activeTag(method_ptr.body) == .primitive) "YES" else "NO",
                             @as(usize, @intFromPtr(method_ptr)),
                         },
