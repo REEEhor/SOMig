@@ -167,7 +167,7 @@ pub const PrimitiveMethodsMap = struct {
         };
         const Arguments = std.meta.ArgsTuple(Function);
         return struct {
-            fn primitive_method_implementation(interpreter: *Interpreter) Interpreter.Error!?VmObject {
+            fn primitive_method_implementation(interpreter: *Interpreter) Interpreter.Error!void {
                 // Pop arguments from the `interpreter`s stack, assert that they are the correct type and
                 // put them into this `arguments` variable.
                 var arguments: Arguments = undefined;
@@ -287,14 +287,14 @@ pub const PrimitiveMethodsMap = struct {
                 };
 
                 // Cast the result into a `VmObject`
-                return switch (ReturnType) {
+                const result_object: VmObject = switch (ReturnType) {
                     VmObject => result,
                     NilPlaceholder => VmObject.nil,
                     Number => switch (result) {
                         .integer => |value| VmObject.from_integer(value),
                         .double => |value| VmObject.from_double(value),
                     },
-                    void => null,
+                    void => return,
                     i48 => VmObject.from_integer(result),
                     f64 => VmObject.from_double(result),
                     bool => VmObject.from_boolean(result),
@@ -309,6 +309,7 @@ pub const PrimitiveMethodsMap = struct {
                         .{ @typeName(Invalid), class_name, fn_selector },
                     )),
                 };
+                try interpreter.push_object(result_object);
             }
         }.primitive_method_implementation;
     }
@@ -374,4 +375,4 @@ pub const PrimitiveMethodsMap = struct {
     }
 };
 
-pub const PrimitiveMethodImplementation = *const fn (interpreter: *Interpreter) Interpreter.Error!?VmObject;
+pub const PrimitiveMethodImplementation = *const fn (interpreter: *Interpreter) Interpreter.Error!void;

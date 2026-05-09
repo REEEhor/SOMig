@@ -1254,7 +1254,7 @@ pub const Interpreter = struct {
                 );
             },
             .primitive => |primitive_method| {
-                const result_object: ?VmObject = primitive_method(self) catch |err| {
+                primitive_method(self) catch |err| {
                     if (err != Error.interpreter_halted) {
                         self.report_info(
                             "Error happened in the primitive method `{s}` defined in class `{s}`.",
@@ -1266,7 +1266,6 @@ pub const Interpreter = struct {
                     }
                     return err;
                 };
-                if (result_object) |object| try self.push_object(object);
             },
         }
     }
