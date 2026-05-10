@@ -119,7 +119,7 @@ pub const Heap = struct {
     /// for example in a linked-list iteration with a manipulation of the linked-list.
     /// We would use `*?*EmptyHeapSegment` in such scenarios, but that is not viable,
     /// since we store `?*EmptyHeapSegment` in `SmallPtr(?*EmptyHeapSegment)` inside packed structs,
-    /// so it is not possible to take pointers to such pointers. And since the it is inside a packed
+    /// so it is not possible to take pointers to such pointers. And since the `SmallPtr` is inside a packed
     /// struct, we cannot have a pointer of the `SmallPtr(..)` (as in `*SmallPtr(..)`) also.
     ///
     /// So we just have a dummy item that acts as if it was at the beginning of the list
@@ -214,13 +214,13 @@ pub const Heap = struct {
             try self.heap.protected_objects.append(allocator, object);
         }
 
-        pub fn unprotect(self: *GcProtector) void {
+        pub fn unprotect_all(self: *GcProtector) void {
             self.heap.protected_objects.shrinkRetainingCapacity(self.protected_objects_length_at_creation);
             self.heap = undefined;
             self.protected_objects_length_at_creation = undefined;
         }
     };
-    pub fn protect_against_gc(self: *Self, params: struct { number_of_planned_protections: usize }) Allocator.Error!GcProtector {
+    pub fn protector_against_gc(self: *Self, params: struct { number_of_planned_protections: usize }) Allocator.Error!GcProtector {
         try self.protected_objects.ensureUnusedCapacity(self.backing_allocator, params.number_of_planned_protections);
         return GcProtector{
             .heap = self,
@@ -285,34 +285,34 @@ pub const Heap = struct {
                 std.debug.print("  • ", .{});
                 self.interpreter.print_object(stack_object) catch unreachable;
             }
-            stack_object.gc_mark_as_reachable_ignore_if_class_method();
+            stack_object.gc_mark_as_reachable_ignore_if_class_or_method();
         }
 
         // Mark blocks which currently have stack frames
         for (self.interpreter.stack.frames) |frame| {
             const block: *types.Block = unions.get_payload(frame.kind, .block) orelse continue;
-            VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method();
+            VmObject.from(block).gc_mark_as_reachable_ignore_if_class_or_method();
         }
 
         // Mark global objects
         for (self.interpreter.globals.values()) |global_object| {
-            global_object.gc_mark_as_reachable_ignore_if_class_method();
+            global_object.gc_mark_as_reachable_ignore_if_class_or_method();
         }
 
         // Mark protected objects
         for (self.protected_objects.items) |protected_object| {
-            protected_object.gc_mark_as_reachable_ignore_if_class_method();
+            protected_object.gc_mark_as_reachable_ignore_if_class_or_method();
         }
 
-        // Mark static objects
+        // Mark objects referenced by classes
         var it_classes = self.interpreter.statics.all_classes.iterator(0);
         while (it_classes.next()) |class| {
             for (class.as_vm_object.get_class_fields()) |object| {
-                object.gc_mark_as_reachable_ignore_if_class_method();
+                object.gc_mark_as_reachable_ignore_if_class_or_method();
             }
         }
 
-        // NOTE: `types.Method` and `types.System` objects don't require marking (they live in the static space and they don't refer to any other objects)
+        // NOTE: `types.Method` objects don't require marking (they live in the static space and they don't refer to any other objects)
     }
 
     fn gc_sweep(self: *Self) void {
@@ -911,8 +911,8 @@ pub const Interpreter = struct {
                     // NOTE(GC): We might be popping multiple stack frame here.
                     //           This might mean allocation of a new `Stack.Frame` on the heap,
                     //           which could trigger a deallocation of the `return_value`.
-                    var p = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
-                    defer p.unprotect();
+                    var p = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
+                    defer p.unprotect_all();
                     try p.protect(return_value);
 
                     if (return_value.as_block()) |block| {
@@ -1320,10 +1320,11 @@ pub const Interpreter = struct {
         // Create an object representing the arguments.
         const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
 
+        // FIXME: This protection is not required as allocating symbols does not allocate
         // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
-        var protector = try self.heap.protect_against_gc(.{ .number_of_planned_protections = 1 });
+        var protector = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
         try protector.protect(arguments);
-        defer protector.unprotect();
+        defer protector.unprotect_all();
 
         // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
         const selector_symbol: VmObject = VmObject.from_symbol(message_selector);

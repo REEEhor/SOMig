@@ -239,18 +239,20 @@ pub const Class = struct {
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const fields_count = self.identifiers_of_instance_variables.len;
 
+        // FIXME: This protection is not required as allocating symbols does not allocate
         // NOTE(GC):
         //      We cannot easily (or even possibly) mark the created array
         //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
         //      If we ever have NaN boxing for `types.Symbol`, we can remove this,
         //      since `types.Symbol.create_new(..)` will not trigger a heap allocation.
-        var gc_protector = try interpreter.heap.protect_against_gc(.{ .number_of_planned_protections = fields_count });
-        defer gc_protector.unprotect();
+        var gc_protector = try interpreter.heap.protector_against_gc(.{ .number_of_planned_protections = fields_count });
+        defer gc_protector.unprotect_all();
 
         const array = try types.Array.create_with_undefined_items(&interpreter.heap, fields_count);
 
         // Go through the instance field names of the entire class hiearchy.
         for (array.get_items(), self.identifiers_of_instance_variables) |*array_item, field_name| {
+            // FIXME: This protection is not required as allocating symbols does not allocate
             // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
             //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
             //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.

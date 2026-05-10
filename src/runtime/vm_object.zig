@@ -247,7 +247,7 @@ pub const VmObject = packed struct(u64) {
     /// in the static space. We have to mark their references manually
     /// in order for this to make sense.
     /// NOTE: Only `types.Class` has actuall references - class fields - so we mark only those manualy in `gc_mark()`. `types.Method` doesn't store object references.
-    pub fn gc_mark_as_reachable_ignore_if_class_method(self: VmObject) void {
+    pub fn gc_mark_as_reachable_ignore_if_class_or_method(self: VmObject) void {
         const header: *OpaqueHeader = self.as_ptr_to_heap() orelse return;
         switch (header.tag) {
             .frame_header,
@@ -613,7 +613,7 @@ pub const types = struct {
 
         pub fn gc_mark_references(self: *Self) void {
             for (self.get_fields()) |field_object| {
-                field_object.gc_mark_as_reachable_ignore_if_class_method();
+                field_object.gc_mark_as_reachable_ignore_if_class_or_method();
             }
         }
 
@@ -734,7 +734,7 @@ pub const types = struct {
 
         pub fn gc_mark_references(self: *Self) void {
             for (self.get_items()) |item| {
-                item.gc_mark_as_reachable_ignore_if_class_method();
+                item.gc_mark_as_reachable_ignore_if_class_or_method();
             }
         }
 
@@ -985,12 +985,12 @@ pub const FrameOnHeap = struct {
 
             const frame = FrameOnHeap.frame_from_header(header);
             switch (frame.kind) {
-                .block => |block| VmObject.from(block).gc_mark_as_reachable_ignore_if_class_method(),
+                .block => |block| VmObject.from(block).gc_mark_as_reachable_ignore_if_class_or_method(),
                 .method => {},
             }
 
             for (FrameOnHeap.get_arguments_and_locals(header)) |local| {
-                local.gc_mark_as_reachable_ignore_if_class_method();
+                local.gc_mark_as_reachable_ignore_if_class_or_method();
             }
         }
     };
