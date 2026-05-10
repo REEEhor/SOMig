@@ -352,27 +352,6 @@ pub const PrimitiveMethodsMap = struct {
         );
         return Interpreter.Error.primitive_type_error;
     }
-
-    pub fn get_primitive_class(self: Self, class_name: SymbolId) ?*const PrimitiveClass {
-        const maybe_idx: ?usize = std.sort.binarySearch(PrimitiveClass, self.sorted_classes, class_name, struct {
-            fn compare(class_name_id: SymbolId, class: PrimitiveClass) std.math.Order {
-                return std.math.order(class_name_id, class.class_name);
-            }
-        }.compare);
-
-        if (maybe_idx) |idx| {
-            return &self.sorted_classes[idx];
-        }
-        return null;
-    }
-
-    fn primitive_method_less_than_fn(_: void, a: PrimitiveMethod, b: PrimitiveMethod) bool {
-        return a.method_name.idx < b.method_name.idx;
-    }
-
-    fn primitive_class_less_than_fn(_: void, a: PrimitiveClass, b: PrimitiveClass) bool {
-        return a.class_name.idx < b.class_name.idx;
-    }
 };
 
 pub const PrimitiveMethodImplementation = *const fn (interpreter: *Interpreter) Interpreter.Error!void;
