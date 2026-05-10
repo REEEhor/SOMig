@@ -85,7 +85,7 @@ pub const PrimitiveMethodsMap = struct {
         comptime primitives_module: type,
         symbols_manager: *SymbolsManager,
     ) Allocator.Error!Self {
-        @setEvalBranchQuota(10_000);
+        @setEvalBranchQuota(10_000); // You know it's going to be fun when you see this :^)
 
         const module_info: std.builtin.Type.Struct = @typeInfo(primitives_module).@"struct";
 
@@ -142,6 +142,7 @@ pub const PrimitiveMethodsMap = struct {
         assert(classes.items.len == classes.capacity);
         assert(methods.items.len == methods.capacity);
 
+        // We can assume there will be no duplicates, since the methods got parsed from a `struct` definition
         const sorted_classes = SortedClasses.from_slice(classes.items).ok;
 
         return PrimitiveMethodsMap{
