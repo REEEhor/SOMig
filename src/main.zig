@@ -1,4 +1,4 @@
-/// FIXME: Tidy up the main function
+/// FIXME: Tidy up the main function (don't forget a proper help message)
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -67,6 +67,9 @@ pub fn main() !void {
     var skip_bootstrap = false;
     var use_colors = true;
 
+    var object_stack_size: usize = 1000;
+    var frame_stack_size: usize = 1000;
+
     // Parse command line arguments
     var arg_idx: usize = 0;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -114,6 +117,26 @@ pub fn main() !void {
             try arguments_for_som.appendSlice(gpa, args[arg_idx..]);
 
             break;
+        } else if (std.mem.eql(u8, arg, "--object-stack")) {
+            arg_idx += 1;
+            if (arg_idx == args.len) {
+                std.debug.print("Expected an integer after '--object-stack'.\n", .{});
+                return error.invalid_args;
+            }
+            object_stack_size = std.fmt.parseInt(usize, args[arg_idx], 10) catch |err| {
+                std.debug.print("Could not parse an integer from '{s}', because: {t}.\n", .{ args[arg_idx], err });
+                return error.invalid_args;
+            };
+        } else if (std.mem.eql(u8, arg, "--frame-stack")) {
+            arg_idx += 1;
+            if (arg_idx == args.len) {
+                std.debug.print("Expected an integer after '--frame-stack'.\n", .{});
+                return error.invalid_args;
+            }
+            frame_stack_size = std.fmt.parseInt(usize, args[arg_idx], 10) catch |err| {
+                std.debug.print("Could not parse an integer from '{s}', because: {t}.\n", .{ args[arg_idx], err });
+                return error.invalid_args;
+            };
         } else {
             std.debug.panic("Invalid flag '{s}'", .{arg});
         }
@@ -124,8 +147,8 @@ pub fn main() !void {
         .stdout = stdout,
         .stderr = stderr,
         .stack_size = .{
-            .objects_count = 1000, // FIXME(simple): these should be parsed from args
-            .frames_count = 1000, // FIXME(simple): these should be parsed from args
+            .objects_count = object_stack_size,
+            .frames_count = frame_stack_size,
         },
         .program_arguments_as_strings = arguments_for_som.items,
         .root_directories = root_directories.items,
