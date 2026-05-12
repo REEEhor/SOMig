@@ -40,13 +40,9 @@ pub const Lexer = struct {
     const Self = @This();
     pub const Error = error{
         unexpected_character,
-        alone_colon,
-        colon_at_both_identifier_ends,
         non_ascii_byte,
-        number_literal_too_big,
         unclosed_comment,
         unclosed_string_literal,
-        invalid_escaped_character_in_string_literal,
     };
 
     pub fn create(input: []const u8, reporter: *ErrorReporter) Self {
@@ -161,23 +157,17 @@ pub const Lexer = struct {
                     return Token{ .kind = kind, .pos = pos };
                 },
             },
-            .saw_colon => switch (try self.eat_char()) {
-                'a'...'z', 'A'...'Z', '_' => continue :loop .lexing_identifier,
+            .saw_colon => switch (try self.current_char()) {
                 '=' => {
+                    self.current_char_idx += 1;
                     return Token{
                         .pos = CodePosition{ .start_idx = token_start_idx, .length = 2 },
                         .kind = .assign,
                     };
                 },
-                else => {
-                    @branchHint(.cold);
-                    self.reporter.report_error(
-                        .{ .pos = CodePosition.at(token_start_idx) },
-                        "Found the ':' character on its own, which does not mean anything in SOM.",
-                        .{},
-                    );
-                    self.reporter.add_note(.no_location, "Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?", .{});
-                    return Error.alone_colon;
+                else => return Token{
+                    .pos = .at(token_start_idx),
+                    .kind = .colon,
                 },
             },
             .lexing_identifier => switch (try self.current_char()) {
@@ -185,59 +175,16 @@ pub const Lexer = struct {
                     self.current_char_idx += 1;
                     continue :loop .lexing_identifier;
                 },
-                // FIXME: Fix parsing of colons
                 ':' => {
                     self.current_char_idx += 1;
-                    if (self.source_code[token_start_idx] == ':') {
-                        const error_pos = CodePosition.from_start_and_end(
-                            token_start_idx,
-                            self.current_char_idx - 1,
-                        );
-                        if (error_pos.length == 2) {
-                            self.reporter.report_error(
-                                .{ .pos = error_pos },
-                                "Found two colons \"::\" after each other. This does not mean anything in SOM.",
-                                .{},
-                            );
-                            return Error.colon_at_both_identifier_ends;
-                        }
-
-                        const identifier = self.source_code[token_start_idx..self.current_char_idx];
-                        self.reporter.report_error(
-                            .{ .pos = error_pos },
-                            "Found an identifier \"{s}\", which is surrounded by colon ':' on both sides. This syntax does not mean anytning in SOM.",
-                            .{identifier},
-                        );
-                        self.reporter.add_note(
-                            .no_location,
-                            "You might have wanted to do either a keyword message," ++
-                                " which would be \"{s}\" or a parameter of a block, which would be \"{s}\" :)",
-                            .{ self.source_code[token_start_idx + 1 .. self.current_char_idx], self.source_code[token_start_idx .. self.current_char_idx - 1] },
-                        );
-                        return Error.colon_at_both_identifier_ends;
-                    } else {
-                        return Token{
-                            .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
-                            .kind = .keyword,
-                        };
-                    }
+                    return Token{
+                        .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
+                        .kind = .keyword,
+                    };
                 },
-                else => {
-                    const first_char = self.source_code[token_start_idx];
-                    const token_position = CodePosition.from_start_and_end(
-                        token_start_idx,
-                        self.current_char_idx - 1,
-                    );
-
-                    if (first_char == ':' and token_position.length == 1) {
-                        self.reporter.report_error(.{ .pos = CodePosition.at(token_start_idx) }, "Found the ':' character on its own.", .{});
-                        self.reporter.add_note(.no_location, "Maybe it should be at the end of some `keywordMessage:` or at the beginning of some `:blockParameter`?", .{});
-                        return Error.alone_colon;
-                    }
-                    if (first_char == ':') {
-                        return Token{ .pos = token_position, .kind = .block_param };
-                    }
-                    return Token{ .pos = token_position, .kind = .identifier };
+                else => return Token{
+                    .pos = .from_start_and_end(token_start_idx, self.current_char_idx - 1),
+                    .kind = .identifier,
                 },
             },
 
@@ -612,9 +559,12 @@ test "lex identifiers" {
         e(.identifier, "Hello", 0),
         e(.keyword, "hoW_:", 6),
         e(.identifier, "are", 13),
-        e(.block_param, ":you", 17),
+        e(.colon, ":", 17),
+        e(.identifier, "you", 18),
         e(.identifier, "_som9", 22),
-    }, Lexer.Error.colon_at_both_identifier_ends);
+        e(.colon, ":", 28),
+        e(.keyword, "wrong:", 29),
+    }, null);
 }
 
 test "lex number" {
@@ -752,7 +702,8 @@ test "lex code" {
         e(.binary_selector, "=", 12),
         e(.open_parenthesis, "(", 13),
         e(.identifier, "hi", 15),
-        e(.block_param, ":D", 18),
+        e(.colon, ":", 18),
+        e(.identifier, "D", 19),
         e(.close_parenthesis, ")", 21),
     }, null);
 }
@@ -772,7 +723,7 @@ test "lex snapshot code" {
     }, null);
 }
 
-test "🤮 lex separators 🤮" {
+test "lex separators" {
     // Indexes into the input string:
     //                       10        20
     //             012345678901234567890123456

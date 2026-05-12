@@ -118,7 +118,7 @@ Array = (
     )
 
     lastIndexOf: element = (
-      self length downTo: 1 do: [ :i | (self at: i) = element ifTrue: [ ^ i ]].
+      self length downTo: 1 do: [: i | (self at: i) = element ifTrue: [ ^ i ]].
       ^ nil
     )
 

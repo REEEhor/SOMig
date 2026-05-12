@@ -1,10 +1,3 @@
-//! FIXME: Parse block parameters from multiple tokens, so that `:param` becomes `.{ .colon, .identifier }` and not `.{ .block_parameter }`.
-//!         To do this, we have to:
-//!             1. Remove `TokenKind.block_parameter`
-//!             2. Change parser to accomodate this change
-//!             3. Change AST expression for block parameters. Right now, we rely on parameters being a single token each.
-//!
-
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -328,42 +321,33 @@ pub const Parser = struct {
         return MethodHeader{ .keyword = keyword_header };
     }
 
-    /// Parses:
+    /// Assert this structure:
     /// ```som
     ///     :param1 :param2 :param3 ... :paramN |
     ///        ^
     ///    expected `self.next_token_idx`
     /// ```
-    /// and returns `TokenSpan` spanning tokens `:param1` to `:paramN`
     ///
-    fn parse_block_parameters(self: *Self) ParserError!?TokenSpan {
-        var result_span: TokenSpan = TokenSpan.at(self.next_token_id);
-        _ = try self.eat_token(.block_param);
-
+    fn consume_block_parameters(self: *Self) ParserError!void {
+        _ = try self.eat_token(.colon);
+        _ = try self.eat_token(.identifier);
         while (true) {
-            const token = self.peek_next_token() orelse {
+            const token = self.next_token() orelse {
                 self.reporter.report_unexpected_eof("Expected more block parameters or a `|`.", .{});
                 return ParserError.unexpected_eof;
             };
-            switch (token.kind) {
-                .block_param => result_span.end_id.idx += 1,
-                else => |tag| {
-                    if (self.is_token_pipe(token)) {
-                        _ = self.next_token();
-                        return result_span;
-                    }
-                    self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: '{t}'. Expected to see another block parameter or a `|`.", .{tag});
-                    if (tag == .identifier) {
-                        const hint_pos = CodePosition.at(token.pos.start_idx - 1);
-                        self.reporter.add_note(.{ .pos = hint_pos }, "You might have forgotten a `:` here to make it a block parameter.", .{});
-                    } else if (tag == .keyword) {
-                        const parameter_text = self.text_at(token.pos.offset_start_by(1));
-                        self.reporter.add_note(.{ .pos = token.pos }, "You probably might have wanted a block parameter, which would be '{s}:'", .{parameter_text});
-                    }
-                    return ParserError.unexpected_token;
-                },
+            if (token.kind == .colon) {
+                _ = try self.eat_token(.identifier);
+            } else if (self.is_token_pipe(token)) {
+                return;
+            } else {
+                self.reporter.report_error(
+                    .{ .pos = self.pos_of(token) },
+                    "Unexpected token '{t}', expected more block parameters or a `|`.",
+                    .{token.kind},
+                );
+                return ParserError.unexpected_token;
             }
-            _ = self.next_token();
         }
     }
 
@@ -371,18 +355,17 @@ pub const Parser = struct {
         const open_bracket_token: TokenId = self.next_token_id;
         const open_bracket_pos = try self.eat_token(.open_bracket);
 
-        const first_token = self.peek_next_token() orelse {
+        const first_inner_token_id: TokenId = self.next_token_id;
+        const first_inner_token = self.peek_next_token() orelse {
             self.reporter.report_unexpected_eof("Expected a block literal after a `[`", .{});
             return ParserError.unexpected_eof;
         };
+        var maybe_first_parameter_token_id: ?TokenId = null;
 
-        const parameters: ?TokenSpan = get_params: {
-            if (first_token.kind == .block_param) {
-                break :get_params try self.parse_block_parameters();
-            }
-            break :get_params null;
-        };
-        const first_parameter_token: ?TokenId = if (parameters) |p| p.start_id else null;
+        if (first_inner_token.kind == .colon) {
+            try self.consume_block_parameters();
+            maybe_first_parameter_token_id = first_inner_token_id;
+        }
 
         const body = try self.parse_function_body();
         const body_id = try self.ast.extras.add_function_body(self.allocator, body);
@@ -394,7 +377,7 @@ pub const Parser = struct {
         };
 
         return Spanned(BlockLiteral){
-            .inner = BlockLiteral.create(first_parameter_token, body_id),
+            .inner = BlockLiteral.create(maybe_first_parameter_token_id, body_id),
             .span = TokenSpan.create(open_bracket_token.idx, close_bracket_token.idx),
         };
     }
@@ -806,7 +789,7 @@ pub const Parser = struct {
                 };
             },
             // List all token kinds here so if there is a change to the list of token kinds, we catch it here and decide what to do.
-            .exit, .separator, .dot, .assign, .keyword, .block_param => {
+            .exit, .separator, .dot, .assign, .keyword, .colon => {
                 self.reporter.report_error(.{ .pos = token.pos }, "Unexpected token: {t}. Expected an expression.", .{token.kind});
                 return ParserError.unexpected_token;
             },
@@ -1154,10 +1137,10 @@ fn print_expression_recursive(
 
         .block_literal => |info| {
             try writer.print("{f} Block literal", .{formatter.fmt(ast.span_of(expr_id))});
-            const parameters = info.get_parameters(ast.tokens);
-            if (parameters) |span_parameters| {
-                try writer.print(" with {d} parameters:\n", .{span_parameters.number_of_tokens()});
-                var iter = span_parameters.iter();
+            const parameters_count = info.calculate_parameters_count(ast.tokens.items(.kind));
+            if (parameters_count != 0) {
+                try writer.print(" with {d} parameters:\n", .{parameters_count});
+                var iter = info.iter_parameters(ast.tokens.items(.kind));
                 while (iter.next()) |parameter_token| {
                     const parameter_text = ast.text_at(parameter_token);
                     try writer.print("{f}- '{s}'\n", .{ indent.plus(1), parameter_text });

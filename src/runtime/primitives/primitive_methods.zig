@@ -412,9 +412,16 @@ pub const Integer = struct {
 
 pub const @"Integer class" = struct {
     pub fn @"fromString:"(_: IntegerClassPlaceholder, string: []const u8, interpreter: *Interpreter) Interpreter.Error!i48 {
-        const default_value = 0;
         const fmt = "Could not convert '{s}' into an integer, because {s}. The value has been set to {d}.";
         return std.fmt.parseInt(i48, string, 10) catch |err| {
+            var default_value: i48 = 0;
+            if (err == error.Overflow) {
+                if (string[0] == '-') {
+                    default_value = std.math.minInt(i48);
+                } else {
+                    default_value = std.math.maxInt(i48);
+                }
+            }
             interpreter.report_runtime_error(fmt, .{
                 string,
                 if (string.len == 0) "the string is empty" else switch (err) {

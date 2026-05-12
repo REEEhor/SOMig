@@ -4,23 +4,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-// And              &
-// At               @
-// Comma            ,
-// Div              /
-// Equal            =
-// Less             <
-// Minus            -
-// Mod              \\
-// More             >
-// Not              ~
-// Or               |
-// Per              %
-// Plus             +
-// Star             *
-
-// &@,/=<-\>~|%+*
-
 pub const CodePosition = struct {
     const Self = @This();
     start_idx: u32,
@@ -115,8 +98,8 @@ pub const TokenKind = enum(u8) {
     /// Identifiers in SOM consist of 'a'...'z', 'A'...'Z', '0'...'9' (<- not at the start), '_'
     identifier,
 
-    /// String in the form of `:someIdentifier`
-    block_param,
+    /// The `:` character. Used to prefix block parameters, such as `:param1 :param2`.
+    colon,
 };
 
 pub const Token = struct {

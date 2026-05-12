@@ -21,7 +21,7 @@ AST of the class [  0..168]'Example'
 		Expressions:
 			Expression #1:
 				- [ 75..104](id=5) [ 75..104] Block literal with 1 parameters:
-					- ':arg1'
+					- 'arg1'
 					[ 91..102]Body:
 						(no locals)
 						Expressions:
@@ -35,8 +35,8 @@ AST of the class [  0..168]'Example'
 		Expressions:
 			Expression #1:
 				- [123..164](id=10) [123..164] Block literal with 2 parameters:
-					- ':arg1'
-					- ':arg2'
+					- 'arg1'
+					- 'arg2'
 					[139..162]Body:
 						(no locals)
 						Expressions:

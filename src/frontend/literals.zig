@@ -8,11 +8,13 @@ const Allocator = std.mem.Allocator;
 
 /// WARNING: Asserts that all characters are valid
 /// In case of overflow (the number the literal represents is too big) returns null.
-pub fn parse_integer_literal(supposed_integer_literal: []const u8) ?i48 {
-    return std.fmt.parseInt(i48, supposed_integer_literal, 10) catch |err| switch (err) {
-        std.fmt.ParseIntError.Overflow => null,
+pub fn parse_integer_literal(supposed_integer_literal: []const u8, params: struct { is_negative: bool }) ?i48 {
+    const absolute_i64 = std.fmt.parseInt(i64, supposed_integer_literal, 10) catch |err| switch (err) {
+        std.fmt.ParseIntError.Overflow => return null,
         std.fmt.ParseIntError.InvalidCharacter => unreachable,
     };
+    const value_i64 = if (params.is_negative) (std.math.mul(i64, absolute_i64, -1) catch return null) else absolute_i64;
+    return std.math.cast(i48, value_i64);
 }
 
 /// WARNING: Asserts that all characters are valid

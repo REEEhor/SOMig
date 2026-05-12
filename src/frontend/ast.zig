@@ -578,18 +578,23 @@ pub const ArrayLiteral = struct {
 pub const BlockParameterIterator = struct {
     const Self = @This();
     next_token_id: TokenId,
-    tokens: std.MultiArrayList(Token).Slice,
+    tokens: []TokenKind,
 
-    pub fn next(self: *Self) ?Token {
+    pub fn next(self: *Self) ?TokenId {
         if (self.next_token_id.idx >= self.tokens.len) {
             return null;
         }
-        const token: Token = self.tokens.get(self.next_token_id.idx);
-        if (token.kind != .block_param) {
+        const maybe_colon: TokenKind = self.tokens[self.next_token_id.idx];
+        if (maybe_colon != .colon) {
             return null;
         }
         self.next_token_id.idx += 1;
-        return token;
+
+        const should_be_identifier: TokenKind = self.tokens[self.next_token_id.idx];
+        assert(should_be_identifier == .identifier);
+        self.next_token_id.idx += 1;
+
+        return self.next_token_id.minus(1);
     }
 };
 
@@ -617,24 +622,38 @@ pub const BlockLiteral = struct {
         return self.impl_of_parameters_start;
     }
 
-    pub fn iter_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) BlockParameterIterator {
+    pub fn iter_parameters(self: Self, tokens: []TokenKind) BlockParameterIterator {
         return BlockParameterIterator{
             .tokens = tokens,
             .next_token_id = self.impl_of_parameters_start,
         };
     }
 
-    pub fn get_parameters(self: Self, tokens: std.MultiArrayList(Token).Slice) ?TokenSpan {
-        var iter = self.iter_parameters(tokens);
-        const start_token = self.impl_of_parameters_start;
-        _ = iter.next() orelse return null;
-
-        var last_token = start_token;
-        while (iter.next()) |_| {
-            last_token = last_token.plus(1);
+    pub fn calculate_parameters_count(self: Self, tokens: []TokenKind) usize {
+        var count: usize = 0;
+        var it = self.iter_parameters(tokens);
+        while (it.next()) |_| {
+            count += 1;
         }
+        return count;
+    }
 
-        return TokenSpan.create(start_token.idx, last_token.idx);
+    pub fn calculate_parameter_span(self: Self, tokens: []TokenKind) ?TokenSpan {
+        const params_count = self.calculate_parameters_count(tokens);
+        if (params_count == 0) return null;
+
+        // : param1
+        // ^
+        // start
+
+        // : param1 : param2
+        // ^
+        // start
+
+        return TokenSpan{
+            .start_id = self.impl_of_parameters_start,
+            .end_id = self.impl_of_parameters_start.plus(@intCast(params_count * 2 - 1)),
+        };
     }
 
     const Self = @This();

@@ -1541,16 +1541,6 @@ pub const BytecodeGenerator = struct {
         return try self.builder.get_final_bytecode(self.allocator);
     }
 
-    fn symbol_from_block_parameter_token(self: *Self, token_id: Ast.TokenId) Allocator.Error!SymbolId {
-        assert(self.ast.kind_of(token_id) == .block_param);
-        const token_text = self.ast.text_at(token_id);
-        assert(token_text.len >= 2);
-        assert(token_text[0] == ':');
-        const identifier_text = token_text[1..];
-        const symbol_id: SymbolId = (try self.symbols_manager.id_or_intern(identifier_text)).id;
-        return symbol_id;
-    }
-
     fn symbol_from_token(self: *Self, token_id: Ast.TokenId) Allocator.Error!SymbolId {
         const token_text = self.ast.text_at(token_id);
         const symbol_id: SymbolId = (try self.symbols_manager.id_or_intern(token_text)).id;
@@ -1607,15 +1597,14 @@ pub const BytecodeGenerator = struct {
         switch (expr) {
             .integer_literal => |literal_info| {
                 const text = self.ast.text_at(literal_info.absolute_value_token);
-                var number: i48 = literals.parse_integer_literal(text) orelse blk: {
+                const number: i48 = literals.parse_integer_literal(text, .{ .is_negative = literal_info.is_negative }) orelse blk: {
                     self.reporter.report_warning(
                         .{ .pos = self.ast.pos_of(expr_id) },
                         "This integer literal is too big to fit into the VM representation of integers, which is 48 bits. The valid range is from {d} to {d}.",
                         .{ std.math.minInt(i48), std.math.maxInt(i48) },
                     );
-                    break :blk std.math.maxInt(i48);
+                    break :blk if (literal_info.is_negative) std.math.minInt(i48) else std.math.maxInt(i48);
                 };
-                if (literal_info.is_negative) number *= -1;
 
                 if (std.math.cast(i8, number)) |number_i8| {
                     try self.add_instruction(.{ .load_integer_i8 = number_i8 });
@@ -1797,10 +1786,10 @@ pub const BytecodeGenerator = struct {
         self.builder = InstructionEncoder{ .bytes = .empty };
 
         // Setup arguments (put them into the lexical scope stack)
-        const parameters_span: ?Ast.TokenSpan = block_literal.get_parameters(self.ast.tokens);
-        const parameters_count_excluding_self = if (parameters_span) |s| s.number_of_tokens() else 0;
+        const parameters_count_excluding_self = block_literal.calculate_parameters_count(self.ast.tokens.items(.kind));
         const max_block_parameters_count = 2;
         if (parameters_count_excluding_self > max_block_parameters_count) {
+            const parameters_span = block_literal.calculate_parameter_span(self.ast.tokens.items(.kind));
             // SAFETY: We can unwrap `.?` the `parameters_span` because the number of parameters is more than 2.
             //         This means, that the `parameters_span` is not empty.
             const parameters_position = self.ast.pos_of(parameters_span.?);
@@ -1811,11 +1800,11 @@ pub const BytecodeGenerator = struct {
         // Register block parameter identifiers as arguments in the lexical scope stack
         {
             var arguments_scope = try self.lexical_scope_stack.add_scope(.{ .increase_depth = true });
-            var parameter_iterator = token_iterator(parameters_span);
+            var parameter_iterator = block_literal.iter_parameters(self.ast.tokens.items(.kind));
             // We want to register the identifiers with reverse indexes
-            var idx: i64 = @as(i64, parameters_count_excluding_self) - 1;
+            var idx: i64 = @as(i64, @intCast(parameters_count_excluding_self)) - 1;
             while (parameter_iterator.next()) |parameter_token| : (idx -= 1) {
-                const parameter_symbol: SymbolId = try self.symbol_from_block_parameter_token(parameter_token);
+                const parameter_symbol: SymbolId = try self.symbol_from_token(parameter_token);
                 try arguments_scope.register_variable(.{ .identifier = parameter_symbol, .idx = @intCast(idx) });
             }
         }
@@ -1824,7 +1813,7 @@ pub const BytecodeGenerator = struct {
         const body_ast: Ast.FunctionBody = self.ast.extras.function_body_of(block_literal.body_id);
         const bytecode = try self.compile_function_body(.{
             .body = body_ast,
-            .number_of_arguments_including_self = parameters_count_excluding_self + 1,
+            .number_of_arguments_including_self = @intCast(parameters_count_excluding_self + 1),
         });
 
         const block_id = self.constants_manager.add_block_definition(BlockDefinition{

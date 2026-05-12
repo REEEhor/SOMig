@@ -1,0 +1,57 @@
+"
+VM:
+  status: success
+  stdout:
+   |no param :)
+   |10
+   |10
+   |10
+   |11,22
+   |11,22
+   |11,22
+   |111,222
+   |111,222
+   |111,222
+   |1111,2222
+   |1111,2222
+   |1111,2222
+"
+
+
+block_param_separate_colon = (
+    run = (
+        self none.
+        self single.
+        self onlyFirst.
+        self onlySecond.
+        self both.
+    )
+
+    none = (
+        [ 'no param :)' println ] value.
+    )
+
+    single = (
+        [ : param | param println. ]      value: 10.
+        [: param | param println. ]       value: 10.
+        [    :   param | param println. ] value: 10.
+    )
+    
+    onlyFirst = (
+        [ : a :b | a print. ',' print. b println. ]     value: 11 with: 22.
+        [: a :b | a print. ',' print. b println. ]      value: 11 with: 22.
+        [ :   a   :b | a print. ',' print. b println. ] value: 11 with: 22.
+    )
+    
+    onlySecond = (
+        [ :a : b | a print. ',' print. b println. ]   value: 111 with: 222.
+        [ :a :   b | a print. ',' print. b println. ] value: 111 with: 222.
+        [ :a   : b | a print. ',' print. b println. ] value: 111 with: 222.
+    )
+    
+    both = (
+        [ : a : b | a print. ',' print. b println. ]      value: 1111 with: 2222.
+        [: a :   b | a print. ',' print. b println. ]     value: 1111 with: 2222.
+        [ :   a :    b | a print. ',' print. b println. ] value: 1111 with: 2222.
+    )
+)

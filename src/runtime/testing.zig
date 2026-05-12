@@ -5,13 +5,15 @@ const options = @import("integration_tests_options");
 const colors = @import("../terminal.zig");
 
 test "run integration tests" {
-    if (!options.run_integration_tests) return;
+    std.debug.print(colors.BOLD ++ "\nIntegration tests" ++ colors.RESET ++ " from: {s}\n", .{options.integration_tests_path});
+    if (!options.run_integration_tests) {
+        warn_about_not_running_the_integration_tests();
+        return;
+    }
     try run_tests(std.testing.allocator);
 }
 
 pub fn run_tests(gpa: std.mem.Allocator) !void {
-    std.debug.print(colors.BOLD ++ "\nIntegration tests" ++ colors.RESET ++ " from: {s}\n", .{options.integration_tests_path});
-
     var static = std.heap.ArenaAllocator.init(gpa);
     defer static.deinit();
 
@@ -212,6 +214,17 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
     if (known_failures_cnt != 0) {
         std.debug.print(colors.YELLOW ++ "Known failing tests: " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.YELLOW ++ colors.FAINT ++ "\n" ++ colors.RESET, .{known_failures_cnt});
     }
+}
+
+fn warn_about_not_running_the_integration_tests() void {
+    std.debug.print( //
+        colors.WARN ++ "  [WARN] THESE WERE NOT RUN!\n" ++ colors.RESET ++ //
+            "  Hint: Use a " ++ colors.WARN ++ "-Dit=true" ++ colors.RESET ++ //
+            " (or a " ++ colors.YELLOW ++ "-Drun-integration-tests=true" ++ colors.RESET ++ ")" ++ colors.RESET ++ //
+            " flag to run the integration tests.\n",
+        .{},
+    );
+    std.debug.print("  Note: This is becuse these test take around 10 seconds to run.\n", .{});
 }
 
 pub const TestFile = struct {
