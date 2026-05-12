@@ -1164,7 +1164,7 @@ pub const Interpreter = struct {
                 &self.heap,
                 self.top_frame().*,
             );
-            // NOTE(GC): The reallocation might have triggered a GC of the escaped block, we have to check it again
+            // NOTE(GC): The reallocation of the frame might have triggered a GC of the escaped block, we have to check it again
             var escaping_block = self.top_frame().escaping_blocks_list_head orelse break :putting_frame_on_heap;
             switch (self.top_frame().kind) {
                 .block => |block| block.add_to_escaping_blocks_list(),

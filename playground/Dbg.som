@@ -1,8 +1,19 @@
 Dbg = (
     run = (
-        'hello' length println.
-        '_' length println. 
-        'hello _ world' length println.
-        ('abc' substringFrom: 1 to: 2) length println.
+        self loop: 5.
+    )
+    
+    loop: x = (
+        | blk |
+        blk := [
+            x == 0
+                ifTrue:  [ ^nil ]
+                ifFalse: [ 
+                    ('x=' + x) println.
+                    "x := x - 1."
+                    blk value.
+                ]
+        ].
+        blk value. 
     )
 )
