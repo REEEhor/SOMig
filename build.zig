@@ -204,8 +204,8 @@ fn add_integration_testing_options(exe: *std.Build.Step.Compile, b: *std.Build) 
         const run_tests = b.option(
             bool,
             "run-integration-tests",
-            "Whether to run the integration tests. Defaults to false.",
-        ) orelse b.option(bool, "it", "Alias to 'run-integration-tests'.") orelse false;
+            "Whether to run the integration tests. Defaults to true.",
+        ) orelse b.option(bool, "it", "Alias to 'run-integration-tests'.") orelse true;
         options.addOption(bool, "run_integration_tests", run_tests);
     }
     {
