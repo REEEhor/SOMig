@@ -90,7 +90,6 @@ pub const ConstantsManager = struct {
     blocks: std.ArrayList(*const BlockDefinition),
     allocator: Allocator,
 
-    /// FIXME(speed): make a `init_with_capacity` version or call `ensureCapacity` on `self.constants` for initial capacity
     pub fn init(allocator: Allocator) ConstantsManager {
         return ConstantsManager{
             .allocator = allocator,
@@ -1134,7 +1133,6 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
         .reporter = reporter,
     });
 
-    // FIXME: after development, increase these numbers
     var lexical_scopes = try LexicalScopesStack.init(temporary_allocator, 0, 0);
 
     // Create a list of instance field identifiers and create a lexical scope out of them
@@ -1459,8 +1457,7 @@ pub const BytecodeGenerator = struct {
         //
         self.compiled_parent_methods = params.compiled_parent_methods;
         defer self.compiled_parent_methods = undefined;
-        //
-        // FIXME: consider pre-allocating a chuck of bytes
+
         self.builder = InstructionEncoder{ .bytes = .empty };
         defer self.builder = undefined;
 
