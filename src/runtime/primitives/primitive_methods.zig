@@ -51,12 +51,6 @@ pub const Object = struct {
         return error.interpreter_halted;
     }
 
-    /// FIXME(srs): Check what happens when doing `someObject perform: #perform: withArguments: #( #someMethod )` - probably stack overflow?
-    ///
-    /// NOTE: But the stack overflow will be probably of the program itself, not error.stack_overflow! Which is bad, that shouldn't happen.
-    ///
-    /// NOTE: We can't really ensure, that `perform:` will not be called via indirect infinite recursion, but in that case, there will be actual stack frames getting created which will actually overflow.
-    ///
     pub fn @"perform:"(self: VmObject, method_selector: SymbolId, interpreter: *Interpreter) Interpreter.Error!void {
         const class_definition = interpreter.get_class_of(self);
         const method = class_definition.get_method(method_selector) orelse return failed_finding_method(

@@ -1,19 +1,10 @@
 Dbg = (
     run = (
-        self loop: 5.
+        self someMethod.
     )
     
-    loop: x = (
-        | blk |
-        blk := [
-            x == 0
-                ifTrue:  [ ^nil ]
-                ifFalse: [ 
-                    ('x=' + x) println.
-                    "x := x - 1."
-                    blk value.
-                ]
-        ].
-        blk value. 
+    someMethod = (
+        'hi' println.
+        self perform: #someMethod withArguments: #(  ).
     )
 )
