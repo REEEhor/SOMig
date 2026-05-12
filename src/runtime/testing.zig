@@ -115,6 +115,7 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             .program_arguments_as_strings = program_args.items,
             .print_stack_on_error = false,
             .skip_bootstrap = false,
+            .use_colored_printing = false,
         }) catch |err| blk: {
             maybe_err = err;
             break :blk null;
@@ -146,6 +147,11 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
                 try w.print("Mismatch: stdout is different than expected.\n", .{});
             }
         }
+        if (config.expected_stderr_contains) |expected_stderr| {
+            if (null == std.mem.indexOf(u8, allocating_stderr.written(), expected_stderr)) {
+                try w.print("Mismatch: stderr does not contain the specified string.\n", .{});
+            }
+        }
 
         const expected_to_fail: bool = known_failing_tests.contains(entry.name);
         const actually_failed: bool = allocating_issues_writer.written().len != 0;
@@ -164,9 +170,13 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             std.debug.print("{s}", .{issues});
             std.debug.print("========= Config: \n", .{});
             std.debug.print("Status:       {?}\n", .{config.status});
-            std.debug.print("Has stderr:   {}\n", .{config.has_stderr});
-            std.debug.print("Has stderr:   {}\n", .{config.has_stderr});
             std.debug.print("Include AWFY: {}\n", .{config.include_awfy});
+            std.debug.print("Has stderr:   {}\n", .{config.has_stderr});
+            if (config.expected_stderr_contains) |exact_expected_stderr| {
+                std.debug.print("Expected stderr to contain:\n{s}", .{exact_expected_stderr});
+            } else {
+                std.debug.print("Expected stderr to contain: (unspecified)\n", .{});
+            }
             if (config.expected_stdout) |expected_stdout| {
                 std.debug.print("Expected stdout:\n{s}", .{expected_stdout});
             } else {
@@ -191,8 +201,8 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
         );
     } else {
         std.debug.print(colors.BOLD ++ "===================== RESULTS: ===================== \n" ++ colors.RESET, .{});
-        std.debug.print(colors.GREEN ++ "All tests:     {d}" ++ colors.FAINT ++ " (counting known failures as ok)\n" ++ colors.RESET, .{total_tests});
-        std.debug.print(colors.GREEN ++ "Passing tests: " ++ colors.BOLD ++ "{d}\n" ++ colors.RESET, .{ok_tests});
+        std.debug.print(colors.GREEN ++ "All tests:     {d}\n" ++ colors.RESET, .{total_tests});
+        std.debug.print(colors.GREEN ++ "Passing tests: " ++ colors.BOLD ++ "{d}" ++ colors.FAINT ++ " (counting known failures as ok)\n" ++ colors.RESET, .{ok_tests});
         std.debug.print(colors.RED ++ "Failing tests: " ++ colors.BOLD ++ "{d}\n" ++ colors.RESET, .{total_tests - ok_tests});
     }
 
@@ -212,6 +222,7 @@ pub const Status = union(enum) { @"error", success, integer_value: i64 };
 pub const TestConfig = struct {
     status: ?Status = null,
     has_stderr: bool = false,
+    expected_stderr_contains: ?[]const u8 = null,
     expected_stdout: ?[]const u8 = null,
     include_awfy: bool = false,
 };
@@ -294,24 +305,13 @@ fn parse_config(gpa: std.mem.Allocator, file_contents: []const u8) !TestConfig {
                 std.debug.print("The 'stdout:' is defined multiple times!\n", .{});
                 return e;
             }
-
-            var allocating_stdout_writer = std.Io.Writer.Allocating.init(gpa);
-            var stdout_writer = &allocating_stdout_writer.writer;
-            const rest = std.mem.trimLeft(u8, line_it.raw_line["  stdout:".len..], " \t");
-            if (rest.len != 0) {
-                std.debug.print("Invalid rest after stdout: '{s}'\n", .{rest});
+            result.expected_stdout = try parse_expected_outputs_content(gpa, &line_it);
+        } else if (str_eql(kind, "stderr-contains")) {
+            if (result.expected_stderr_contains != null) {
+                std.debug.print("The 'stderr-contains:' is defined multiple times!\n", .{});
                 return e;
             }
-            const kind_prefix = prefix_len(line_it.raw_line);
-            while (true) {
-                const raw_stdout_line = line_it.inner_iter.peek() orelse break;
-                const inner_prefix = prefix_len(raw_stdout_line);
-                if (inner_prefix <= kind_prefix) break;
-                const stdout_line = line_it.next().?; // we peeked - it should be there
-                if (!std.mem.startsWith(u8, stdout_line, "|")) break;
-                try stdout_writer.print("{s}\n", .{stdout_line[1..]});
-            }
-            result.expected_stdout = allocating_stdout_writer.written();
+            result.expected_stderr_contains = try parse_expected_outputs_content(gpa, &line_it);
         } else if (str_eql(kind, "include_awfy")) {
             result.include_awfy = true;
         } else {
@@ -320,6 +320,24 @@ fn parse_config(gpa: std.mem.Allocator, file_contents: []const u8) !TestConfig {
         }
     }
     return result;
+}
+
+fn parse_expected_outputs_content(
+    gpa: std.mem.Allocator,
+    line_it: *LineIterator,
+) ![]const u8 {
+    var allocating_writer = std.Io.Writer.Allocating.init(gpa);
+    var w = &allocating_writer.writer;
+    const kind_prefix_len = prefix_len(line_it.raw_line);
+    while (true) {
+        const raw_stdout_line = line_it.inner_iter.peek() orelse break;
+        const inner_prefix = prefix_len(raw_stdout_line);
+        if (inner_prefix <= kind_prefix_len) break;
+        const stdout_line = line_it.next().?; // we peeked - it should be there
+        if (!std.mem.startsWith(u8, stdout_line, "|")) break;
+        try w.print("{s}\n", .{stdout_line[1..]});
+    }
+    return allocating_writer.written();
 }
 
 fn str_eql(lhs: []const u8, rhs: []const u8) bool {

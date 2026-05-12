@@ -1,0 +1,9 @@
+"
+VM:
+  status: success
+  stdout:
+   | 
+   |ERROR: Method run not found in class System
+"
+
+empty_class = ( )

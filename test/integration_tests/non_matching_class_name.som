@@ -1,0 +1,16 @@
+"
+VM:
+  status: error
+  stdout:
+   |
+   |ERROR: Tried loading 'non_matching_class_name' as a class, but failed.
+  stderr-contains: 
+   |Mismatch between the class name 'ThisClassNameIsDifferentThanFileName' and filename 'non_matching_class_name.som'.
+   |          |
+   | line: 14 |ThisClassNameIsDifferentThanFileName = (
+   |          |^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+
+ThisClassNameIsDifferentThanFileName = (
+    " nothing "
+)
