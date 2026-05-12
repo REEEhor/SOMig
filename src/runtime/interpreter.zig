@@ -1312,18 +1312,10 @@ pub const Interpreter = struct {
         // Create an object representing the arguments.
         const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
 
-        // FIXME(simple): This protection is not required as allocating symbols does not allocate
-        // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
-        var protector = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
-        try protector.protect(arguments);
-        defer protector.unprotect_all();
-
         // Create an selector object (also required for the `doesNotUnderstand:arguments:` method).
         const selector_symbol: VmObject = VmObject.from_symbol(message_selector);
 
         // Pop the now-copied arguments from the stack.
-        // NOTE(GC): Pop the arguments from the stack *after* the creation of the array object and selector symbol,
-        //           since their creation might trigger a GC and we need to protect the objects from getting swept.
         self.stack.objects.len -= arity;
 
         // Push arguments for the `doesNotUnderstand:arguments:` method onto the stack.

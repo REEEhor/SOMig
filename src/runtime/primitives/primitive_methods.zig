@@ -238,29 +238,13 @@ pub const Class = struct {
 
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const fields_count = self.identifiers_of_instance_variables.len;
-
-        // FIXME(simple): This protection is not required as allocating symbols does not allocate
-        // NOTE(GC):
-        //      We cannot easily (or even possibly) mark the created array
-        //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
-        //      If we ever have NaN boxing for `types.Symbol`, we can remove this,
-        //      since `types.Symbol.create_new(..)` will not trigger a heap allocation.
-        var gc_protector = try interpreter.heap.protector_against_gc(.{ .number_of_planned_protections = fields_count });
-        defer gc_protector.unprotect_all();
-
         const array = try types.Array.create_with_undefined_items(&interpreter.heap, fields_count);
 
         // Go through the instance field names of the entire class hiearchy.
         for (array.get_items(), self.identifiers_of_instance_variables) |*array_item, field_name| {
-            // FIXME(simple): This protection is not required as allocating symbols does not allocate
-            // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
-            //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
-            //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
-            array.header.is_marked = true;
-
             array_item.* = VmObject.from_symbol(field_name);
-            try gc_protector.protect(array_item.*);
         }
+
         return VmObject.from(array);
     }
 
@@ -286,7 +270,7 @@ pub const Class = struct {
 
         // We have to sort the methods by the order they were defined in.
         //
-        // This is needed for the, because the test suite
+        // This is needed, because the test suite
         // `TestSuite/ClassStructureTest.som >> testThatCertainMethodsArePrimitives`
         // depends on this order because of this assert:
         // ```SOM
@@ -295,7 +279,7 @@ pub const Class = struct {
         // ```
         std.sort.pdq(VmObject, methods_slice, {}, struct {
             fn less_than(_: void, lhs_obj: VmObject, rhs_obj: VmObject) bool {
-                // SAFETY: The array must contain only methods.
+                // SAFETY: The array should contain only methods.
                 // We have just created this array and put only method objects into it.
                 const lhs = lhs_obj.as_heap_object(.method).?.method().definition_order_index;
                 const rhs = rhs_obj.as_heap_object(.method).?.method().definition_order_index;

@@ -580,10 +580,7 @@ pub const types = struct {
                 .number_of_instance_fields = number_of_instance_fields,
             }));
             self.class = class;
-            // FIXME(simple): replace with memset
-            for (self.get_fields()) |*field_object| {
-                field_object.* = VmObject.nil;
-            }
+            @memset(self.get_fields(), VmObject.nil);
             return VmObject.from(self);
         }
 
