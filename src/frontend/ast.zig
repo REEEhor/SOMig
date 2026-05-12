@@ -410,44 +410,75 @@ pub const SpannedExpr = struct {
     span: TokenSpan,
 };
 
-// FIXME:
-//  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
 pub const Expression = union(enum) {
+    /// An identifier, examples:
+    /// `hello`, `variable`, `Class`, `unaryMethod`.
+    ///
     /// The payload of this is guaranteed to be an `.identifier`
     variable: TokenId,
+
+    /// Integer literal, examples:
+    /// `1`, `20`, `-5`.
     integer_literal: struct {
         /// Token that contains the digits of the integer literal.
         /// This token is guaranteed to have kind `.integer`.
         absolute_value_token: TokenId,
         is_negative: bool,
     },
+
+    /// Literal of the `Double` class, examples:
+    /// `1.0`, `-3.14`.
     float_literal: struct {
         /// Token that contains the digits and decimal dot of the float literal.
         /// This token is guaranteed to have kind `.float`.
         absolute_value_token: TokenId,
         is_negative: bool,
     },
+
+    /// String literal, examples:
+    /// `'hello'`, `'multiline\nstring with tab: \t'`.
+    ///
     /// The payload of this is guaranteed to be an `.string_literal`
     string_literal: TokenId,
+
+    /// Array literal, examples:
+    /// `#()`, `#(10 20 30)`, `#(10 #(20 30 40) 50)`, `#('Hello', #how, [ 'are' ], you, ('?' + '?'))`
     ///
     array_literal: ArrayLiteral,
 
+    /// Literal of the `Symbol` class, examples:
+    /// `#hi`, `#run:`, `#run:with:andWith:`, `#+++==--***`, `#'some text \n heh'`.
+    ///
+    /// The token span describes all the individual tokens, such as `#`, `run:`, `with:`, `andWith:` in the third example.
     symbol: TokenSpan,
 
+    /// Exit expression, example:
+    /// `^ subexpression`.
     exit_expression: struct { return_value: ExprId },
+
+    /// Assignation of variables, example:
+    /// `variable := subexpression`.
     assignment: struct { variable: TokenId, target_value: ExprId },
 
+    /// Literal of the `Block` class, examples:
+    /// `[]`, `[:param | body ]`, `[:param1 :param2 | | local1 local2 local3 | body]`.
     block_literal: BlockLiteral,
 
+    /// Send of a unary message, examples:
+    /// `cat sayMeow`, `10 println`, `true not`.
     unary_message_send: struct { argument: ExprId, message: TokenId },
+
+    /// Send of a binary message, examples:
+    /// `10 + 20`, `player -|====> monster`.
     binary_message_send: RawBinaryMessageSend,
+
+    /// Send of a keyword, examples:
+    /// `system load: someClass`, `block value: 10 with: 20`.
     keyword_message_send: KeywordMessageSend,
 
-    const Self = @This();
+    pub const Tag = std.meta.Tag(@This());
 
-    pub const Tag = std.meta.Tag(Self);
-
-    pub fn tag(self: Self) Tag {
+    pub fn tag(self: @This()) Tag {
         return std.meta.activeTag(self);
     }
 };
