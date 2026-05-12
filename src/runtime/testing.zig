@@ -212,7 +212,7 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
     }
 
     if (known_failures_cnt != 0) {
-        std.debug.print(colors.YELLOW ++ "Known failing tests: " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.YELLOW ++ colors.FAINT ++ "\n" ++ colors.RESET, .{known_failures_cnt});
+        std.debug.print(colors.CYAN ++ "Known failing tests: " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.CYAN ++ colors.FAINT ++ "\n" ++ colors.RESET, .{known_failures_cnt});
     }
 }
 
