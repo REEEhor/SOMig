@@ -78,6 +78,7 @@ pub const RunParams = struct {
     program_arguments_as_strings: []const []const u8,
     print_stack_on_error: bool = true,
     skip_bootstrap: bool,
+    use_colored_printing: bool,
 };
 
 pub fn run(params: RunParams) !u8 {
@@ -137,6 +138,7 @@ pub fn run(params: RunParams) !u8 {
         .globals = &globals,
         .metaclass_definition = null,
         .object_definition = null,
+        .use_colored_printing = params.use_colored_printing,
     };
     const builtin_classes = try class_loader.load_builtin_classes();
 
@@ -159,6 +161,7 @@ pub fn run(params: RunParams) !u8 {
         objects,
         frames,
         builtin_classes,
+        params.use_colored_printing,
     );
     interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();

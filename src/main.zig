@@ -4,11 +4,11 @@
 /// FIXME        [x] Skip all failing tests in `test/integration_tests`:
 /// FIXME             [x] Option for a skip file by the name of the test
 /// FIXME             [x] Just copy the output of the failed tests and vim-magick take out the failing test names
-/// FIXME        [ ] Not printing colors:
-/// FIXME             [ ] Add field to interpreter to not print colors
-/// FIXME             [ ] Propagate this field into compilation (ClassLoader) and runtime error reporting
-/// FIXME             [ ] Add this option to the `runtime_module.run` function.
-/// FIXME             [ ] Add this option to the arguments of the program.
+/// FIXME        [x] Not printing colors:
+/// FIXME             [x] Add field to interpreter to not print colors
+/// FIXME             [x] Propagate this field into compilation (ClassLoader) and runtime error reporting
+/// FIXME             [x] Add this option to the `runtime_module.run` function.
+/// FIXME             [x] Add this option to the arguments of the program.
 /// FIXME        [ ] Add custom tests, possibly make a field `exact-stderr:` which contains the exact error
 const std = @import("std");
 const builtin = @import("builtin");
@@ -76,6 +76,7 @@ pub fn main() !void {
     defer root_directories.deinit(gpa);
 
     var skip_bootstrap = false;
+    var use_colors = true;
 
     // Parse command line arguments
     var arg_idx: usize = 0;
@@ -91,6 +92,8 @@ pub fn main() !void {
                     .path = path,
                 });
             }
+        } else if (std.mem.eql(u8, arg, "--no-color")) {
+            use_colors = false;
         } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "-ir") or std.mem.eql(u8, arg, "-ri") or std.mem.eql(u8, arg, "--recursively-include")) {
             arg_idx += 1;
             if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
@@ -132,12 +135,13 @@ pub fn main() !void {
         .stdout = stdout,
         .stderr = stderr,
         .stack_size = .{
-            .objects_count = 1000, // FIXME: these should be parsed from args
-            .frames_count = 1000, // FIXME: these should be parsed from args
+            .objects_count = 1000, // FIXME(simple): these should be parsed from args
+            .frames_count = 1000, // FIXME(simple): these should be parsed from args
         },
         .program_arguments_as_strings = arguments_for_som.items,
         .root_directories = root_directories.items,
         .skip_bootstrap = runtime_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
+        .use_colored_printing = use_colors,
     }) catch |err| switch (err) {
         error.OutOfMemory => return err,
         else => std.process.exit(1),

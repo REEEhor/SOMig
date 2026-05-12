@@ -638,6 +638,7 @@ pub const Interpreter = struct {
     source_code_files: *SourceCodeFiles,
 
     timer: ?std.time.Timer,
+    use_colored_printing: bool,
 
     /// FIXME: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
@@ -679,6 +680,7 @@ pub const Interpreter = struct {
         preallocated_object_stack: []VmObject,
         preallocated_frame_stack: []Stack.Frame,
         builtin_class_definitions: BuiltinClassDefinitions,
+        use_colored_printing: bool,
     ) Interpreter {
         const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
@@ -693,6 +695,7 @@ pub const Interpreter = struct {
             .source_code_files = source_code_files,
             .builtin_class_definitions = builtin_class_definitions,
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
+            .use_colored_printing = use_colored_printing,
         };
 
         return interpreter;
@@ -1100,6 +1103,7 @@ pub const Interpreter = struct {
             .source_code_files = self.source_code_files,
             .statics = self.statics,
             .temporary_arena = self.temporary_arena,
+            .use_colored_printing = self.use_colored_printing,
         };
         return class_loader.load_class(class_name);
     }
@@ -1381,7 +1385,21 @@ pub const Interpreter = struct {
     }
 
     pub fn report_info(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
-        try self.stderr.print(colors.CYAN ++ "[runtime-info] " ++ colors.RESET ++ fmt ++ "\n", args);
+        if (self.use_colored_printing) try self.stderr.print(colors.CYAN, .{});
+        try self.stderr.print("[runtime-info] ", .{});
+        if (self.use_colored_printing) try self.stderr.print(colors.RESET, .{});
+
+        try self.stderr.print(fmt ++ "\n", args);
+        try self.stderr.flush();
+    }
+
+    pub fn report_runtime_error(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        // Ignore error since we report errors when there already is an error
+        if (self.use_colored_printing) self.stderr.print(colors.ERR, .{}) catch {};
+        self.stderr.print("[runtime-error] ", .{}) catch {};
+        if (self.use_colored_printing) self.stderr.print(colors.RESET, .{}) catch {};
+
+        self.stderr.print(fmt ++ "\n", args) catch {};
         self.stderr.flush() catch {};
     }
 
@@ -1390,12 +1408,6 @@ pub const Interpreter = struct {
         self.stderr.print(colors.ERR ++ "[TODO (not implemented)] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
         self.stderr.flush() catch {};
         return error.TODO;
-    }
-
-    pub fn report_runtime_error(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        // Ignore error since we report errors when there already is an error
-        self.stderr.print(colors.ERR ++ "[runtime-error] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
-        self.stderr.flush() catch {};
     }
 
     pub fn string_from_symbol(self: *Self, symbol_id: SymbolId) []const u8 {

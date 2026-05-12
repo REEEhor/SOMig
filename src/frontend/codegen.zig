@@ -451,11 +451,12 @@ pub fn find_file_and_parse_it(
     statics: *Statics,
     error_writer: *std.io.Writer,
     parse_allocator: Allocator,
+    use_colored_printing: bool,
 ) !ParsedFile {
     var reporter = ErrorReporter{
         .source = undefined,
         .source_path = null,
-        .use_color = true,
+        .use_color = use_colored_printing,
         .writer = error_writer,
     };
     const lookup_result = (try source_code_files.get_source_code_of(class_name, parse_allocator, .{
@@ -518,41 +519,6 @@ pub const CompileClassIgnoringParents = struct {
     metaclass_definition: ?*ClassDefinition,
 };
 
-/// Sets the parent to null.
-/// The metaclass has the VM object set to undefined.
-pub fn compile_class_ignoring_parents(
-    params: CompileClassIgnoringParents,
-) !ClassDefinitionPair {
-    const class_name = params.class_name;
-    const statics = params.statics;
-    const temporary_allocator = params.temporary_allocator;
-    const source_code_files = params.source_code_files;
-    const error_writer = params.error_writer;
-    const primitive_methods_map = params.primitive_methods_map;
-    const globals = params.globals;
-    const metaclass_definition = params.metaclass_definition;
-
-    const ast = try find_file_and_parse_it(class_name, source_code_files, statics, error_writer, temporary_allocator);
-    var reporter = ErrorReporter{
-        .source = ast.source_code,
-        .source_path = ast.source_code_filepath,
-        .use_color = true,
-        .writer = error_writer,
-    };
-    const class_pair = try compile_class(
-        ast,
-        class_name,
-        null,
-        temporary_allocator,
-        statics,
-        &reporter,
-        primitive_methods_map,
-        globals,
-        metaclass_definition,
-    );
-    return class_pair;
-}
-
 pub const ClassLoader = struct {
     statics: *Statics,
     temporary_arena: *std.heap.ArenaAllocator,
@@ -562,6 +528,7 @@ pub const ClassLoader = struct {
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
     metaclass_definition: ?*ClassDefinition,
     object_definition: ?*ClassDefinition,
+    use_colored_printing: bool,
 
     /// Loads a class together with its parents.
     /// WARN: `metaclass_definition` cannot be `null` at this point
@@ -579,6 +546,7 @@ pub const ClassLoader = struct {
             .error_writer = self.error_writer,
             .primitive_methods_map = self.primitive_methods_map,
             .globals = self.globals,
+            .use_colored_printing = self.use_colored_printing,
             .metaclass_definition = metaclass_definition,
         });
         return class_definition_pair.class;
@@ -624,13 +592,13 @@ pub const ClassLoader = struct {
             }
             return class_definition;
         };
-        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = self.use_colored_printing, .writer = self.error_writer };
         reporter.report_error(.no_location, "Could not load the builtin class {s}.", .{class_name});
         return err;
     }
 
     fn report_if_class_has_invalid_parent(self: *Self, class: *ClassDefinition, expected_parent_apart_from_none_or_object: ?[]const u8) void {
-        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = self.use_colored_printing, .writer = self.error_writer };
         const actual_parent = class.parent orelse return;
         const actual_parent_name: []const u8 = self.statics.symbols_manager.symbol_with_id(actual_parent.class_name);
         const class_name: []const u8 = self.statics.symbols_manager.symbol_with_id(class.class_name);
@@ -772,7 +740,7 @@ pub const ClassLoader = struct {
                 }
             }
         };
-        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = true, .writer = self.error_writer };
+        var reporter = ErrorReporter{ .source = undefined, .source_path = null, .use_color = self.use_colored_printing, .writer = self.error_writer };
         const class_name: []const u8 = self.statics.symbols_manager.symbol_with_id(class.class_name);
         const plurar_s: []const u8 = if (fields_count == 1) "" else "s";
 
@@ -798,7 +766,7 @@ pub const ClassLoader = struct {
         var reporter = ErrorReporter{
             .source = ast.source_code,
             .source_path = ast.source_code_filepath,
-            .use_color = true,
+            .use_color = self.use_colored_printing,
             .writer = self.error_writer,
         };
         const class_name_text: []const u8 = ast.text_at(ast.class_ast.class_name);
@@ -824,7 +792,7 @@ pub const ClassLoader = struct {
         var reporter = ErrorReporter{
             .source = ast.source_code,
             .source_path = ast.source_code_filepath,
-            .use_color = true,
+            .use_color = self.use_colored_printing,
             .writer = self.error_writer,
         };
         const class_name_text: []const u8 = ast.text_at(ast.class_ast.class_name);
@@ -854,6 +822,7 @@ pub const ClassLoader = struct {
             self.statics,
             self.error_writer,
             self.temporary_arena.allocator(),
+            self.use_colored_printing,
         );
     }
 
@@ -866,7 +835,7 @@ pub const ClassLoader = struct {
         var reporter = ErrorReporter{
             .source = params.ast.source_code,
             .source_path = params.ast.source_code_filepath,
-            .use_color = true,
+            .use_color = self.use_colored_printing,
             .writer = self.error_writer,
         };
 
@@ -897,6 +866,7 @@ pub const CompileClassWithItsParentsParams = struct {
     /// Used for lookup of class definitions.
     globals: *std.AutoArrayHashMap(SymbolId, VmObject),
     metaclass_definition: *ClassDefinition,
+    use_colored_printing: bool,
 };
 
 pub fn compile_class_with_its_parents(
@@ -914,13 +884,13 @@ pub fn compile_class_with_its_parents(
     var error_reporter = ErrorReporter{
         .source = undefined,
         .source_path = undefined,
-        .use_color = true,
+        .use_color = params.use_colored_printing,
         .writer = error_writer,
     };
 
     // FIXME(consider): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
-    const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
+    const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator, params.use_colored_printing);
     var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.parent_class_name, &statics.symbols_manager, bottom_ast);
 
     // Parsed files to be compiled. This invariant should hold:
@@ -950,7 +920,7 @@ pub fn compile_class_with_its_parents(
             report_parent_is_not_a_class(&error_reporter, classes_to_compile.getLast().ast, parent_definition, statics.symbols_manager);
             return error.parent_is_not_a_class;
         }
-        const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator);
+        const parent_ast: ParsedFile = try find_file_and_parse_it(parent_being_resolved, source_code_files, statics, error_writer, temporary_allocator, params.use_colored_printing);
         try classes_to_compile.append(temporary_allocator, ParsedFileToCompile{ .name = parent_being_resolved, .ast = parent_ast });
         maybe_parent_being_resolved = try symbol_of_parents_name(parent_ast.class_ast.parent_class_name, &statics.symbols_manager, parent_ast);
     } else null;
