@@ -1991,15 +1991,16 @@ pub const InstructionDecoder = struct {
     }
 
     pub const Fetch = blk: {
+        @setEvalBranchQuota(1_000_000); // The lookups in the `std.meta.stringToEnum()` take up a lot of jumps
         const instruction_info = @typeInfo(Instruction).@"union";
         const Type = std.builtin.Type;
         var fields: [instruction_info.fields.len]Type.UnionField = undefined;
-        for (instruction_info.fields, 0..) |field, idx| {
-            fields[idx] = Type.UnionField{
-                .name = field.name,
-                // FIXME: Do not use the index for construction!
-                // FIXME: Use `std.meta.stringToEnum(field.name).?`
-                .type = Accessor(@enumFromInt(idx)),
+        for (instruction_info.fields, &fields) |original_field, *new_field| {
+            const tag_name = original_field.name;
+            const tag_value = std.meta.stringToEnum(Instruction.Tag, tag_name).?;
+            new_field.* = Type.UnionField{
+                .name = tag_name,
+                .type = Accessor(tag_value),
                 .alignment = @alignOf(void),
             };
         }
