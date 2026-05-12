@@ -1,14 +1,14 @@
-/// FIXME: Tidy up the main function, probably remove -lex and -parse options.
+/// FIXME: Tidy up the main function
 ///
 /// FIXME: Create custom end-to-end tests:
+/// FIXME        [x] Skip all failing tests in `test/integration_tests`:
+/// FIXME             [x] Option for a skip file by the name of the test
+/// FIXME             [x] Just copy the output of the failed tests and vim-magick take out the failing test names
 /// FIXME        [ ] Not printing colors:
 /// FIXME             [ ] Add field to interpreter to not print colors
 /// FIXME             [ ] Propagate this field into compilation (ClassLoader) and runtime error reporting
 /// FIXME             [ ] Add this option to the `runtime_module.run` function.
 /// FIXME             [ ] Add this option to the arguments of the program.
-/// FIXME        [ ] Skip all failing tests in `test/integration_tests`:
-/// FIXME             [ ] Option for a skip file by the name of the test
-/// FIXME             [ ] Just copy the output of the failed tests and vim-magick take out the failing test names
 /// FIXME        [ ] Add custom tests, possibly make a field `exact-stderr:` which contains the exact error
 const std = @import("std");
 const builtin = @import("builtin");

@@ -2,6 +2,7 @@ const std = @import("std");
 const runtime_module = @import("__runtime.zig");
 const run_function = runtime_module.run;
 const options = @import("integration_tests_options");
+const colors = @import("../terminal.zig");
 
 test "run integration tests" {
     if (!options.run_integration_tests) return;
@@ -9,17 +10,22 @@ test "run integration tests" {
 }
 
 pub fn run_tests(gpa: std.mem.Allocator) !void {
+    std.debug.print(colors.BOLD ++ "\nIntegration tests" ++ colors.RESET ++ " from: {s}\n", .{options.integration_tests_path});
+
     var static = std.heap.ArenaAllocator.init(gpa);
     defer static.deinit();
 
     var root_dir = try std.fs.cwd().openDir(options.integration_tests_path, .{ .iterate = true });
     defer root_dir.close();
 
+    const known_failing_tests = try get_known_failing_tests(static.allocator(), &root_dir);
+
     var error_configs = try std.ArrayList([]const u8).initCapacity(gpa, 100);
     defer error_configs.deinit(gpa);
 
     var total_tests: usize = 0;
-    var failed_tests: usize = 0;
+    var known_failures_cnt: usize = 0;
+    var ok_tests: usize = 0;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -34,7 +40,6 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             switch (entry.kind) {
                 .file => {
                     if (!std.mem.endsWith(u8, entry.name, ".som")) {
-                        std.debug.print("Skipped entry: {s}\n", .{entry.name});
                         continue;
                     }
                     const contents = try root_dir.readFileAlloc(arena.allocator(), entry.name, 1024 * 1024);
@@ -142,11 +147,20 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             }
         }
 
+        const expected_to_fail: bool = known_failing_tests.contains(entry.name);
+        const actually_failed: bool = allocating_issues_writer.written().len != 0;
+
+        if (actually_failed and expected_to_fail) {
+            known_failures_cnt += 1;
+        }
         total_tests += 1;
-        if (allocating_issues_writer.written().len != 0) {
-            failed_tests += 1;
+
+        if (expected_to_fail != actually_failed) {
+            if (!actually_failed) {
+                try w.print("Expected to fail this test (it is in known failures), but the test actually passed.\n", .{});
+            }
             const issues: []const u8 = allocating_issues_writer.written();
-            std.debug.print("================== {s} ===============\n", .{tested_file.filepath});
+            std.debug.print(colors.ERR ++ "================== {s} ===============\n" ++ colors.RESET, .{tested_file.filepath});
             std.debug.print("{s}", .{issues});
             std.debug.print("========= Config: \n", .{});
             std.debug.print("Status:       {?}\n", .{config.status});
@@ -162,14 +176,29 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             std.debug.print("{s}", .{allocating_stdout.written()});
             std.debug.print("========= Program stderr:\n", .{});
             std.debug.print("{s}", .{allocating_stderr.written()});
+        } else {
+            ok_tests += 1;
         }
     }
 
-    std.debug.print("======================================\n", .{});
-    std.debug.print("TOTAL TESTS: {d}\n", .{total_tests});
-    const ok_tests = total_tests - failed_tests;
-    const percentage = (@as(f64, @floatFromInt(ok_tests)) * 100) / @as(f64, @floatFromInt(total_tests));
-    std.debug.print("SUCCESS TESTS: {d} ({d:.2}%)\n", .{ ok_tests, percentage });
+    if (total_tests == ok_tests) {
+        std.debug.print(
+            colors.GREEN ++ "All " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.GREEN ++ " tests passed!" ++ colors.FAINT ++ "{s}" ++ colors.RESET ++ "\n",
+            .{
+                total_tests,
+                if (known_failures_cnt != 0) " (counting known failing tests as passing)" else "",
+            },
+        );
+    } else {
+        std.debug.print(colors.BOLD ++ "===================== RESULTS: ===================== \n" ++ colors.RESET, .{});
+        std.debug.print(colors.GREEN ++ "All tests:     {d}" ++ colors.FAINT ++ " (counting known failures as ok)\n" ++ colors.RESET, .{total_tests});
+        std.debug.print(colors.GREEN ++ "Passing tests: " ++ colors.BOLD ++ "{d}\n" ++ colors.RESET, .{ok_tests});
+        std.debug.print(colors.RED ++ "Failing tests: " ++ colors.BOLD ++ "{d}\n" ++ colors.RESET, .{total_tests - ok_tests});
+    }
+
+    if (known_failures_cnt != 0) {
+        std.debug.print(colors.YELLOW ++ "Known failing tests: " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.YELLOW ++ colors.FAINT ++ "\n" ++ colors.RESET, .{known_failures_cnt});
+    }
 }
 
 pub const TestFile = struct {
@@ -186,6 +215,23 @@ pub const TestConfig = struct {
     expected_stdout: ?[]const u8 = null,
     include_awfy: bool = false,
 };
+
+fn get_known_failing_tests(gpa: std.mem.Allocator, dir: *std.fs.Dir) !std.StringArrayHashMap(void) {
+    const contents = dir.readFileAlloc(gpa, "__known_failures.txt", 1024 * 1024 * 1024) catch |err| {
+        std.debug.print("Could not open file '__known_failures.txt' which contains the which tests skip, because: {t}\n", .{err});
+        return err;
+    };
+
+    var result = std.StringArrayHashMap(void).init(gpa);
+
+    var line_it = split_to_trimmed_lines(contents);
+    while (line_it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "#")) continue;
+        try result.put(try gpa.dupe(u8, line), {});
+    }
+
+    return result;
+}
 
 fn parse_config(gpa: std.mem.Allocator, file_contents: []const u8) !TestConfig {
     const e = error.invalid;
