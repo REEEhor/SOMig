@@ -1,0 +1,26 @@
+"
+VM:
+  status: success
+  stdout:
+   |10
+   |some string
+   |This was printed in a block
+   |#block-return-value
+   |nil
+"
+
+
+default_return_from_block = (
+    run = (
+        [10] value println.
+        
+        ['some string'] value println.
+        
+        [
+            'This was printed in a block' println.
+            #'block-return-value'
+        ] value println.
+        
+        [] value println.
+    )
+)

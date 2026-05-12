@@ -1,0 +1,16 @@
+"
+VM:
+  status: success
+  stdout:
+   |instance of default_return_from_method
+"
+
+default_return_from_method = (
+    run = (
+        self methodWithoutReturn println. 
+    )
+
+    methodWithoutReturn = (
+        10
+    )
+)

@@ -32,7 +32,6 @@ exit_int_too_big.som
 int28.som
 double5.som
 int22.som
-empty_block.som
 hashcode.som
 double4.som
 sin.som

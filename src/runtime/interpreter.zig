@@ -834,6 +834,9 @@ pub const Interpreter = struct {
                     const object = VmObject.from_symbol(symbol_id);
                     try self.push_object(object);
                 },
+                .load_nil => {
+                    try self.push_object(VmObject.nil);
+                },
                 .load_integer_i8 => |access| {
                     const value: i8 = access.get(&self.decoder);
                     try self.push_object(VmObject.from_integer(value));
