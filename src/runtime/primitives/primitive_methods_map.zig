@@ -53,32 +53,33 @@ pub const PrimitiveMethodsMap = struct {
         args_cnt: u8,
     };
 
-    /// FIXME: this comment is outdated
-    /// Creates a new instance of `PrimitiveMethodsMap` via doing a comptime reflection on `primitives_module` argument.
+    /// Creates a new instance of `PrimitiveMethodsMap` via doing a comptime reflection on the `primitives_module` argument.
     ///
     /// `primitives_module` is expected to be a type struct in this form:
     /// ```zig
     ///     pub const some_primitives_module = struct {
+    ///
     ///         pub const SomePrimitiveClassInSom = struct {
-    ///             pub fn someMethod__somig_arity = 2; // or some other number
-    ///             pub fn someSomMethod__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
-    ///
-    ///             pub fn someOtherMethod__somig_arity = 1; // or some other number
-    ///             pub fn someOtherSomMethod__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
-    ///
-    ///             ... // other methods and their arities
+    ///             pub fn unaryMethod (ExpectedType, *Interpterer) ReturnType {...}
+    ///             pub fn @"++" (ExpectedType, ExpectedType, *Interpreter) ReturnType {...}
+    ///             // ...
     ///         }
     ///
     ///         pub const AnotherClass = struct {
-    ///             pub fn somMethod1__somig_arity = 2; // or some other number
-    ///             pub fn somMethod1__somig_primitive_fn (...) {...} // signature as `PrimitiveMethodImplementation`
-    ///
-    ///             ... // other methods and their arities
+    ///             pub fn anotherUnaryMethod (ExpectedType, *Interpreter) ReturnType {...}
+    ///             pub fn @"some:keyword:method:" (ExpectedType, ExpectedType, ExpectedType, ExpectedType, *Interpreter) ReturnType {...}
+    ///             // ...
     ///         }
     ///
-    ///         ... // other classes definitions
+    ///         // rest of the classes...
     ///     }
+    ///
     /// ```
+    /// - `ExpectedType` can be `VmObject`, `i48`, `usize`, `[]const u8`, any payload variant from the `vm_object_module.types` union.
+    ///
+    /// - The `*Interpreter` parameter is optional.
+    ///
+    /// - `ReturnType` can be the mostly same as `ExpectedType`. It can also be `void`.
     ///
     pub fn init_from(
         allocator: Allocator,
@@ -151,7 +152,6 @@ pub const PrimitiveMethodsMap = struct {
         };
     }
 
-    // NOTE(epic-zig)
     fn create_primitive_method_implementation(
         function: anytype,
         comptime class_name: []const u8,

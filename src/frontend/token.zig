@@ -65,7 +65,6 @@ pub const CodePosition = struct {
 pub const IntegerRepresentation = i64;
 pub const FloatRepresentation = f64;
 
-/// TODO: Rename to `Tag`
 pub const TokenKind = enum(u8) {
     const Self = @This();
 
@@ -120,7 +119,6 @@ pub const TokenKind = enum(u8) {
     block_param,
 };
 
-/// TODO: Rename `kind` to `tag`
 pub const Token = struct {
     const Self = @This();
     kind: TokenKind,
@@ -219,7 +217,6 @@ pub const TokenSpanIterator = struct {
     pub const empty = TokenSpanIterator{ .current = TokenId.create(1), .last = TokenId.create(0) };
 };
 
-// TODO: think about also storing the filepath to this file
 pub const TokenizedFile = struct {
     tokens: std.MultiArrayList(Token).Slice,
     source_code: []const u8,

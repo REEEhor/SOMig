@@ -1,12 +1,3 @@
-//
-// TODO:
-//  - [ ] Maybe a keyword sequence. Something like `run:this:with:that:`
-//        This can be used with symbols like `#run:this:with:that:`
-//
-//  - [ ] Be able to lex number literals with multiple minuses.
-//        Put that in `.saw_multiple_dashes`.
-//
-
 /// NOTE(baka-src): Heavily inspired by the `tokenizer.zig` in the standard library.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -194,6 +185,7 @@ pub const Lexer = struct {
                     self.current_char_idx += 1;
                     continue :loop .lexing_identifier;
                 },
+                // FIXME: Fix parsing of colons
                 ':' => {
                     self.current_char_idx += 1;
                     if (self.source_code[token_start_idx] == ':') {
@@ -216,7 +208,6 @@ pub const Lexer = struct {
                             "Found an identifier \"{s}\", which is surrounded by colon ':' on both sides. This syntax does not mean anytning in SOM.",
                             .{identifier},
                         );
-                        // TODO(nice-to-have): Move this note into the parser, so it actually can infer, whether the user probably wanted `keywordMessage:` or `:blockParameter`.
                         self.reporter.add_note(
                             .no_location,
                             "You might have wanted to do either a keyword message," ++
@@ -277,67 +268,6 @@ pub const Lexer = struct {
                 },
                 else => continue :loop .inside_comment,
             },
-        }
-        unreachable;
-    }
-
-    /// TODO: remove this:
-    /// TODO: remove this method
-    /// Depracted, left here for later reference
-    fn lex_string_literal(self: *Self, token_start_idx: usize) Lexer.Error!Token {
-        self.string_literals.start_new_literal();
-
-        while (true) {
-            switch (self.eat_unchecked_byte()) {
-                '\'' => {
-                    const string_contents = try self.string_literals.get_allocated_literal();
-                    return Token{
-                        .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
-                        .kind = .{ .string_literal = string_contents },
-                    };
-                },
-                '\\' => {
-                    switch (self.current_unchecked_char()) {
-                        't' => try self.string_literals.append_to_current_literal('\t'),
-                        'b' => try self.string_literals.append_to_current_literal(std.ascii.control_code.bel),
-                        'n' => try self.string_literals.append_to_current_literal('\n'),
-                        'r' => try self.string_literals.append_to_current_literal('\r'),
-                        'f' => try self.string_literals.append_to_current_literal(std.ascii.control_code.ff),
-                        '0' => try self.string_literals.append_to_current_literal(0),
-                        '\\' => try self.string_literals.append_to_current_literal('\\'),
-                        '\'' => try self.string_literals.append_to_current_literal('\''),
-                        eof => {
-                            self.reporter.report_error(.{
-                                .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
-                            }, "This string literal is missing the delimitting `'` character at the end.", .{});
-                            return Error.unclosed_string_literal;
-                        },
-                        else => |chr| {
-                            self.reporter.report_error(
-                                .{
-                                    .pos = CodePosition.from_start_and_end(
-                                        self.current_char_idx - 1, // Include the slash in the error.
-                                        self.current_char_idx,
-                                    ),
-                                },
-                                "Invalid escape sequence \"\\{c}\". Valid escape sequences in strings are: {s}.",
-                                .{ chr, build_escapable_sequences_as_str() },
-                            );
-                            return Error.invalid_escaped_character_in_string_literal;
-                        },
-                    }
-                    self.current_char_idx += 1;
-                },
-                eof, '\n' => {
-                    self.reporter.report_error(.{
-                        .pos = CodePosition.from_start_and_end(token_start_idx, self.current_char_idx - 1),
-                    }, "This string literal is missing the delimitting `'` character at the end.", .{});
-                    return Error.unclosed_string_literal;
-                },
-                else => |chr| {
-                    try self.string_literals.append_to_current_literal(chr);
-                },
-            }
         }
         unreachable;
     }
@@ -448,7 +378,7 @@ pub fn tokenize(params: struct {
     var tokens = std.MultiArrayList(Token).empty;
 
     // Prealocate some elements
-    // TODO(cleanup): Arbitrary choice. Empirically choose the length.
+    // NOTE: Arbitrary choice, which grows together with the length of the source code.
     const assumed_number_of_tokens = source_code.len / 3;
     try tokens.ensureTotalCapacity(allocator, assumed_number_of_tokens);
     while (try lexer.next_token()) |t| {
@@ -912,8 +842,8 @@ pub fn print_tokens(
 
 test "snapshot test on example files" {
     const snapshot_testing = @import("../snapshot_testing.zig");
-    // TODO: check if the path is not empty to ignore the test
     const opts = snapshot_testing.opts;
+    if (opts.test_lexer_files_path.len == 0) return;
     try snapshot_testing.do_snapshot_tests(.{
         .snapshots_directory = opts.snapshots_path ++ "/lexer",
         .tested_files_directory = opts.test_lexer_files_path,

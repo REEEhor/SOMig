@@ -4,11 +4,6 @@
 //!             2. Change parser to accomodate this change
 //!             3. Change AST expression for block parameters. Right now, we rely on parameters being a single token each.
 //!
-//! FIXME:
-//!  Check if it is possible to have empty locals list like this:
-//!      method = ( || )
-//!  Because that means we have to check for `TokenKind{.binary_selector}` that is `||`
-//! FIXME: remove `separator` from token and make it a regular binary message token
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -70,7 +65,7 @@ const ParserError = error{
     expressions_not_separated_by_dot,
     alone_hashtag,
 
-    /// TODO: remove this once all features are supposed to be parsed. This is just for testing (so that the parser does not panic)
+    /// FIXME: remove this once all features are supposed to be parsed. This is just for testing (so that the parser does not panic)
     TODO,
 } || LexerError || std.mem.Allocator.Error;
 
@@ -96,9 +91,6 @@ pub const Parser = struct {
     ast: ParsedFile,
 
     pub fn create(tokenized_input: TokenizedFile, error_reporter: *ErrorReporter, allocator: std.mem.Allocator) Parser {
-
-        // TODO(speed): Initialize `ExpressionList` with some assumed capacity
-        // TODO(speed): Initialize `Extras` with some assumed capacity
         const ast = ParsedFile{
             .class_ast = undefined,
             .expressions = ExpressionList.empty,
@@ -571,7 +563,6 @@ pub const Parser = struct {
 
     fn parse_maybe_messages(self: *Self, primary_expr_id: ExprId) ParserError!ExprId {
         const first_argument_id = try self.parse_maybe_binary_messages(primary_expr_id);
-        // TODO(cleanup): Maybe some sort of scratch temporary allocator could be used here?
         var keyword_arguments = std.ArrayList(ExprId).empty;
 
         // Parse keyword message calls
@@ -975,7 +966,6 @@ pub const Parser = struct {
 
     fn eat_token(self: *Self, comptime expected_kind: TokenKind) ParserError!CodePosition {
         const actual_token = self.next_token() orelse {
-            // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
             self.reporter.report_unexpected_eof("Expected token of kind '{t}'.", .{expected_kind});
             return ParserError.unexpected_eof;
         };
@@ -986,7 +976,6 @@ pub const Parser = struct {
     }
 
     fn report_unexpected_token(self: *Self, actual_token: Token, expected_kind: TokenKind) ParserError {
-        // TODO(nice-to-have): convert the token tag into a more readable version with some conversion function (<- to do)
         self.reporter.report_error(
             .{ .pos = actual_token.pos },
             "Unexpected token {t} '{s}'. Expected token '{t}'.",
@@ -1321,8 +1310,8 @@ pub fn print_class_ast(
 
 test "snapshot test on example files" {
     const snapshot_testing = @import("../snapshot_testing.zig");
-    // TODO: check if the path is not empty to ignore the test
     const opts = snapshot_testing.opts;
+    if (opts.test_parser_files_path.len == 0) return;
     try snapshot_testing.do_snapshot_tests(.{
         .snapshots_directory = opts.snapshots_path ++ "/parser",
         .tested_files_directory = opts.test_parser_files_path,

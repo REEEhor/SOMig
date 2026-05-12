@@ -77,7 +77,6 @@ pub const Statics = struct {
     /// It will presumably be an arena allocator, since we just need allocating and never deallocating from it (deallocation happens only at the end).
     allocator: Allocator,
 
-    // TODO: remove at least some of the allocators from `SymbolsManager` so the `Allocator` in here is used
     symbols_manager: SymbolsManager,
 
     /// NOTE: This must be a `SegmentedList`, because we want to be able to store pointers to `ClassDefinition` in other structures.
@@ -91,11 +90,6 @@ pub const Statics = struct {
     constants_manager: ConstantsManager,
 
     const Self = @This();
-
-    /// TODO: consider making wrapper methods for different kinds of objects
-    pub inline fn allocate_for_static_object(self: *Self, header: HeapData.Header) Allocator.Error!*HeapData {
-        return try allocate_heap_data(self.allocator, header);
-    }
 };
 
 pub const Heap = struct {
@@ -625,8 +619,6 @@ pub const BuiltinClassDefinitions = struct {
     }
 };
 
-// TODO: track the current function (which will be probably in the final `stack` implementation, which will also store stack frames)
-// and use it for error reporting.
 pub const Interpreter = struct {
     decoder: InstructionDecoder,
     globals: std.AutoArrayHashMap(SymbolId, VmObject),
@@ -641,16 +633,15 @@ pub const Interpreter = struct {
     stderr: *Writer,
 
     primitive_methods: PrimitiveMethodsMap,
-    /// TODO: move compilation of classes outside of `Interpreter` so we don't have to have this undefined
     builtin_class_definitions: BuiltinClassDefinitions,
 
     source_code_files: *SourceCodeFiles,
 
     timer: ?std.time.Timer,
 
-    /// TODO: put this into an argument and maybe set it to `false` by default
+    /// FIXME: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
-    /// TODO: put this into an argument and maybe set it to `false` by default
+    /// FIXME: put this into an argument and maybe set it to `false` by default
     nil_out_items_of_new_array: bool = true,
 
     stack: Stack,
@@ -660,7 +651,6 @@ pub const Interpreter = struct {
     const Self = @This();
 
     pub const Error = error{
-        /// TODO: maybe remove this and replace all instances with a proper error
         generic_runtime_error,
         primitive_type_error,
         method_not_found,
@@ -673,7 +663,7 @@ pub const Interpreter = struct {
         out_of_bounds,
         interpreter_halted,
 
-        /// TODO: remove this
+        /// FIXME: remove this
         TODO,
     } || Allocator.Error || Writer.Error;
 
@@ -710,7 +700,6 @@ pub const Interpreter = struct {
 
     pub fn run(self: *Self) !void {
         self.timer = std.time.Timer.start() catch blk: {
-            // TODO: make this a warning
             self.report_runtime_error("Could not initialise internal timer. `system time` and `system ticks` will return 0 every time.", .{});
             break :blk null;
         };
@@ -738,8 +727,6 @@ pub const Interpreter = struct {
                 },
                 .load_local => |access| {
                     const info: Instruction.LoadLocal = access.get(&self.decoder);
-                    // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
-                    // NOTE: or maybe don't do that? The loop is pretty simple...
 
                     var result_frame: *Stack.Frame = self.top_frame();
                     for (0..info.required_frame_up_steps) |_| {
@@ -754,8 +741,6 @@ pub const Interpreter = struct {
                 },
                 .set_local => |access| {
                     const info: Instruction.SetLocal = access.get(&self.decoder);
-                    // TODO: create a different instruction for going up the frames and a different one for not going up the frames (so we don't have to have this loop here)
-                    // NOTE: or maybe don't do that? The loop is pretty simple...
 
                     var result_frame: *Stack.Frame = self.top_frame();
                     for (0..info.required_frame_up_steps) |_| {
@@ -1320,7 +1305,7 @@ pub const Interpreter = struct {
         // Create an object representing the arguments.
         const arguments: VmObject = try types.Array.create_new(&self.heap, arguments_slice);
 
-        // FIXME: This protection is not required as allocating symbols does not allocate
+        // FIXME(simple): This protection is not required as allocating symbols does not allocate
         // NOTE(GC): We have to protect the `arguments` object because `selector_symbol`'s creation below might trigger a GC.
         var protector = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
         try protector.protect(arguments);
@@ -1342,15 +1327,6 @@ pub const Interpreter = struct {
         // Finally, call the method.
         try self.call_method(method__does_not_understand);
         return;
-    }
-
-    inline fn fetch_class_by_name(self: *Self, class_name_id: SymbolId) Error!*const ClassDefinition {
-        // TODO: if the class is not found, the interpreter should go and find the class definition
-        const class = self.class_map.getPtr(class_name_id) orelse {
-            std.debug.print("Could not find the class `{s}`\n", .{self.symbols_manager.symbol_with_id(class_name_id)});
-            unreachable;
-        };
-        return class;
     }
 
     pub fn get_class_of(self: *Self, object: VmObject) *const ClassDefinition {
@@ -1409,7 +1385,7 @@ pub const Interpreter = struct {
         self.stderr.flush() catch {};
     }
 
-    // TODO: remove this once all the major features are implemented
+    // FIXME: remove this once all the major features are implemented
     pub fn report_TODO(self: *Self, comptime fmt: []const u8, args: anytype) error{TODO} {
         self.stderr.print(colors.ERR ++ "[TODO (not implemented)] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
         self.stderr.flush() catch {};
@@ -1451,7 +1427,6 @@ pub const Interpreter = struct {
         return @intCast(access_index);
     }
 
-    // TODO: position of the error
     fn report_primitive_method_type_mismatch(
         self: *Self,
         expected_type_name: []const u8,
@@ -1489,7 +1464,6 @@ pub const Interpreter = struct {
     }
 };
 
-/// TODO: maybe refactor together with `index_or_length_from_pointer`
 fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.size == .slice);
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);
@@ -1504,7 +1478,6 @@ fn index_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     return ptr_to_item - slice.ptr;
 }
 
-/// TODO: maybe refactor together with `index_or_length`
 fn index_or_length_from_pointer(ptr_to_item: anytype, slice: anytype) ?usize {
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.size == .slice);
     comptime assert(@typeInfo(@TypeOf(slice)).pointer.child == @typeInfo(@TypeOf(ptr_to_item)).pointer.child);

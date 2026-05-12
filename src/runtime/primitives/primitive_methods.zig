@@ -51,7 +51,7 @@ pub const Object = struct {
         return error.interpreter_halted;
     }
 
-    /// FIXME: Check what happens when doing `someObject perform: #perform: withArguments: #( #someMethod )` - probably stack overflow?
+    /// FIXME(srs): Check what happens when doing `someObject perform: #perform: withArguments: #( #someMethod )` - probably stack overflow?
     ///
     /// NOTE: But the stack overflow will be probably of the program itself, not error.stack_overflow! Which is bad, that shouldn't happen.
     ///
@@ -239,7 +239,7 @@ pub const Class = struct {
     pub fn fields(self: *ClassDefinition, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const fields_count = self.identifiers_of_instance_variables.len;
 
-        // FIXME: This protection is not required as allocating symbols does not allocate
+        // FIXME(simple): This protection is not required as allocating symbols does not allocate
         // NOTE(GC):
         //      We cannot easily (or even possibly) mark the created array
         //      as root. It contains uninit data and we will be allocating possibly a bunch of `types.Symbol`s.
@@ -252,7 +252,7 @@ pub const Class = struct {
 
         // Go through the instance field names of the entire class hiearchy.
         for (array.get_items(), self.identifiers_of_instance_variables) |*array_item, field_name| {
-            // FIXME: This protection is not required as allocating symbols does not allocate
+            // FIXME(simple): This protection is not required as allocating symbols does not allocate
             // HACK: This mark must be manual, because the `Symbol.create_new` might trigger a GC.
             //       On the other hand, the `array` contains garbage uninit items, so we cannot mark
             //       it using for example `gc_mark_references()`, because that would **try to** mark also the garbage items.
@@ -391,7 +391,7 @@ pub const Integer = struct {
     }
 
     // ========================= Random numbers =========================
-    /// FIXME:
+    /// FIXME(srs):
     pub fn atRandom(self: i48, interpreter: *Interpreter) Interpreter.Error!i48 {
         _ = self;
         return interpreter.report_TODO("Integer >> atRandom", .{});
@@ -604,7 +604,6 @@ pub const String = struct {
     }
 
     // ========================= Comparing =========================
-    /// TODO: It would be nice to compare `SymbolId`s via `.idx`. Maybe we should introduce `Text:struct{contents: []const u8, id: ?SymbolId}` which represents either a String or a Symbol
     pub fn @"="(self: []const u8, other: VmObject, interpreter: *Interpreter) bool {
         const other_str = other.as_text(&interpreter.statics.symbols_manager) orelse return false;
         return std.mem.eql(u8, self, other_str);
@@ -710,7 +709,6 @@ pub const System = struct {
 
     // ========================= File support =========================
     pub fn @"loadFile:"(_: VmObject, filepath: []const u8, interpreter: *Interpreter) Interpreter.Error!VmObject {
-        // TODO: maybe use working directory of the interpreter here. Meaning we have to add `working_directory` into the interpreter which will be passes via a console argument
         var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch return VmObject.nil;
         defer file.close();
 
@@ -775,7 +773,6 @@ pub const System = struct {
         }
         return .{};
     }
-    /// TODO: Make this prettier
     pub fn printStackTrace(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         for (interpreter.stack.frames) |frame| {
             switch (frame.kind) {

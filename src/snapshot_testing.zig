@@ -94,11 +94,8 @@ pub fn do_snapshot_tests(options: TestOptions, comptime verb: []const u8) !void 
 
         // Generate the test name
         const current_test_name: []const u8 = blk: {
-            // TODO: add the current directory
             break :blk std.mem.sliceTo(entry.name, '.');
         };
-        // TODO: uncomment this:
-        // defer gpa.free(current_test_name);
 
         // Run the test
         const program_output: []const u8 = running_the_tested_function: {

@@ -1,10 +1,5 @@
-//! FIXME: Assert that primitive classes don't have any fields and inherit from each other only via `Symbol <: String` (you can actually emit a warning for the second one)
 //! FIXME: Check if empty blocks actually return `nil`.
 //! FIXME: Check if we are creating an error out of exit being non-last expression
-//!
-//! FIXME: create an instruction something like "unresolved_super_call", which will be generated when there is a call to a `super` method which does not exits.
-//!
-//! TODO: Make instruction `load_self`. Or add it to every scope of a block - which is probably already how it is implemented - check it please!
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -98,7 +93,7 @@ pub const ConstantsManager = struct {
     blocks: std.ArrayList(*const BlockDefinition),
     allocator: Allocator,
 
-    /// TODO(speed): make a `init_with_capacity` version or call `ensureCapacity` on `self.constants` for initial capacity
+    /// FIXME(speed): make a `init_with_capacity` version or call `ensureCapacity` on `self.constants` for initial capacity
     pub fn init(allocator: Allocator) ConstantsManager {
         return ConstantsManager{
             .allocator = allocator,
@@ -368,8 +363,7 @@ pub const SourceCodeFiles = struct {
         defer walker.deinit();
         while (true) {
             const entry = walker.next() catch |err| {
-                // TODO: if we ever have warnings, they would be nice here
-                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
+                error_reporter.report_warning(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
                 continue;
             } orelse break;
             if (entry.kind != .file) continue;
@@ -410,8 +404,7 @@ pub const SourceCodeFiles = struct {
         var iterator = root_dir.iterate();
         while (true) {
             const entry = iterator.next() catch |err| {
-                // TODO: if we ever have warnings, they would be nice here
-                error_reporter.add_note(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
+                error_reporter.report_warning(.no_location, "Had to skip an entry while looking up classes in '{s}', because of error: {t}.", .{ root_dir_name, err });
                 continue;
             } orelse break;
             if (entry.kind != .file) continue;
@@ -450,42 +443,6 @@ pub fn allocate_heap_data(allocator: Allocator, header: HeapData.Header) Allocat
 
     ptr.header = header;
     return ptr;
-}
-
-/// TODO: do this in a better way where we don't leak the methods by compiling the classes in portions
-pub fn set_parent_and_leak_original_methods(
-    class: *ClassDefinition,
-    new_parent: *ClassDefinition,
-    statics: *Statics,
-) Allocator.Error!void {
-    // NOTE:
-    // We have to assert that the class had no parent before,
-    // since the `class` could have contained methods from its original parent.
-    //
-    // At the time of implementing this method, there is no way to know which methods are inherited
-    // and which are defined in the class.
-    //
-    // If that changes in the future, we can reimplment this method to also accomodate
-    // for classes with existing parents via filtering the inherited methods out.
-    //
-    // For now, we assert that there was no parent.
-    assert(class.parent == null);
-
-    // The methods for this class are already compiled.
-    // The `load_instance_var` instruction are already set.
-    // These instructions rely on the number of fields
-    // staying the same.
-    assert(class.identifiers_of_instance_variables.len == 0);
-
-    const new_methods = try ClassDefinition.MethodMap.from_merge_of(
-        class.instance_methods,
-        new_parent.instance_methods,
-        statics.allocator,
-    );
-    class.instance_methods = new_methods;
-    class.parent = new_parent;
-
-    // TODO: once we re-work the implementation of how the instance variables are stored, we have to update that here
 }
 
 pub fn find_file_and_parse_it(
@@ -961,7 +918,7 @@ pub fn compile_class_with_its_parents(
         .writer = error_writer,
     };
 
-    // TODO(cleanup): re-write this using a single while loop (actually a do-while would be better), it should be possible
+    // FIXME(consider): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator);
     var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.parent_class_name, &statics.symbols_manager, bottom_ast);
@@ -1210,7 +1167,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
         .reporter = reporter,
     });
 
-    // TODO: after development, increase these numbers
+    // FIXME: after development, increase these numbers
     var lexical_scopes = try LexicalScopesStack.init(temporary_allocator, 0, 0);
 
     // Create a list of instance field identifiers and create a lexical scope out of them
@@ -1265,7 +1222,7 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
 
     const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
 
-    // TODO: consider putting this into the `SymbolsManager`?
+    // FIXME(consider): consider putting this into the `SymbolsManager`?
     var buffer_for_selectors: [512]u8 = undefined;
     var selector_writer = std.io.Writer.fixed(&buffer_for_selectors);
 
@@ -1276,10 +1233,9 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
         switch (method_ast.body) {
             .primitive => {
                 const primitive_class = maybe_primitive_class orelse {
-                    // TODO: add `report_warning` to the reporter
                     const class_name = ast.text_at(ast.class_ast.class_name);
                     const method_selector_text = statics.symbols_manager.symbol_with_id(method_selector);
-                    reporter.report_error(
+                    reporter.report_warning(
                         .{ .pos = ast.pos_of(method_ast.span) },
                         "The class '{s}' has the method '{s}' declared as `primitive`, but the class '{s}' is not primitive at all (has no primitive methods).",
                         .{ class_name, method_selector_text, class_name },
@@ -1292,10 +1248,9 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                     continue;
                 };
                 const primitive_method = primitive_class.get_method(method_selector) orelse {
-                    // TODO: add `report_warning` to the reporter
                     const class_name = ast.text_at(ast.class_ast.class_name);
                     const method_selector_text = statics.symbols_manager.symbol_with_id(method_selector);
-                    reporter.report_error(
+                    reporter.report_warning(
                         .{ .pos = ast.pos_of(method_ast.span) },
                         "The class '{s}' has the method '{s}' declared as `primitive`, but the virtual machine does not have such primitive method implementation.",
                         .{ class_name, method_selector_text },
@@ -1305,7 +1260,6 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
                         "The method '{s}' will not be compiled into the class.",
                         .{method_selector_text},
                     );
-                    // TODO: print available methods on such class
                     continue;
                 };
 
@@ -1431,7 +1385,7 @@ pub fn get_selector_symbol(
                 const keyword_token = header_info.nth_keyword(kw_idx);
                 const keyword_text = ast.text_at(keyword_token);
                 _ = fixed_writer.write(keyword_text) catch {
-                    // TODO: handle this after the api gets re-written.
+                    // FIXME: handle this after the api for creating selectors gets re-written.
                     reporter.report_error(
                         .{ .pos = ast.pos_of(method_header.span()) },
                         "The method's selector exceeds the maximum available length, which is {d} characters.",
@@ -1539,11 +1493,9 @@ pub const BytecodeGenerator = struct {
         self.compiled_parent_methods = params.compiled_parent_methods;
         defer self.compiled_parent_methods = undefined;
         //
-        // TODO: consider pre-allocating a chuck of bytes
+        // FIXME: consider pre-allocating a chuck of bytes
         self.builder = InstructionEncoder{ .bytes = .empty };
         defer self.builder = undefined;
-
-        // TODO: think about reporting a warning that a local is shadowing a variable
 
         // Setup arguments
         {
@@ -1608,12 +1560,12 @@ pub const BytecodeGenerator = struct {
             const compiled_last_expression: bool = ((idx + 1) == body.expressions.len);
             const keep_value_on_the_stack: bool = (self.currently_compiling_block and compiled_last_expression);
             if (!keep_value_on_the_stack) {
-                // TODO: use `self.last_instruction.(somehow unwrap ?).is_load_instruction() => remove_last_instruction()` instead of emitting pop here
+                // FIXME(probably delete this): use `self.last_instruction.(somehow unwrap ?).is_load_instruction() => remove_last_instruction()` instead of emitting pop here
                 try self.add_instruction(.pop);
             }
         }
         // We want to generate a default return in case when there was not a return already generated.
-        // TODO: It might be possible to look at `body.expressions[last] == .exit_expression` to not generate this.
+        // FIXME(probably dont implement this): It might be possible to look at `body.expressions[last] == .exit_expression` to not generate this.
         // WARN: But be careful! We have also check that somehow in the `for` loop above.
         // WARN: Also, if we do the check in a way that is mentioned, we have throw a compile error on dead code after exit expressions (returns) (Which we are not doing currently.)
 
@@ -1743,7 +1695,7 @@ pub const BytecodeGenerator = struct {
                 try self.compile_message_send(binary_call.lhs, message_symbol);
             },
             .keyword_message_send => |keyword_message_call| {
-                // TODO: the length of the `buffer` should be the same as in `get_selector_symbol`
+                // FIXME: the length of the `buffer` should be the same as in `get_selector_symbol`
                 // Build the selector
                 var buffer: [512]u8 = undefined;
                 var writer = std.io.Writer.fixed(&buffer);
@@ -1883,7 +1835,7 @@ pub const BytecodeGenerator = struct {
         // We have to use a brand new `InstructionEncoder` for the compilation of the block literal.
         const old_builder = self.builder;
         defer self.builder = old_builder;
-        self.builder = InstructionEncoder{ .bytes = .empty }; // TODO: pre-allocate some bytes up front
+        self.builder = InstructionEncoder{ .bytes = .empty };
 
         // Setup arguments (put them into the lexical scope stack)
         const parameters_span: ?Ast.TokenSpan = block_literal.get_parameters(self.ast.tokens);
@@ -1958,7 +1910,6 @@ pub const Bytecode = struct {
     bytes: []const u8,
 };
 
-/// TODO: maybe the `idx` could be smaller?
 pub const InstructionId = struct { idx: usize };
 
 pub const InstructionDecoder = struct {
@@ -2088,7 +2039,7 @@ pub const InstructionDecoder = struct {
             fields[idx] = Type.UnionField{
                 .name = field.name,
                 // FIXME: Do not use the index for construction!
-                // TODO: Use `std.meta.stringToEnum(field.name).?`
+                // FIXME: Use `std.meta.stringToEnum(field.name).?`
                 .type = Accessor(@enumFromInt(idx)),
                 .alignment = @alignOf(void),
             };
@@ -2453,28 +2404,27 @@ pub const Instruction = union(enum(u8)) {
         pub const IntRepr = u24;
         number_of_items: IntRepr,
     };
-    /// TODO: THIS IS PROBABLY NOT VALID
-    ///
+
     /// Represents the place relative to the base pointer in the
     /// object stack during interpreter runtime, where a variable is stored.
     ///
-    /// The variable can be either a local varibale or an argument to a method.
+    /// The variable can be either a local variable or an argument to a method.
     ///
     /// For example if the object stack was this:
     ///
     ///     object stack:
-    ///                   ... (maybe previous locals)
-    ///     base_ptr ---> method_argument[0] (<- this object should be always `self` by the way)
-    ///                   method_argument[1]
+    ///                   ... (maybe objects of previous frames)
+    ///     base_ptr ---> method_argument[3]
     ///                   method_argument[2]
-    ///                   method_argument[3]
+    ///                   method_argument[1]
+    ///                   method_argument[0]   (<- this object is `self`)
     ///                   local_variable[0]
     ///                   local_variable[1]
     ///                   local_variable[2]
-    ///                   ... (maybe arguments to the next method)
+    ///                   ... (maybe arguments of the next method)
     ///
-    /// To access the `method_argument[1]`, you would need `LocalId{.idx = 1}`.
-    /// To access the `local_variable[0]`, you would need `LocalId{.idx = 4}` (4 = <number-of-arguments> + <index-of-local>)
+    /// To access the `method_argument[3]`, you would need `LocalId{.idx = 0}`.
+    /// To access the `local_variable[1]`, you would need `LocalId{.idx = 5}` (4 = <number-of-arguments> + <index-of-local>)
     pub const LocalVarId = packed struct {
         idx: u32,
     };
@@ -2535,16 +2485,3 @@ pub const Instruction = union(enum(u8)) {
         };
     }
 };
-
-// TODO: finish this test
-test "Encoding and decoding of instructions" {
-    const instructions: []Instruction = &[_]Instruction{
-        // Instruction.load_constant{.{.sdfsdf}},
-        // Instruction.duplicate,
-        // Instruction.pop,
-        // Instruction.halt,
-        // Instruction.normal_return,
-        // Instruction.send_message{ .aditional_args_count = 9, .message_name = .{ .idx = 5 } },
-    };
-    _ = instructions;
-}

@@ -1,15 +1,15 @@
 /// FIXME: Tidy up the main function, probably remove -lex and -parse options.
 ///
-/// TODO: Create custom end-to-end tests:
-/// TODO        [ ] Not printing colors:
-/// TODO             [ ] Add field to interpreter to not print colors
-/// TODO             [ ] Propagate this field into compilation (ClassLoader) and runtime error reporting
-/// TODO             [ ] Add this option to the `runtime_module.run` function.
-/// TODO             [ ] Add this option to the arguments of the program.
-/// TODO        [ ] Skip all failing tests in `test/integration_tests`:
-/// TODO             [ ] Option for a skip file by the name of the test
-/// TODO             [ ] Just copy the output of the failed tests and vim-magick take out the failing test names
-/// TODO        [ ] Add custom tests, possibly make a field `exact-stderr:` which contains the exact error
+/// FIXME: Create custom end-to-end tests:
+/// FIXME        [ ] Not printing colors:
+/// FIXME             [ ] Add field to interpreter to not print colors
+/// FIXME             [ ] Propagate this field into compilation (ClassLoader) and runtime error reporting
+/// FIXME             [ ] Add this option to the `runtime_module.run` function.
+/// FIXME             [ ] Add this option to the arguments of the program.
+/// FIXME        [ ] Skip all failing tests in `test/integration_tests`:
+/// FIXME             [ ] Option for a skip file by the name of the test
+/// FIXME             [ ] Just copy the output of the failed tests and vim-magick take out the failing test names
+/// FIXME        [ ] Add custom tests, possibly make a field `exact-stderr:` which contains the exact error
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -51,17 +51,8 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args_with_program);
     const args = args_with_program[1..];
 
-    if (args.len > 0 and std.mem.eql(u8, args[0], "--parse")) {
-        if (args.len != 2) {
-            std.debug.print("ERROR: Expected a single filepath argument after `--parse`.\n", .{});
-            return;
-        }
-        const filepath = args[1];
-        return parse(gpa, filepath);
-    }
-
     if (args.len == 1 and std.mem.eql(u8, args[0], "--itest")) {
-        if (false) { // HACK: Used to silent the LSP
+        if (false) { // FIXME: HACK: Used to silent the LSP
             return runtime_module.testing_module.run_tests(gpa);
         } else {
             const src = @src();
@@ -141,8 +132,8 @@ pub fn main() !void {
         .stdout = stdout,
         .stderr = stderr,
         .stack_size = .{
-            .objects_count = 1000, // TODO: these should be parsed from args
-            .frames_count = 1000, // TODO: these should be parsed from args
+            .objects_count = 1000, // FIXME: these should be parsed from args
+            .frames_count = 1000, // FIXME: these should be parsed from args
         },
         .program_arguments_as_strings = arguments_for_som.items,
         .root_directories = root_directories.items,
@@ -154,72 +145,9 @@ pub fn main() !void {
     std.process.exit(exit_code);
 }
 
-fn parse(allocator: std.mem.Allocator, filepath: []const u8) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const gpa = arena.allocator();
-
-    var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
-        std.debug.print("Could not open the file '{s}'\n", .{filepath});
-        return err;
-    };
-    defer file.close();
-    const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
-        std.debug.print("Could not read the entire file due to size limits\n", .{});
-        return err;
-    };
-    defer gpa.free(file_contents);
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    var stdout = &stdout_writer.interface;
-    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
-
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    var stderr = &stderr_writer.interface;
-    defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
-
-    try parser_module.print_class_ast(file_contents, gpa, stdout, stderr);
-}
-
-fn lex(allocator: std.mem.Allocator, args: [][:0]u8) !void {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const gpa = arena.allocator();
-
-    const filepath = args[2];
-    var file = std.fs.cwd().openFile(filepath, .{ .mode = .read_only }) catch |err| {
-        std.debug.print("Could not open the file '{s}'\n", .{filepath});
-        return err;
-    };
-    defer file.close();
-    const file_contents = file.readToEndAlloc(gpa, 100 * 4096) catch |err| {
-        std.debug.print("Could not read the entire file due to size limits\n", .{});
-        return err;
-    };
-    defer gpa.free(file_contents);
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    var stdout = &stdout_writer.interface;
-    defer stdout.flush() catch |err| std.debug.print("Could not flush stdout: {t}\n", .{err});
-
-    var stderr_buffer: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    var stderr = &stderr_writer.interface;
-    defer stderr.flush() catch |err| std.debug.print("Could not flush stderr: {t}\n", .{err});
-
-    // TODO: cleanup: make the `print_tokens` function somehow report an error, so that we can return it from this `main` function.
-    try lexer_module.print_tokens(file_contents, gpa, stdout, stderr);
-    return;
-}
-
 // Forcing for `zig build test` to run tests in all files that
 // are recursively imported from here.
 test {
     _ = @import("frontend/parser.zig");
-    // _ = @import("frontend/codegen.zig");
-    // _ = @import("interning/symbol_array_map.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

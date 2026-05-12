@@ -410,7 +410,7 @@ pub const SpannedExpr = struct {
     span: TokenSpan,
 };
 
-// TODO:
+// FIXME:
 //  - Add doc comments for each field (WITH SYNTAX EXAMPLE)
 pub const Expression = union(enum) {
     /// The payload of this is guaranteed to be an `.identifier`

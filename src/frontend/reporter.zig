@@ -25,9 +25,6 @@ pub const ReportPosition = union(enum) {
     pos: CodePosition,
 };
 
-// TODO: maybe methods `report_*` and `add_note` should return `Writer.Error!void` instead of just silently ignoring the error.
-// But this makes them more difficult to be handled, since we call these methods when an error occured
-// (which is more important than that the `ErrorReporter` failed to write the error).
 pub const ErrorReporter = struct {
     const Self = @This();
     writer: *Writer,

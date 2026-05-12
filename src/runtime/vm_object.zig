@@ -25,16 +25,6 @@ const interning_module = @import("../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolsManager = interning_module.SymbolsManager;
 
-// TODO(speed): NaN tagging, we should be able to do:
-//                 - pointers to `ObjectHeader`
-//                 - singletons:
-//                      - booleans (false, true)
-//                      - the `system` singleton (it does not store any state, everything is in the `Interpreter` Zig struct)
-//                      - nil
-//                 - i48 numbers
-//                 - `Double`s (of course xd)
-//                 - maybe small string optimisation?
-
 pub const VmObject = packed struct(u64) {
     bits: u64,
 
@@ -212,8 +202,7 @@ pub const VmObject = packed struct(u64) {
     }
 
     pub fn nan_boxed_pattern(deciding_bits: u3) u64 {
-        // TODO: reverse the order of these bits
-        const bits: (packed struct(u3) { bit1: u1, bit2: u1, bit3: u1 }) = @bitCast(deciding_bits);
+        const bits: (packed struct(u3) { bit3: u1, bit2: u1, bit1: u1 }) = @bitCast(deciding_bits);
         return nan_mask //
         | (@as(u64, bits.bit1) << 63) //
         | (@as(u64, bits.bit2) << 49) //
@@ -438,14 +427,6 @@ pub const HeapObject = union(TagOfHeapObject) {
 
 /// Header which is at the beginning of every heap allocated segment (or a free segment that is on the heap).
 /// All heap allocated runtime objects must contain a header at their beginning which can be casted to this struct.
-/// FIXME: Try reordering the fields here for speed, because they are ordered from least to most significant.
-/// NOTE:  We want to try this, because most types store `SmallPtr` or integers in there, and we would like to not bit-shift that around uppon each access.
-/// ! TODO:
-///        [ ] 0. Check on godbolt, what code that this generate. Try `packed struct(u32) { value: u8, rest: u24 }` and `packed struct(u32) { rest: u24, value: u8 }`
-///        [ ] 1. Reorder the fields here in the `OpaqueHeader`
-///        [ ] 2. Reorder the fields in all the heap objects
-///        [ ] 3. Everything should work after fixing all compile errors? There will be probably some in the `VmObject.from` function, which does a bunch of `comptime` asserts.
-///        [ ] 4. Don't forget to reorder the fields also in the thesis code listings.
 pub const OpaqueHeader = packed struct(u64) {
     tag: HeapObject.Tag,
     is_marked: bool,
@@ -599,7 +580,7 @@ pub const types = struct {
                 .number_of_instance_fields = number_of_instance_fields,
             }));
             self.class = class;
-            // TODO: replace with memset
+            // FIXME(simple): replace with memset
             for (self.get_fields()) |*field_object| {
                 field_object.* = VmObject.nil;
             }
