@@ -1185,13 +1185,14 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
 
     const maybe_primitive_class = primitive_methods_map.sorted_classes.get_ptr(class_name_symbol);
 
-    // FIXME(consider): consider putting this into the `SymbolsManager`?
-    var buffer_for_selectors: [512]u8 = undefined;
-    var selector_writer = std.io.Writer.fixed(&buffer_for_selectors);
-
     var method_idx: usize = 0;
     for (ast_portion.methods) |method_ast| {
-        const method_selector: SymbolId = try get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter);
+        const method_selector: SymbolId = try get_selector_symbol(.{
+            .method_header = &method_ast.header,
+            .ast = &ast,
+            .statics = statics,
+            .temporary_allocator = temporary_allocator,
+        });
 
         switch (method_ast.body) {
             .primitive => {
@@ -1288,9 +1289,13 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
             const duplicate_selector_text: []const u8 = statics.symbols_manager.symbol_with_id(duplicate_method_selector);
             var first_encounter = true;
             for (ast_portion.methods) |method_ast| {
-                selector_writer.end = 0;
-                const selector = get_selector_symbol(method_ast.header, &selector_writer, ast, statics, reporter) catch unreachable;
-                if (selector.idx != duplicate_method_selector.idx) continue;
+                const selector = try get_selector_symbol(.{
+                    .method_header = &method_ast.header,
+                    .ast = &ast,
+                    .statics = statics,
+                    .temporary_allocator = temporary_allocator,
+                });
+                if (selector != duplicate_method_selector) continue;
                 if (first_encounter) {
                     first_encounter = false;
                     reporter.report_error(
@@ -1327,46 +1332,28 @@ pub fn compile_portion(params: CompilePortionParams) !*ClassDefinition {
     return compiled_class;
 }
 
-pub fn get_selector_symbol(
-    method_header: Ast.MethodHeader,
-    fixed_writer: *std.io.Writer,
-    ast: ParsedFile,
+pub fn get_selector_symbol(params: struct {
+    method_header: *const Ast.MethodHeader,
+    ast: *const ParsedFile,
     statics: *Statics,
-    reporter: *ErrorReporter,
-) !SymbolId {
-    const method_selector_text: []const u8 = sw: switch (method_header) {
-        .unary => |header_info| {
-            break :sw ast.text_at(header_info.selector);
-        },
-        .binary => |header_info| {
-            break :sw ast.text_at(header_info.selector);
-        },
+    temporary_allocator: std.mem.Allocator,
+}) !SymbolId {
+    const method_selector_text: []const u8 = sw: switch (params.method_header.*) {
+        .unary => |header_info| params.ast.text_at(header_info.selector),
+        .binary => |header_info| params.ast.text_at(header_info.selector),
         .keyword => |header_info| {
-            fixed_writer.end = 0;
+            var selector = std.io.Writer.Allocating.init(params.temporary_allocator);
             var kw_idx: u32 = 0;
             while (kw_idx < header_info.number_of_args_excluding_self()) : (kw_idx += 1) {
                 const keyword_token = header_info.nth_keyword(kw_idx);
-                const keyword_text = ast.text_at(keyword_token);
-                _ = fixed_writer.write(keyword_text) catch {
-                    // FIXME: handle this after the api for creating selectors gets re-written.
-                    reporter.report_error(
-                        .{ .pos = ast.pos_of(method_header.span()) },
-                        "The method's selector exceeds the maximum available length, which is {d} characters.",
-                        .{fixed_writer.buffer.len},
-                    );
-                    reporter.add_note(
-                        .no_location,
-                        "TODO: This is a temporary solution, change it ({d} is not that many). Probably put the implementation into `SymbolsManager` (But maybe not???).",
-                        .{fixed_writer.buffer.len},
-                    );
-                    return error.keyword_selector_too_long;
-                };
+                const keyword_text = params.ast.text_at(keyword_token);
+                try selector.writer.print("{s}", .{keyword_text});
             }
-            break :sw fixed_writer.buffer[0..fixed_writer.end];
+            break :sw selector.written();
         },
     };
 
-    const method_selector_symbol = (try statics.symbols_manager.id_or_intern(method_selector_text)).id;
+    const method_selector_symbol = (try params.statics.symbols_manager.id_or_intern(method_selector_text)).id;
     return method_selector_symbol;
 }
 
@@ -1643,23 +1630,13 @@ pub const BytecodeGenerator = struct {
                 try self.compile_message_send(binary_call.lhs, message_symbol);
             },
             .keyword_message_send => |keyword_message_call| {
-                // FIXME: the length of the `buffer` should be the same as in `get_selector_symbol`
-                // Build the selector
-                var buffer: [512]u8 = undefined;
-                var writer = std.io.Writer.fixed(&buffer);
+                var writer = std.io.Writer.Allocating.init(self.temporary_allocator);
                 const arguments = keyword_message_call.get_args(self.ast.extras);
                 for (0..arguments.number_of_args()) |idx| {
                     const keyword_text = self.ast.text_at(arguments.nth_keyword(@intCast(idx)));
-                    _ = writer.write(keyword_text) catch {
-                        self.reporter.report_error(
-                            .{ .pos = self.ast.pos_of(expr_id) },
-                            "The selector is too long. Maximum is {d} characters.",
-                            .{buffer.len},
-                        );
-                        return error.keyword_selector_too_long;
-                    };
+                    writer.writer.print("{s}", .{keyword_text}) catch return error.OutOfMemory;
                 }
-                const selector_as_string = buffer[0..writer.end];
+                const selector_as_string = writer.written();
                 const selector_symbol: SymbolId = (try self.symbols_manager.id_or_intern(selector_as_string)).id;
 
                 // The calling convention mandates that the order of the arguments is
