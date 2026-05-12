@@ -640,10 +640,10 @@ pub const Interpreter = struct {
     timer: ?std.time.Timer,
     use_colored_printing: bool,
 
-    /// FIXME: put this into an argument and maybe set it to `false` by default
     do_flush_on_every_print: bool = true,
-    /// FIXME: put this into an argument and maybe set it to `false` by default
     nil_out_items_of_new_array: bool = true,
+
+    prng: std.Random.DefaultPrng,
 
     stack: Stack,
 
@@ -663,9 +663,6 @@ pub const Interpreter = struct {
         block_escaped_its_home_scope,
         out_of_bounds,
         interpreter_halted,
-
-        /// FIXME: remove this
-        TODO,
     } || Allocator.Error || Writer.Error;
 
     pub fn new(
@@ -696,6 +693,7 @@ pub const Interpreter = struct {
             .builtin_class_definitions = builtin_class_definitions,
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
             .use_colored_printing = use_colored_printing,
+            .prng = .init(0),
         };
 
         return interpreter;
@@ -1396,13 +1394,6 @@ pub const Interpreter = struct {
 
         self.stderr.print(fmt ++ "\n", args) catch {};
         self.stderr.flush() catch {};
-    }
-
-    // FIXME: remove this once all the major features are implemented
-    pub fn report_TODO(self: *Self, comptime fmt: []const u8, args: anytype) error{TODO} {
-        self.stderr.print(colors.ERR ++ "[TODO (not implemented)] " ++ colors.RESET ++ fmt ++ "\n", args) catch {};
-        self.stderr.flush() catch {};
-        return error.TODO;
     }
 
     pub fn string_from_symbol(self: *Self, symbol_id: SymbolId) []const u8 {

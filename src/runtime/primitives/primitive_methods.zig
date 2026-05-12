@@ -375,10 +375,9 @@ pub const Integer = struct {
     }
 
     // ========================= Random numbers =========================
-    /// FIXME(srs):
-    pub fn atRandom(self: i48, interpreter: *Interpreter) Interpreter.Error!i48 {
-        _ = self;
-        return interpreter.report_TODO("Integer >> atRandom", .{});
+    pub fn atRandom(_: i48, interpreter: *Interpreter) i48 {
+        var random = interpreter.prng.random();
+        return random.int(i48);
     }
 
     // ========================= Comparing =========================

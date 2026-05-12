@@ -865,7 +865,7 @@ pub const CompileClassWithItsParentsParams = struct {
     use_colored_printing: bool,
 };
 
-pub fn compile_class_with_its_parents(
+fn compile_class_with_its_parents(
     params: CompileClassWithItsParentsParams,
 ) !ClassDefinitionPair {
     const bottom_class_name = params.bottom_class_name;
@@ -883,8 +883,6 @@ pub fn compile_class_with_its_parents(
         .use_color = params.use_colored_printing,
         .writer = error_writer,
     };
-
-    // FIXME(consider): re-write this using a single while loop (actually a do-while would be better), it should be possible
 
     const bottom_ast: ParsedFile = try find_file_and_parse_it(bottom_class_name, source_code_files, statics, error_writer, temporary_allocator, params.use_colored_printing);
     var maybe_parent_being_resolved: ?SymbolId = try symbol_of_parents_name(bottom_ast.class_ast.parent_class_name, &statics.symbols_manager, bottom_ast);
@@ -1382,8 +1380,6 @@ pub const CompileError = error{
     invalid_integer_literal,
     too_many_string_literals,
     too_many_blocks,
-    /// FIXME: This shouldn't be here at the end of implementation
-    TODO,
 } || Allocator.Error;
 
 pub const BytecodeGenerator = struct {

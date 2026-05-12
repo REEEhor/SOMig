@@ -64,9 +64,6 @@ const ParserError = error{
     non_variable_used_as_lhs_of_expression,
     expressions_not_separated_by_dot,
     alone_hashtag,
-
-    /// FIXME: remove this once all features are supposed to be parsed. This is just for testing (so that the parser does not panic)
-    TODO,
 } || LexerError || std.mem.Allocator.Error;
 
 ///
