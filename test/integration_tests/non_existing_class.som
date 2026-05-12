@@ -1,0 +1,16 @@
+"
+VM:
+  status: error
+  stdout:
+   |
+   |ERROR: Tried loading 'ThisClassDoesNotExist' as a class, but failed.
+  stderr-contains: 
+   |
+   |[ERROR] Could not find the source code for the class 'ThisClassDoesNotExist'.
+"
+
+non_existing_class = (
+    run = (
+        ThisClassDoesNotExist.
+    )
+)

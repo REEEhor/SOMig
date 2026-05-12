@@ -193,7 +193,7 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
 
     if (total_tests == ok_tests) {
         std.debug.print(
-            colors.GREEN ++ "All " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.GREEN ++ " tests passed!" ++ colors.FAINT ++ "{s}" ++ colors.RESET ++ "\n",
+            colors.GREEN ++ "All " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.GREEN ++ " tests passed!" ++ colors.RESET ++ colors.GREEN ++ colors.FAINT ++ "{s}" ++ colors.RESET ++ "\n",
             .{
                 total_tests,
                 if (known_failures_cnt != 0) " (counting known failing tests as passing)" else "",
@@ -202,7 +202,10 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
     } else {
         std.debug.print(colors.BOLD ++ "===================== RESULTS: ===================== \n" ++ colors.RESET, .{});
         std.debug.print(colors.GREEN ++ "All tests:     {d}\n" ++ colors.RESET, .{total_tests});
-        std.debug.print(colors.GREEN ++ "Passing tests: " ++ colors.BOLD ++ "{d}" ++ colors.FAINT ++ " (counting known failures as ok)\n" ++ colors.RESET, .{ok_tests});
+        std.debug.print(colors.GREEN ++ "Passing tests: " ++ colors.BOLD ++ "{d}" ++ colors.RESET ++ colors.GREEN ++ colors.FAINT ++ " {s}\n" ++ colors.RESET, .{
+            ok_tests,
+            if (known_failures_cnt != 0) " (counting known failing tests as passing)" else "",
+        });
         std.debug.print(colors.RED ++ "Failing tests: " ++ colors.BOLD ++ "{d}\n" ++ colors.RESET, .{total_tests - ok_tests});
     }
 

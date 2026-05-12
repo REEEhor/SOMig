@@ -1,0 +1,23 @@
+"
+VM:
+  status: success
+  stdout:
+   |Hello from pipe! Argument is: 42
+   |Hello from pipe as class! Argument is: 43
+"
+
+pipe_as_binary_message = (
+    | arg = (
+        ('Hello from pipe! Argument is: ' + arg) println.
+    )
+
+    run = (
+        self | 42.
+        self class | 43.
+    )
+
+    -------    
+    | arg = (
+        ('Hello from pipe as class! Argument is: ' + arg) println.
+    )
+)

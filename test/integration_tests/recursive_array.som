@@ -1,0 +1,86 @@
+"
+VM:
+  status: success
+  stdout:
+   |- ARRAY(length=9):
+   |  |- INT(10)
+   |  |- STR(hello)
+   |  |- INT(20)
+   |  |- ARRAY(length=4):
+   |  |  |- INT(100)
+   |  |  |- INT(200)
+   |  |  |- BLOCK(Running... hi from block! Execution done!)
+   |  |  |- INT(300)
+   |  |- INT(30)
+   |  |- INT(40)
+   |  |- INT(50)
+   |  |- ARRAY(length=3):
+   |  |  |- INT(1000)
+   |  |  |- INT(2000)
+   |  |  |- ARRAY(length=6):
+   |  |  |  |- INT(1)
+   |  |  |  |- INT(2)
+   |  |  |  |- ARRAY(length=3):
+   |  |  |  |  |- INT(2)
+   |  |  |  |  |- INT(3)
+   |  |  |  |  |- INT(4)
+   |  |  |  |- INT(5)
+   |  |  |  |- ARRAY(length=2):
+   |  |  |  |  |- INT(6)
+   |  |  |  |  |- INT(7)
+   |  |  |  |- INT(8)
+   |  |- INT(60)
+"
+
+
+recursive_array = (
+    run = (
+        | multi_dim_array |
+        
+        multi_dim_array := #(
+            10
+            'hello'
+            20
+            #(100 200 [ 'hi from block!' print ] 300)
+            30
+            40
+            (10 + 10 + 30)  "50"
+            #(1000 2000 #(1 2 #(2 3 4) 5 #(6 7) 8))
+            60 
+        ).
+
+        self print: multi_dim_array withIndent: ''.
+    )
+
+    print: item withIndent: indent = (
+        indent print.
+        '- ' print.
+        
+        item class = String ifTrue: [
+            ('STR(' + item + ')') println.
+            ^ nil.
+        ].
+
+        item class = Block1 ifTrue: [
+            'BLOCK(Running... ' print.
+            item value.
+            ' Execution done!)' println.
+            ^ nil.
+        ].
+
+        item class = Integer ifTrue: [
+            ('INT(' + item + ')') println.
+            ^ nil.
+        ].
+
+        item class = Array ifTrue: [ 
+            | newIndent |
+            ('ARRAY(length=' + (item length) + '):') println.
+            newIndent := indent + '  |'.
+            item do: [:e | self print: e withIndent: newIndent].
+            ^ nil.
+        ].
+
+        self error: 'Invalid class: ' + item class.
+    )
+)

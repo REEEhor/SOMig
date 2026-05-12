@@ -1,0 +1,34 @@
+"
+VM:
+  status: success
+  stdout:
+   |[nil][nil][10][20]
+   |[42][nil][10][20]
+   |[42][43][10][20]
+"
+
+array_with_non_literals = (
+    run = (
+        | arr var1 var2 |
+        arr := #(var1 var2 10 20).
+        self println_array: arr. 
+        
+        var1 := 42. 
+        arr := #(var1 var2 10 20).
+        self println_array: arr. 
+        
+        var2 := 43. 
+        arr := #(var1 var2 10 20).
+        self println_array: arr. 
+    )
+
+    println_array: arr = (
+        arr do: [:e |
+          '[' print.
+          e print.
+          ']' print.
+        ].
+        ''println.
+    )
+
+)
