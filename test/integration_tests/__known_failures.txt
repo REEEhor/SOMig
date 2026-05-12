@@ -20,7 +20,6 @@ double7.som
 integer_asdouble.som
 double_double_div_zero_err3.som
 substring.som
-basic_arrays.som
 cos.som
 double8.som
 int30.som

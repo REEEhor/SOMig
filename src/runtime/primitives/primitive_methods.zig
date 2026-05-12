@@ -659,7 +659,7 @@ pub const Array = struct {
         return self[index - 1];
     }
 
-    pub fn @"at:put:"(self: []VmObject, index_raw: i48, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
+    pub fn @"at:put:"(self: []VmObject, index_raw: i48, new_value: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const index: usize = try interpreter.check_out_of_bounds_get_1_based_index(.{
             .accessee = "an instance of Array",
             .length = self.len,
@@ -670,7 +670,8 @@ pub const Array = struct {
             block.add_to_escaping_blocks_list();
         }
         self[index - 1] = new_value;
-        return .{};
+        const orignal_array: VmObject = interpreter.stack.objects.ptr[interpreter.stack.objects.len - 1];
+        return orignal_array;
     }
 
     pub fn length(self: []VmObject) i48 {
