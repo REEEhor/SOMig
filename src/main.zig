@@ -40,16 +40,6 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args_with_program);
     const args = args_with_program[1..];
 
-    if (args.len == 1 and std.mem.eql(u8, args[0], "--itest")) {
-        if (false) { // FIXME: HACK: Used to silent the LSP
-            return runtime_module.testing_module.run_tests(gpa);
-        } else {
-            const src = @src();
-            std.debug.print("ERROR: at '{s}:{d}' change the `false` to `true`. \n", .{ src.file, src.line - 3 });
-            return;
-        }
-    }
-
     var stdout_buffer = [_]u8{0} ** 1024;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
