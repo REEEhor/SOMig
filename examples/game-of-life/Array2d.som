@@ -1,0 +1,53 @@
+
+Array2d = (
+    | data |
+    
+    get_width = (
+        ^ (data at: 1) length.
+    )
+    
+    get_height = (
+        ^ data length.
+    )
+
+    set_data: to = (
+        data := to.
+    )
+
+    contains: pos = (
+        (pos x <= 0) ifTrue: [^ false].
+        (pos y <= 0) ifTrue: [^ false].
+        
+        (pos x > self get_width)  ifTrue: [^ false].
+        (pos y > self get_height) ifTrue: [^ false].
+        
+        ^ true.
+    )
+
+    at: pos = (
+        ^ (data at: pos y) at: pos x.
+    )
+    
+    at: pos put: x = (
+        ^ (data at: pos y) at: pos x put: x.
+    )
+
+    iter_positions: block = (
+        | x y |
+        1 to: self get_height do: [ :y |
+            1 to: self get_width do: [ :x |
+                block value: (Vec2 x: x y: y).
+            ].
+        ].
+    )
+    
+    -----
+    width: w height: h = (
+        | instance |
+        instance := Array2d new.
+        instance set_data: (
+            Array new: h withAll: [ Array new: w withAll: 0 ]
+        )
+        ^ instance.
+    )
+)

@@ -1,0 +1,21 @@
+Vec2 = (
+    | x y |
+    x = (^x)
+    y = (^y)
+
+    x: new_x = ( x := new_x )
+    y: new_y = ( y := new_y )
+
+    x: new_x y: new_y = (
+        x := new_x.
+        y := new_y.
+    )
+    
+    ----
+    x: x y: y = (
+        |v|
+        v := Vec2 new.
+        v x: x y: y. 
+        ^ v.
+    )
+)

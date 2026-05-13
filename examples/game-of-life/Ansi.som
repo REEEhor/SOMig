@@ -1,0 +1,30 @@
+Ansi = ( -----
+   clear_screen = (
+      '\x1b[2J' print. " Erase all characters "
+      self cursor_to_origin.
+   )
+
+   cursor_to_origin = (
+      '\x1b[H'  print. " Move cursor to 0, 0 "
+   )
+
+   hide_cursor = (
+        '\x1b[?25l' print.
+   )
+   
+   show_cursor = (
+        '\x1b[?25h' print.
+   )
+   
+   bg_blue = (
+      ^ '\x1b[44m' 
+   )
+
+   bg_white = (
+      ^ '\x1b[47m' 
+   )
+   
+   reset = (
+     ^ '\x1b[0m'
+   )
+)
