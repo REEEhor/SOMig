@@ -209,7 +209,7 @@ fn add_integration_testing_options(exe: *std.Build.Step.Compile, b: *std.Build) 
         options.addOption(bool, "run_integration_tests", run_tests);
     }
     {
-        const default_path = std.fs.cwd().realpath("original-som-repo/Smalltalk/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("./Smalltalk/", &buffer) catch unreachable;
         const core_library_filepath = b.option(
             []const u8,
             "core-lib-path",
@@ -218,7 +218,7 @@ fn add_integration_testing_options(exe: *std.Build.Step.Compile, b: *std.Build) 
         options.addOption([]const u8, "core_lib_path", core_library_filepath);
     }
     {
-        const default_path = std.fs.cwd().realpath("original-som-repo/Examples/AreWeFastYet/Core/", &buffer) catch unreachable;
+        const default_path = std.fs.cwd().realpath("./test/AreWeFastYetCoreLib/", &buffer) catch unreachable;
         const core_library_filepath = b.option(
             []const u8,
             "are-we-fast-yet-core-lib-path",

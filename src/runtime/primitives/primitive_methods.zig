@@ -525,11 +525,11 @@ pub const @"Double class" = struct {
 
     /// NOTE:
     /// This method returns float `NaN` in case of a parse error, which is not correct
-    /// according to 'original-som-repo/IntegrationTests/Tests/fromstring_double_err.som'
+    /// according to 'core-lib/IntegrationTests/Tests/fromstring_double_err.som'
     /// - in case of a parse error, it should actually crash the program.
     ///
     /// But it makes more sense to not crash the entire application and
-    /// the docs comment in 'original-som-repo/Smalltalk/Double.som'
+    /// the docs comment in 'core-lib/Smalltalk/Double.som'
     /// (which is something like a standard library)
     /// says that it actually SHOULD return `NaN`.
     pub fn @"fromString:"(_: DoubleClassPlaceholder, string: []const u8) f64 {
@@ -569,7 +569,7 @@ pub const String = struct {
     }
 
     // NOTE: All of the predicates here really return false for empty string...
-    // See: 'original-som-repo/Smalltalk/String.som'
+    // See: 'core-lib/Smalltalk/String.som'
     // ========================= Predicates =========================
     pub fn isWhiteSpace(self: []const u8) bool {
         if (self.len == 0) return false;

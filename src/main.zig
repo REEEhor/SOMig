@@ -1,4 +1,3 @@
-/// FIXME: Tidy up the main function (don't forget a proper help message)
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -79,10 +78,13 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "-ir") or std.mem.eql(u8, arg, "-ri") or std.mem.eql(u8, arg, "--recursively-include")) {
             arg_idx += 1;
             if (arg_idx >= args.len) std.debug.panic("Expected argument", .{});
-            try root_directories.append(gpa, .{
-                .can_be_searched_recursively = true,
-                .path = args[arg_idx],
-            });
+            var iter = std.mem.splitScalar(u8, args[arg_idx], ':');
+            while (iter.next()) |path| {
+                try root_directories.append(gpa, .{
+                    .can_be_searched_recursively = true,
+                    .path = path,
+                });
+            }
         } else if (std.mem.eql(u8, arg, "--")) {
             arg_idx += 1;
             try arguments_for_som.appendSlice(gpa, args[arg_idx..]);
@@ -154,6 +156,5 @@ pub fn main() !void {
 // Forcing for `zig build test` to run tests in all files that
 // are recursively imported from here.
 test {
-    _ = @import("frontend/parser.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
