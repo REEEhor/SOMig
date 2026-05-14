@@ -352,5 +352,3 @@ pub const Number = union(enum) {
 
     const Self = @This();
 };
-
-// TODO: Add tests
