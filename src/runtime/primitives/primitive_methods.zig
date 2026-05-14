@@ -35,7 +35,7 @@ pub const Object = struct {
 
     pub fn dumpBytecode(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         const bytecode = interpreter.top_frame().get_bytecode();
-        try codegen_module.print_bytecode(
+        try bytecode_module.print_bytecode(
             &interpreter.statics.symbols_manager,
             &interpreter.statics.constants_manager,
             bytecode,
@@ -1028,13 +1028,9 @@ const Heap = runtime_module.Heap;
 const BlockDefinition = runtime_module.BlockDefinition;
 const MethodDefinition = runtime_module.MethodDefinition;
 const types = runtime_module.types;
+const ClassDefinition = runtime_module.ClassDefinition;
+const VmObject = runtime_module.VmObject;
+const HeapData = runtime_module.HeapData;
+const Number = runtime_module.Number;
 
-const class_definition_module = @import("../class_definition.zig");
-const ClassDefinition = class_definition_module.ClassDefinition;
-
-const vm_object_module = @import("../vm_object.zig");
-const VmObject = vm_object_module.VmObject;
-const HeapData = vm_object_module.HeapData;
-const Number = vm_object_module.Number;
-
-const codegen_module = @import("../../frontend/codegen.zig");
+const bytecode_module = @import("../../bytecode/__bytecode.zig");

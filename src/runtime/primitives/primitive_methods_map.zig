@@ -17,16 +17,14 @@ const runtime_module = @import("../__runtime.zig");
 const Interpreter = runtime_module.Interpreter;
 const MethodDefinition = runtime_module.MethodDefinition;
 const ClassDefinition = runtime_module.ClassDefinition;
+const VmObject = runtime_module.VmObject;
+const Number = runtime_module.Number;
+const types = runtime_module.types;
 
 const interning_module = @import("../../interning/__interning.zig");
 const SymbolId = interning_module.SymbolId;
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolArrayMap = interning_module.SymbolArrayMap;
-
-const vm_object_module = @import("../vm_object.zig");
-const VmObject = vm_object_module.VmObject;
-const Number = vm_object_module.Number;
-const types = vm_object_module.types;
 
 pub const PrimitiveMethodsMap = struct {
     sorted_classes: SortedClasses,

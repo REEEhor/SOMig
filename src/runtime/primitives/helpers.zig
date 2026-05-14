@@ -1,10 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const vm_object_module = @import("../vm_object.zig");
-const types = vm_object_module.types;
-
-const MethodDefinition = @import("../__runtime.zig").MethodDefinition;
+const runtime_module = @import("../__runtime.zig");
+const MethodDefinition = runtime_module.MethodDefinition;
+const types = runtime_module.types;
 
 /// Returns the number of arguments from a selector **INCLUDING SELF**.
 /// WARNING: Does not check the validity of the selector.

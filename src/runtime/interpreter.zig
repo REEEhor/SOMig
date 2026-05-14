@@ -1,5 +1,3 @@
-const runtime_module = @import("__runtime.zig");
-
 const DO_DEBUG_TRACE = runtime_module.DO_DEBUG_TRACE;
 const DEBUG_STRESS_GC = runtime_module.DEBUG_STRESS_GC;
 const DEBUG_PRINT_GC_STATS = runtime_module.DEBUG_PRINT_GC_STATS;
@@ -25,51 +23,38 @@ const dbgx = debug_module.dbgx;
 const dbg_assert_eql = debug_module.dbg_assert_eql;
 const dbg_assert_eql_msg = debug_module.dbg_assert_eql_msg;
 
-const interning_module = @import("../interning/__interning.zig");
+const frontend_module = @import("../frontend/__frontend.zig");
+const print_escaped_string = frontend_module.print_escaped_string;
+
+const runtime_module = @import("__runtime.zig");
+const ClassDefinition = runtime_module.ClassDefinition;
+const MethodDefinition = runtime_module.MethodDefinition;
+const ConstantsManager = runtime_module.ConstantsManager;
+const VmObject = runtime_module.VmObject;
+const OpaqueHeader = runtime_module.OpaqueHeader;
+const types = runtime_module.types;
+const EmptyHeapSegment = runtime_module.EmptyHeapSegment;
+const FrameOnHeap = runtime_module.FrameOnHeap;
+const InstructionId = runtime_module.InstructionId;
+const Bytecode = runtime_module.Bytecode;
+const InstructionDecoder = runtime_module.InstructionDecoder;
+const object_alignment_in_bytes = runtime_module.object_alignment_in_bytes;
+const slice_after = runtime_module.slice_after;
+const PrimitiveMethodsMap = runtime_module.PrimitiveMethodsMap;
+const SourceCodeFiles = runtime_module.SourceCodeFiles;
+const Instruction = runtime_module.Instruction;
+const StringLiteralId = runtime_module.StringLiteralId;
+const BlockDefinitionId = runtime_module.BlockDefinitionId;
+const BlockDefinition = runtime_module.BlockDefinition;
+
+const primitives_module = runtime_module.primitives_module;
+
+const codegen_module = runtime_module.codegen_module;
+
+const interning_module = runtime_module.interning_module;
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
 const SymbolArrayMap = interning_module.SymbolArrayMap;
-
-const codegen_module = @import("../frontend/codegen.zig");
-const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
-const StringLiteralId = codegen_module.StringLiteralId;
-const BlockDefinitionId = codegen_module.BlockDefinitionId;
-const Bytecode = codegen_module.Bytecode;
-const InstructionDecoder = codegen_module.InstructionDecoder;
-const Instruction = codegen_module.Instruction;
-const ConstantsManager = codegen_module.ConstantsManager;
-const ConstantId = codegen_module.ConstantId;
-const RelativeConstantId = codegen_module.RelativeConstantId;
-const InstructionId = codegen_module.InstructionId;
-const compile_class_with_its_parents = codegen_module.compile_class_with_its_parents;
-const compile_class = codegen_module.compile_class;
-const compile_class_ignoring_parents = codegen_module.compile_class_ignoring_parents;
-const allocate_heap_data = codegen_module.allocate_heap_data;
-const SourceCodeFiles = codegen_module.SourceCodeFiles;
-const InstructionEncoder = codegen_module.InstructionEncoder;
-pub const BlockDefinition = codegen_module.BlockDefinition;
-
-const vm_object_module = @import("vm_object.zig");
-const VmObject = vm_object_module.VmObject;
-const HeapData = vm_object_module.HeapData;
-const types = vm_object_module.types;
-const FrameOnHeap = vm_object_module.FrameOnHeap;
-const OpaqueHeader = vm_object_module.OpaqueHeader;
-const EmptyHeapSegment = vm_object_module.EmptyHeapSegment;
-const object_alignment_in_bytes = vm_object_module.object_alignment_in_bytes;
-const pointer_after = vm_object_module.pointer_after;
-const slice_after = vm_object_module.slice_after;
-
-const primitives_module = @import("primitives/__primitives.zig");
-const primitive_methods_module = primitives_module.primitive_methods;
-const PrimitiveMethodsMap = primitives_module.PrimitiveMethodsMap;
-const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImplementation;
-
-const class_definition_module = @import("class_definition.zig");
-const ClassDefinition = class_definition_module.ClassDefinition;
-const MethodBody = class_definition_module.MethodBody;
-const MethodDefinition = class_definition_module.MethodDefinition;
-const FunctionBody = class_definition_module.FunctionBody;
 
 /// Stores stuff that does not get deallocated
 pub const Statics = struct {
@@ -973,7 +958,7 @@ pub const Interpreter = struct {
                     .string => |access| {
                         const string = access.get(heap_ptr);
                         std.debug.print("string('", .{});
-                        try codegen_module.print_escaped_string(self.stderr, string.contents());
+                        try print_escaped_string(self.stderr, string.contents());
                         try self.stderr.flush();
                         std.debug.print("')", .{});
                     },

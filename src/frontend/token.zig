@@ -243,6 +243,7 @@ pub const TokenizedFile = struct {
         return TokenSpan.create(0, @intCast(self.tokens.len - 1));
     }
 };
+
 test "slice_from" {
     const text = "0123456789";
     var buffer: [20]u8 = undefined;

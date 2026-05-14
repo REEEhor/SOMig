@@ -14,7 +14,7 @@ const interning_module = @import("interning/__interning.zig");
 const SymbolsManager = interning_module.SymbolsManager;
 const SymbolId = interning_module.SymbolId;
 
-const codegen = @import("frontend/codegen.zig");
+const codegen = @import("codegen/__codegen.zig");
 
 const runtime_module = @import("runtime/__runtime.zig");
 const run = runtime_module.run;

@@ -20,36 +20,34 @@ pub const SymbolArrayMap = interning_module.SymbolArrayMap;
 
 pub const testing_module = @import("testing.zig");
 
-pub const codegen_module = @import("../frontend/codegen.zig");
+pub const bytecode_module = @import("../bytecode/__bytecode.zig");
+pub const InstructionDecoder = bytecode_module.InstructionDecoder;
+pub const InstructionId = bytecode_module.InstructionId;
+pub const Bytecode = bytecode_module.Bytecode;
+pub const Instruction = bytecode_module.Instruction;
+
+pub const codegen_module = @import("../codegen/__codegen.zig");
 pub const ClassDefinitionPair = codegen_module.ClassDefinitionPair;
-pub const StringLiteralId = codegen_module.StringLiteralId;
-pub const BlockDefinitionId = codegen_module.BlockDefinitionId;
-pub const Bytecode = codegen_module.Bytecode;
-pub const InstructionDecoder = codegen_module.InstructionDecoder;
-pub const Instruction = codegen_module.Instruction;
-pub const ConstantsManager = codegen_module.ConstantsManager;
 pub const ConstantId = codegen_module.ConstantId;
 pub const RelativeConstantId = codegen_module.RelativeConstantId;
-pub const InstructionId = codegen_module.InstructionId;
 pub const compile_class_with_its_parents = codegen_module.compile_class_with_its_parents;
 pub const compile_class = codegen_module.compile_class;
 pub const compile_class_ignoring_parents = codegen_module.compile_class_ignoring_parents;
-pub const allocate_heap_data = codegen_module.allocate_heap_data;
 pub const SourceCodeFiles = codegen_module.SourceCodeFiles;
 pub const InstructionEncoder = codegen_module.InstructionEncoder;
-pub const BlockDefinition = codegen_module.BlockDefinition;
 pub const ClassLoader = codegen_module.ClassLoader;
 
-pub const vm_object_module = @import("vm_object.zig");
-pub const VmObject = vm_object_module.VmObject;
-pub const HeapData = vm_object_module.HeapData;
-pub const types = vm_object_module.types;
-pub const FrameOnHeap = vm_object_module.FrameOnHeap;
-pub const OpaqueHeader = vm_object_module.OpaqueHeader;
-pub const EmptyHeapSegment = vm_object_module.EmptyHeapSegment;
-pub const object_alignment_in_bytes = vm_object_module.object_alignment_in_bytes;
-pub const pointer_after = vm_object_module.pointer_after;
-pub const slice_after = vm_object_module.slice_after;
+pub const objects_module = @import("objects/__objects.zig");
+pub const VmObject = objects_module.VmObject;
+pub const HeapData = objects_module.HeapData;
+pub const types = objects_module.types;
+pub const FrameOnHeap = objects_module.FrameOnHeap;
+pub const OpaqueHeader = objects_module.OpaqueHeader;
+pub const EmptyHeapSegment = objects_module.EmptyHeapSegment;
+pub const Number = objects_module.Number;
+pub const object_alignment_in_bytes = objects_module.object_alignment_in_bytes;
+pub const pointer_after = objects_module.helpers.pointer_after;
+pub const slice_after = objects_module.helpers.slice_after;
 
 pub const primitives_module = @import("primitives/__primitives.zig");
 pub const primitive_methods_module = primitives_module.primitive_methods;
@@ -58,9 +56,12 @@ pub const PrimitiveMethodImplementation = primitives_module.PrimitiveMethodImple
 
 pub const class_definition_module = @import("class_definition.zig");
 pub const ClassDefinition = class_definition_module.ClassDefinition;
-pub const MethodBody = class_definition_module.MethodBody;
-pub const MethodDefinition = class_definition_module.MethodDefinition;
-pub const FunctionBody = class_definition_module.FunctionBody;
+
+pub const method_definition_module = @import("method_definition.zig");
+pub const MethodBody = method_definition_module.MethodBody;
+pub const MethodDefinition = method_definition_module.MethodDefinition;
+pub const FunctionBody = method_definition_module.FunctionBody;
+pub const BlockDefinition = method_definition_module.BlockDefinition;
 
 pub const interpreter_module = @import("interpreter.zig");
 pub const BuiltinClassDefinitions = interpreter_module.BuiltinClassDefinitions;
@@ -68,6 +69,13 @@ pub const Interpreter = interpreter_module.Interpreter;
 pub const Statics = interpreter_module.Statics;
 pub const Heap = interpreter_module.Heap;
 pub const Stack = interpreter_module.Stack;
+
+pub const SmallPtr = @import("small_ptr.zig").SmallPtr;
+
+pub const constans_manager_module = @import("constants_manager.zig");
+pub const ConstantsManager = constans_manager_module.ConstantsManager;
+pub const StringLiteralId = constans_manager_module.StringLiteralId;
+pub const BlockDefinitionId = constans_manager_module.BlockDefinitionId;
 
 pub const RunParams = struct {
     gpa: std.mem.Allocator,

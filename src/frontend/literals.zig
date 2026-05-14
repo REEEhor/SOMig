@@ -128,3 +128,19 @@ fn translate_escaped_char(char: u8) union(enum) {
         else => .invalid,
     };
 }
+
+pub fn print_escaped_string(writer: *std.io.Writer, string_bytes: []const u8) std.io.Writer.Error!void {
+    for (string_bytes) |char| {
+        switch (char) {
+            '\n' => _ = try writer.write("\\n"),
+            '\r' => _ = try writer.write("\\r"),
+            '\'' => _ = try writer.write("\\'"),
+            '\t' => _ = try writer.write("\\t"),
+            else => if (std.ascii.isPrint(char)) {
+                try writer.writeByte(char);
+            } else {
+                try writer.print("\\x{x:02}", .{char});
+            },
+        }
+    }
+}

@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const token_module = @import("token.zig");
+const token_module = @import("__frontend.zig").token;
 pub const FloatRepresentation = token_module.FloatRepresentation;
 pub const IntegerRepresentation = token_module.IntegerRepresentation;
 pub const Token = token_module.Token;
