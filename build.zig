@@ -59,17 +59,14 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    b.default_step.dependOn(&b.addInstallFile(
+        exe.getEmittedBin(),
+        b.pathJoin(&.{ "../", if (target.result.os.tag == .windows) "somig.exe" else "somig" }),
+    ).step);
+
     add_snapshot_testing_options(exe, b) catch @panic("fail");
     add_integration_testing_options(exe, b) catch @panic("fail");
 
-    // const exe_check = b.addExecutable(.{
-    //     .name = "somig",
-    //     .root_module = b.createModule(.{
-    //         .root_source_file = b.path("src/main.zig"),
-    //         .target = target,
-    //         .optimize = optimize,
-    //     }),
-    // });
     const check = b.step("check", "Check if Somig even compiles :D (this can be used by ZLS - Zig LSP!)");
     check.dependOn(&exe.step);
 
