@@ -7,7 +7,7 @@ This repository is an implementation of a virtual machine for SOM in the [Zig pr
 SOMig is a bachelor's thesis. Click [here](https://gitlab.fit.cvut.cz/rehorja8/paper-part-of-somig) to go to the repository for the paper part of the thesis.
 
 ---
-THE FOLDERS `Smalltalk/` AND `test/AreWeFastYetCoreLib/` ARE VENDORED FROM `https://github.com/SOM-st/SOM.git`. SEE `thirdparty/` FOR LICENSE AND AUTHORS FILES.
+THE FOLDERS `Smalltalk/` AND `test/AreWeFastYetCoreLib/` ARE VENDORED FROM [https://github.com/SOM-st/SOM.git](). SEE `thirdparty/` FOR LICENSE AND AUTHORS FILES.
 
 ---
 TODO: how to run
