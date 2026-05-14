@@ -625,7 +625,13 @@ pub const ClassLoader = struct {
     /// which have more complicated structure than other classes.
     fn load_builtin_base_hierarchy(self: *Self) !BuiltinBaseHierarchy {
         // Parse the source code of the classes
-        const object_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Object"));
+        const object_ast: ParsedFile = self.parse_file(SymbolsManager.comptime_id_of("Object")) catch |err| {
+            if (err == error.sourcecode_for_class_not_found) {
+                var reporter = self.create_reporter();
+                reporter.add_note(.no_location, "You probably did not include the path to the core library.", .{});
+            }
+            return err;
+        };
         const class_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Class"));
         const metaclass_ast: ParsedFile = try self.parse_file(SymbolsManager.comptime_id_of("Metaclass"));
 
@@ -708,6 +714,15 @@ pub const ClassLoader = struct {
             .class_of_object = object,
             .class_of_class = class,
             .class_of_metaclass = metaclass,
+        };
+    }
+
+    fn create_reporter(self: *Self) ErrorReporter {
+        return ErrorReporter{
+            .source = undefined,
+            .source_path = null,
+            .use_color = self.use_colored_printing,
+            .writer = self.error_writer,
         };
     }
 
