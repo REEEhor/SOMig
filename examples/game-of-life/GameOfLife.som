@@ -1,0 +1,171 @@
+GameOfLife = (
+    | states state_idx |
+
+    run: args = (
+        | arg src_string init_state sleep_duration |
+        (args length ~= 2 and: args length ~= 3) ifTrue: [
+            (Ansi fg_red + 'ERROR:' + Ansi reset + ' game-of-life expects to get filepath to .txt config as its argument.' + Ansi reset) println.
+            '' println.
+            (Ansi fg_green  + 'Usage:' + Ansi reset + ' GameOfLife <path-to-file> <millis-between-steps=200>') println.
+            (Ansi fg_green  + 'HINT: ' + Ansi reset + ' instead of file, the argument can be \'' + Ansi fg_green + 'glider' + Ansi reset + '\' for an easy demo.' + Ansi reset) println.
+            '' println.
+            system exit: 1.
+        ].
+        arg := args at: 2.
+        (args length = 3) ifTrue: [ sleep_duration := Integer fromString: (args at: 3) ].
+        sleep_duration ifNil: [ sleep_duration := 200 ].
+        
+        (arg = 'glider')
+            ifTrue:  [ src_string := self glider_string ]
+            ifFalse: [ src_string := system loadFile: arg ].
+        
+        src_string ifNil: [
+            (Ansi fg_red + 'ERROR:' + Ansi reset + ' could not load the file: ' + Ansi fg_red + arg + Ansi reset) println.
+            system exit: 1.
+        ].
+        init_state := (self load_state_from_string: src_string).
+
+    
+        state_idx := 1.
+        states := #(
+            init_state
+            (Array2d width: init_state get_width height: init_state get_height)
+        ).
+
+        Ansi clear_screen.
+        
+        [true] whileTrue: [
+            self write_to_next_state.
+            self render_and_swap_buffers.
+            self sleep_for: sleep_duration.
+        ]
+    )
+
+    load_state_from_string: string = (
+        | idx lines_count width state x y |  
+        idx := 1.
+        lines_count := 0.
+        [idx <= string length ] whileTrue: [
+            | chr |
+            chr := string charAt: idx.
+            
+            (chr = '\r') ifTrue: [
+                width ifNil: [ width := idx - 1 ].
+            ].
+            
+            (chr = '\n') ifTrue: [
+                lines_count := lines_count + 1.
+                width ifNil: [ width := idx - 1 ].
+            ].
+            idx := idx + 1.
+        ].
+
+        x := 1.
+        y := 1.
+        state := Array2d width: width height: lines_count.
+        
+        idx := 1. 
+        [ idx <= string length ] whileTrue: [
+            |chr|
+            chr := string charAt: idx.
+            (chr = '\n') ifTrue: [
+                x := 1.
+                y := y + 1.
+            ] ifFalse: [x := x + 1].
+            (chr) = '#' ifTrue: [
+                state at: (Vec2 x: x y: y) put: 1.
+            ].
+            idx := idx + 1.
+        ].
+
+        ^ state.
+    )
+
+    glider_string = (
+        ^ ('...#.........\n' +
+           '.#.#.........\n' +
+           '..##.........\n' +
+           '.............\n' +
+           '.............\n' +
+           '.............\n' +
+           '.............\n' +
+           '.............\n' +
+           '.............\n' +
+           '.............\n').
+    )
+
+    write_to_next_state = (
+        | s s_next | 
+        s := self current_state.
+        s_next := self next_state.
+
+        s iter_positions: [ :pos | 
+            | n is_alive | 
+            is_alive := (s at: pos) = 1.
+
+            " Count neighbours " 
+            n := 0.
+            -1 to: 1 do: [ :y_offset | 
+                -1 to: 1 do: [ :x_offset |
+                    | new_pos |
+                    new_pos := Vec2 x: (pos x + x_offset) y: (pos y + y_offset).
+                    (s contains: new_pos) ifTrue:  [ n := n + (s at: new_pos) ]. 
+                ].
+            ].
+            n := n - (s at: pos). " subtract the current cell "
+
+            "pos x print. ' ' print. pos y print. ': ' print. ' ' print. is_alive print. '  n=' print. n println."
+            
+            ((n = 3) || (is_alive && (n = 2))) 
+                ifTrue:  [s_next at: pos put: 1]
+                ifFalse: [s_next at: pos put: 0].
+        ].
+    )
+
+    render_and_swap_buffers = (
+        | width height | 
+        width := self current_state get_width. 
+        height := self current_state get_height. 
+         
+        Ansi hide_cursor.
+        Ansi cursor_to_origin.
+        
+        1 to: width + 2 do: [ :_ | (Ansi bg_white + '  ') print ].
+        Ansi reset println.
+         
+        self current_state iter_positions: [ :pos |
+                (pos x = 1) ifTrue: [ (Ansi bg_white + '  ') print ].
+                
+                ((self current_state at: pos) = 1)
+                    ifTrue:  [ (Ansi bg_blue + '  ') print] 
+                    ifFalse: [ (Ansi reset   + '  ') print].
+                    
+                (pos x = width) ifTrue: [ (Ansi bg_white + '  ') print. Ansi reset println. ].
+        ].
+        
+        1 to: width + 2 do: [ :_ | (Ansi bg_white + '  ') print ].
+       
+        Ansi reset print. 
+        Ansi show_cursor.
+            
+        state_idx := self opposite_state_idx.
+    )
+
+    opposite_state_idx = (
+        ^ 3 - state_idx.
+    )
+
+    current_state = (
+        ^ states at: state_idx
+    )
+    
+    next_state = (
+        ^ states at: self opposite_state_idx 
+    )
+
+    sleep_for: millis = (
+        | end_time |
+        end_time := system ticks + (millis * 1000).
+        [system ticks < end_time] whileTrue: [].
+    )
+)
