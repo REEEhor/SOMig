@@ -1,0 +1,19 @@
+Fib = (
+    run: args = (
+        | n | 
+        args length = 2
+            ifTrue:  [ n := Integer fromString: (args at: 2) ]
+            ifFalse: [ n := 10 ].
+
+        1 to: n do: [ :i |
+            ('fib ' + i + ' = ') print.
+            (self fib: i) println.
+        ].
+    )
+
+    fib: n = (
+        ^ n <= 1
+            ifTrue:  1
+            ifFalse: [ (self fib: (n - 1)) + (self fib: (n - 2)) ]
+    )
+)

@@ -1,0 +1,11 @@
+Precedence = (
+    run = (
+        'This is a demo of how precedence of all operators is the same.' println.
+        '' println.
+
+        ('2 + 3 + 4 = ' + (2 + 3 + 4)) println.
+        ('2 + 3 * 4 = ' + (2 + 3 * 4)) println.
+        ('2 * 3 + 4 = ' + (2 * 3 + 4)) println.
+    )
+
+)

@@ -4,10 +4,11 @@ GameOfLife = (
     run: args = (
         | arg src_string init_state sleep_duration |
         (args length ~= 2 and: args length ~= 3) ifTrue: [
-            (Ansi fg_red + 'ERROR:' + Ansi reset + ' game-of-life expects to get filepath to .txt config as its argument.' + Ansi reset) println.
+            (Ansi fg_red + 'ERROR:' + Ansi reset + ' GameOfLife expects to get filepath to .txt config as its argument.' + Ansi reset) println.
             '' println.
             (Ansi fg_green  + 'Usage:' + Ansi reset + ' GameOfLife <path-to-file> <millis-between-steps=200>') println.
-            (Ansi fg_green  + 'HINT: ' + Ansi reset + ' instead of file, the argument can be \'' + Ansi fg_green + 'glider' + Ansi reset + '\' for an easy demo.' + Ansi reset) println.
+            (Ansi fg_green  + 'HINT: ' + Ansi reset + ' These configs are in the \'examples/game-of-life/inputs/\'.') println.
+            (Ansi fg_green  + 'HINT: ' + Ansi reset + ' Instead of a file, the argument can be \'' + Ansi fg_green + 'glider' + Ansi reset + '\' for an easy demo.' + Ansi reset) println.
             '' println.
             system exit: 1.
         ].

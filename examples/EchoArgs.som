@@ -1,0 +1,10 @@
+EchoArgs = (
+    run: args = (
+        'Program got these arguments: ' println.
+        args do: [ :arg |
+            ' - \'' print.
+            arg print.
+            '\'' println.
+        ].
+    ) 
+)
