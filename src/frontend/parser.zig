@@ -498,11 +498,6 @@ pub const Parser = struct {
         return body;
     }
 
-    fn TODO(self: *Self, comptime fmt: []const u8) ParserError {
-        self.reporter.report_error(.no_location, "TODO: " ++ fmt, .{});
-        return ParserError.TODO;
-    }
-
     fn parse_expression(self: *Self) ParserError!ExprId {
         const primary_expr_id: ExprId = try self.parse_primary();
         const token = self.peek_next_token() orelse return primary_expr_id;
