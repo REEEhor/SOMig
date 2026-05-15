@@ -8,6 +8,7 @@ SOMig is a bachelor's thesis. Click [here](https://gitlab.fit.cvut.cz/rehorja8/p
 
 ---
 THE FOLDERS `Smalltalk/` AND `test/AreWeFastYetCoreLib/` ARE VENDORED FROM [https://github.com/SOM-st/SOM.git](). SEE `thirdparty/` FOR LICENSE AND AUTHORS FILES.
+Most of the tests in `test/integration_tests/` are a modified copy integration tests from the SOM repository.
 
 ---
 
