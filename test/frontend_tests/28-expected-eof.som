@@ -1,0 +1,22 @@
+SomeClass = (
+    | fieldA fieldB fieldC | 
+
+    method1 = (
+        'hello' println.
+    ) 
+    
+    method2: arg = (
+        'hello' println.
+    ) 
+
+    ++=-=-=-= arg = (
+        "this is a comment :)"
+    )
+
+    -----------
+    
+    | fieldD fieldE fieldF |  
+    classMethod = (
+        'hi!' println.
+    )
+)                                              this_should_not_be_here " :) "

@@ -63,6 +63,13 @@ pub const ParsedFile = struct {
         return self.tokens.get(id.idx);
     }
 
+    pub fn get_token_optional(self: Self, id: TokenId) ?Token {
+        if (id.idx >= self.tokens.len) {
+            return null;
+        }
+        return self.tokens.get(id.idx);
+    }
+
     pub fn get_expr(self: Self, id: ExprId) Expression {
         return self.expressions.get(id);
     }

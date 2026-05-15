@@ -1,0 +1,9 @@
+
+======== ERROR OUTPUT FROM THE PROGRAM ========
+
+[ERROR at line:22 column:48]
+Expected end of input.
+          |
+ line: 22 |)                                              this_should_not_be_here " :) "
+          |                                               ^^^^^^^^^^^^^^^^^^^^^^^
+Failed with parse error: 'unexpected_token'

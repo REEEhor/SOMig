@@ -98,6 +98,7 @@ pub const Parser = struct {
         };
     }
 
+    /// Parses the entire class definition.
     pub fn parse(self: *Self) ParserError!ParsedFile {
         const class_name_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.identifier);
@@ -134,6 +135,9 @@ pub const Parser = struct {
 
         const closing_parenthesis_token: TokenId = self.next_token_id;
         _ = try self.eat_token(.close_parenthesis);
+
+        // Assert we are at the end of the input
+        try self.expect_end_of_input();
 
         const class_ast = ClassAst{
             .class_name = class_name_token,
@@ -982,6 +986,12 @@ pub const Parser = struct {
         const idx = self.next_token_id.idx + @abs(std.math.sign(offset) * offset);
         if (idx >= self.ast.tokens.len) return null;
         return self.ast.tokens.get(idx);
+    }
+
+    fn expect_end_of_input(self: *Self) !void {
+        const should_have_been_eof = self.ast.get_token_optional(self.next_token_id) orelse return;
+        self.reporter.report_error(.{ .pos = should_have_been_eof.pos }, "Expected end of input.", .{});
+        return error.unexpected_token;
     }
 };
 
