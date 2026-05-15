@@ -118,6 +118,7 @@ pub fn run_tests(gpa: std.mem.Allocator) !void {
             .print_stack_on_error = false,
             .skip_bootstrap = false,
             .use_colored_printing = false,
+            .stdin = null,
         }) catch |err| blk: {
             maybe_err = err;
             break :blk null;

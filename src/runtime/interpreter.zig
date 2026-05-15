@@ -11,6 +11,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Writer = std.io.Writer;
+const Reader = std.io.Reader;
 
 const colors = @import("../terminal.zig");
 
@@ -614,6 +615,7 @@ pub const Interpreter = struct {
 
     exit_code: u8 = 0,
 
+    stdin: ?*Reader,
     stdout: *Writer,
     stderr: *Writer,
 
@@ -663,6 +665,7 @@ pub const Interpreter = struct {
         preallocated_frame_stack: []Stack.Frame,
         builtin_class_definitions: BuiltinClassDefinitions,
         use_colored_printing: bool,
+        stdin: ?*Reader,
     ) Interpreter {
         const interpreter = Interpreter{
             .decoder = InstructionDecoder.empty,
@@ -679,6 +682,7 @@ pub const Interpreter = struct {
             .stack = Stack.init(preallocated_frame_stack, preallocated_object_stack),
             .use_colored_printing = use_colored_printing,
             .prng = .init(0),
+            .stdin = stdin,
         };
 
         return interpreter;

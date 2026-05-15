@@ -79,6 +79,7 @@ pub const BlockDefinitionId = constans_manager_module.BlockDefinitionId;
 
 pub const RunParams = struct {
     gpa: std.mem.Allocator,
+    stdin: ?*std.io.Reader,
     stdout: *std.io.Writer,
     stderr: *std.io.Writer,
     stack_size: struct { objects_count: usize, frames_count: usize },
@@ -170,6 +171,7 @@ pub fn run(params: RunParams) !u8 {
         frames,
         builtin_classes,
         params.use_colored_printing,
+        params.stdin,
     );
     interpreter.heap.interpreter = &interpreter;
     defer interpreter.heap.deinit();

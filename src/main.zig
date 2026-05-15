@@ -39,6 +39,10 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args_with_program);
     const args = args_with_program[1..];
 
+    var stdin_buffer = [_]u8{0} ** 1024;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    const stdin = &stdin_reader.interface;
+
     var stdout_buffer = [_]u8{0} ** 1024;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
@@ -146,6 +150,7 @@ pub fn main() !void {
         .root_directories = root_directories.items,
         .skip_bootstrap = runtime_module.DEBUG_SKIP_BOOTSTRAP or skip_bootstrap,
         .use_colored_printing = use_colors,
+        .stdin = stdin,
     }) catch |err| switch (err) {
         error.OutOfMemory => return err,
         else => std.process.exit(1),

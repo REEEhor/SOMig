@@ -1,0 +1,53 @@
+Calculator = (
+    run = (
+        | lhs op rhs result |
+        
+        '\x1b[32m==== Basic SOMig calculator ====\x1b[0m' println.
+        [true] whileTrue: [
+            'Enter lhs: ' print.
+            lhs := self read_number.
+            
+            'Enter operation (+, -, *, /): ' print.
+            op := self read_op.
+            
+            'Enter rhs: ' print.
+            rhs := self read_number.
+               
+            result := lhs perform: op withArguments: #(rhs).
+            ('Result: ' + lhs + ' ' + op + ' ' + rhs + ' = \x1b[32m' + result + '\x1b[0m') println
+            '' println.
+        ]
+         
+    )
+
+    read_op = (
+        |op|
+        [true] whileTrue: [
+            op := system getLine.
+            op = '+' ifTrue: [ ^ #+ ].
+            op = '-' ifTrue: [ ^ #- ].
+            op = '/' ifTrue: [ ^ #// ].
+            op = '*' ifTrue: [ ^ #* ].
+            ('Invalid operation "\x1b[31m' + op + '\x1b[0m".\nTry again: ') print.
+        ].
+    )
+
+    read_number = (
+        | line input is_nan | 
+
+        [true] whileTrue: [
+            line := system getLine.
+            line ifNil: [
+                self error: '\x1b[31mError while reading line.\x1b[0m'
+            ].
+    
+            input := Double fromString: line.
+            
+            " HACK: There is no Double support to check for NaNs xddddd "
+            is_nan := (input = input) not. 
+    
+            is_nan ifFalse: [ ^ input ].
+            ('The string "\x1b[31m' + line + '\x1b[0m" does not seem to be a number.\nTry again: ') print.
+        ]
+    )
+)

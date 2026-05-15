@@ -732,6 +732,14 @@ pub const System = struct {
         return Interpreter.Error.interpreter_halted;
     }
 
+    // ========================= Input =========================
+    pub fn getLine(_: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
+        const stdin = interpreter.stdin orelse return VmObject.nil;
+        const raw_line = stdin.takeDelimiterExclusive('\n') catch return VmObject.nil;
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
+        return try types.String.create_new(&interpreter.heap, line);
+    }
+
     // ========================= Printing =========================
     pub fn printNewline(_: VmObject, interpreter: *Interpreter) Interpreter.Error!NilPlaceholder {
         _ = try interpreter.stdout.writeAll(newline);

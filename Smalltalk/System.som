@@ -71,6 +71,11 @@ System = (
     "Exiting"
     exit: error  = primitive
     exit         = ( self exit: 0 )
+    
+    " ADDED BY THE SOMig PROJECT "
+    " Reads line from the stdin if possible. "
+    " If an error occurs (line is too long, stdin is not set up, eof occured), `nil` will be returned "
+    getLine = primitive
 
     "Printing"
     printString: string = primitive

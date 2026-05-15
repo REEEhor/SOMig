@@ -104,4 +104,6 @@ Object = nil (
     instVarAt: idx put: obj = primitive
     instVarNamed: sym       = primitive
 
+    " ADDED BY THE SOMig PROJECT "
+    dumpBytecode = primitive
 )
