@@ -735,8 +735,8 @@ pub const System = struct {
     // ========================= Input =========================
     pub fn getLine(_: VmObject, interpreter: *Interpreter) Interpreter.Error!VmObject {
         const stdin = interpreter.stdin orelse return VmObject.nil;
-        const raw_line = stdin.takeDelimiterExclusive('\n') catch return VmObject.nil;
-        const line = std.mem.trimEnd(u8, raw_line, "\r");
+        const raw_line = stdin.takeDelimiterInclusive('\n') catch return VmObject.nil;
+        const line = std.mem.trimEnd(u8, raw_line, "\r\n");
         return try types.String.create_new(&interpreter.heap, line);
     }
 
