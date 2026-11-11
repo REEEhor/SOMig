@@ -694,248 +694,284 @@ pub const Interpreter = struct {
             break :blk null;
         };
 
-        while (true) {
-            if (DO_DEBUG_TRACE) {
-                const instr_id = self.decoder.id_of_next_instruction();
-                const instruction: Instruction = self.decoder.next_instruction().?;
-                const formatter = codegen_module.InstructionFormatter{
-                    .constants_manager = &self.statics.constants_manager,
-                    .symbols_manager = &self.statics.symbols_manager,
-                    .use_color = true,
+        loop: switch (self.fetch_next_instruction()) {
+            .pop => {
+                _ = self.pop_object();
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_local => |access| {
+                const info: Instruction.LoadLocal = access.get(&self.decoder);
+
+                var result_frame: *Stack.Frame = self.top_frame();
+                for (0..info.required_frame_up_steps) |_| {
+                    result_frame = switch (result_frame.kind) {
+                        .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
+                        .block => |block_object| block_object.home_frame,
+                    };
+                }
+
+                const object: VmObject = result_frame.base_ptr[info.local_id.idx];
+                try self.push_object(object);
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .set_local => |access| {
+                const info: Instruction.SetLocal = access.get(&self.decoder);
+
+                var result_frame: *Stack.Frame = self.top_frame();
+                for (0..info.required_frame_up_steps) |_| {
+                    result_frame = switch (result_frame.kind) {
+                        .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
+                        .block => |block_object| block_object.home_frame,
+                    };
+                }
+
+                const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
+                result_frame.base_ptr[info.local_id.idx] = to_assign;
+
+                if (to_assign.as_block()) |block| if (info.required_frame_up_steps != 0) {
+                    @branchHint(.unlikely);
+                    block.add_to_escaping_blocks_list();
                 };
-                std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
-                self.decoder.set_id_of_the_next_instruction(instr_id);
-            }
-            const fetch = self.decoder.fetch_instruction() orelse {
-                @branchHint(.cold);
-                try self.report_info("The end of the bytecode has been reached.", .{});
-                return;
-            };
-            switch_instruction: switch (fetch) {
-                .pop => {
-                    _ = self.pop_object();
-                },
-                .load_local => |access| {
-                    const info: Instruction.LoadLocal = access.get(&self.decoder);
 
-                    var result_frame: *Stack.Frame = self.top_frame();
-                    for (0..info.required_frame_up_steps) |_| {
-                        result_frame = switch (result_frame.kind) {
-                            .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
-                            .block => |block_object| block_object.home_frame,
-                        };
-                    }
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_instance_var => |access| {
+                const info: Instruction.LoadInstanceVar = access.get(&self.decoder);
+                const self_object: VmObject = self.top_frame().self_object_ptr().*;
+                const instance_variable = self_object.get_instance_fields()[info.instance_var_id.idx];
+                try self.push_object(instance_variable);
 
-                    const object: VmObject = result_frame.base_ptr[info.local_id.idx];
-                    try self.push_object(object);
-                },
-                .set_local => |access| {
-                    const info: Instruction.SetLocal = access.get(&self.decoder);
+                continue :loop self.fetch_next_instruction();
+            },
+            .set_instance_var => |access| {
+                const info: Instruction.SetInstanceVar = access.get(&self.decoder);
+                const top_object: VmObject = self.top_stack_object().*;
+                const self_object: VmObject = self.top_frame().self_object_ptr().*;
+                self_object.get_instance_fields()[info.instance_var_id.idx] = top_object;
 
-                    var result_frame: *Stack.Frame = self.top_frame();
-                    for (0..info.required_frame_up_steps) |_| {
-                        result_frame = switch (result_frame.kind) {
-                            .method => unreachable, // If we want to go up the frame, it should be only viable via a block, not method.
-                            .block => |block_object| block_object.home_frame,
-                        };
-                    }
+                // If we have assigned a block to an instance variable,
+                // we presume that the block will escape and out-live its home frame.
+                if (top_object.as_block()) |block| {
+                    @branchHint(.unlikely);
+                    block.add_to_escaping_blocks_list();
+                }
 
-                    const to_assign: VmObject = self.stack.objects[self.stack.objects.len - 1];
-                    result_frame.base_ptr[info.local_id.idx] = to_assign;
+                continue :loop self.fetch_next_instruction();
+            },
+            .pop_into_new_array => |access| {
+                const info: Instruction.PopIntoNewArray = access.get(&self.decoder);
 
-                    if (to_assign.as_block()) |block| if (info.required_frame_up_steps != 0) {
-                        @branchHint(.unlikely);
+                // Get the items slice from the stack
+                const items_count = info.number_of_items;
+                const len = self.stack.objects.len;
+                const items_start_idx = len - items_count;
+                const items: []VmObject = self.stack.objects[items_start_idx..len];
+
+                for (items) |item| {
+                    if (item.as_block()) |block| {
+                        @branchHint(.cold);
                         block.add_to_escaping_blocks_list();
-                    };
-                },
-                .load_instance_var => |access| {
-                    const info: Instruction.LoadInstanceVar = access.get(&self.decoder);
+                    }
+                }
+
+                // Create the array object
+                const array_object: VmObject = try types.Array.create_new(&self.heap, items);
+                // NOTE(GC): It is important to not trigger a GC until we put `array_object` on the stack below
+
+                // Pop all the objects that were copied into the new array
+                self.stack.objects.len = items_start_idx;
+
+                try self.push_object(array_object);
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_global => |access| {
+                const global_symbol_id: SymbolId = access.get(&self.decoder);
+
+                const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
+                if (maybe_global_object) |global_object| {
+                    try self.push_object(global_object);
+                } else {
+                    @branchHint(.unlikely);
+                    // We have to invoke `unknownGlobal:` method on the `self` object.
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                    const instance_variable = self_object.get_instance_fields()[info.instance_var_id.idx];
-                    try self.push_object(instance_variable);
-                },
-                .set_instance_var => |access| {
-                    const info: Instruction.SetInstanceVar = access.get(&self.decoder);
-                    const top_object: VmObject = self.top_stack_object().*;
+                    const global_name = VmObject.from_symbol(global_symbol_id);
+
+                    try self.push_object(global_name);
+                    try self.push_object(self_object);
+                    try self.send_message(SymbolsManager.comptime_id_of("unknownGlobal:"));
+                }
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .set_global => |access| {
+                const global_symbol_id: SymbolId = access.get(&self.decoder);
+
+                const object = self.top_stack_object();
+                if (object.as_block()) |block| block.add_to_escaping_blocks_list();
+                try self.globals.put(global_symbol_id, object.*);
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_symbol => |access| {
+                const symbol_id: SymbolId = access.get(&self.decoder);
+                const object = VmObject.from_symbol(symbol_id);
+                try self.push_object(object);
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_nil => {
+                try self.push_object(VmObject.nil);
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_integer_i8 => |access| {
+                const value: i8 = access.get(&self.decoder);
+                try self.push_object(VmObject.from_integer(value));
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_integer_i48 => |access| {
+                const value: i48 = access.get(&self.decoder);
+                try self.push_object(VmObject.from_integer(value));
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_double => |access| {
+                const value: f64 = access.get(&self.decoder);
+                try self.push_object(VmObject.from_double(value));
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_string => |access| {
+                const string_literal_id: StringLiteralId = access.get(&self.decoder);
+                const string_object: *types.String = self.statics.constants_manager.get_string(string_literal_id);
+                try self.push_object(VmObject.from(string_object));
+                continue :loop self.fetch_next_instruction();
+            },
+            .load_block => |access| {
+                const block_id: BlockDefinitionId = access.get(&self.decoder);
+                const block_info: *const BlockDefinition = self.statics.constants_manager.get_block(block_id);
+                const block_object: VmObject = try types.Block.create_new(&self.heap, block_info, self.top_frame());
+                try self.push_object(block_object);
+                continue :loop self.fetch_next_instruction();
+            },
+            .resolved_method_call => |access| {
+                const call_info = access.get(&self.decoder);
+                const method_ptr: *const MethodDefinition = call_info.method_ptr.ptr();
+                try self.call_method(method_ptr);
+                continue :loop self.fetch_next_instruction();
+            },
+            .invalid_super_send => |access| {
+                const call_info = access.get(&self.decoder);
+                try self.send_do_not_understand(null, call_info.selector);
+                continue :loop self.fetch_next_instruction();
+            },
+            .send_message => |access| {
+                const send_info: Instruction.SendMessage = access.get(&self.decoder);
+                try self.send_message(send_info.message_name);
+                continue :loop self.fetch_next_instruction();
+            },
+            .normal_return => {
+                const return_value: VmObject = self.top_stack_object().*;
+
+                if (return_value.as_block()) |block| {
+                    @branchHint(.cold);
+                    block.add_to_escaping_blocks_list();
+                }
+
+                // Leaves a spot at the top of the stack for the `return_value`
+                const next_instruction = (try self.pop_frame()).next_instruction;
+                if (self.stack.frames.len == 0) {
+                    @branchHint(.unlikely);
+                    // The program has ended
+                    return;
+                }
+
+                // Put the return value on the top of the stack
+                self.top_stack_object().* = return_value;
+
+                const bytecode = self.top_frame().get_bytecode();
+                self.decoder.bytes = bytecode.bytes;
+                self.decoder.set_id_of_the_next_instruction(next_instruction);
+
+                continue :loop self.fetch_next_instruction();
+            },
+            .non_local_return => {
+                const return_value: VmObject = self.top_stack_object().*;
+
+                // NOTE(GC): We might be popping multiple stack frame here.
+                //           This might mean allocation of a new `Stack.Frame` on the heap,
+                //           which could trigger a deallocation of the `return_value`.
+                var p = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
+                defer p.unprotect_all();
+                try p.protect(return_value);
+
+                if (return_value.as_block()) |block| {
+                    @branchHint(.cold);
+                    block.add_to_escaping_blocks_list();
+                }
+                const wanted_frame: *Stack.Frame, const block = switch (self.top_frame().kind) {
+                    .method => unreachable, // We should never encounter a non local in a method
+                    .block => |block| .{ block.home_method_frame(), block },
+                };
+
+                const frame_is_still_on_stack = null != index_from_pointer(wanted_frame, self.stack.frames);
+                if (!frame_is_still_on_stack) {
+                    @branchHint(.cold);
+                    // We have to send a message `escapedBlock:` to the current `self`.
                     const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                    self_object.get_instance_fields()[info.instance_var_id.idx] = top_object;
 
-                    // If we have assigned a block to an instance variable,
-                    // we presume that the block will escape and out-live its home frame.
-                    if (top_object.as_block()) |block| {
-                        @branchHint(.unlikely);
-                        block.add_to_escaping_blocks_list();
-                    }
-                },
-                .pop_into_new_array => |access| {
-                    const info: Instruction.PopIntoNewArray = access.get(&self.decoder);
+                    // Put arguments on the top of the stack `self`.
+                    try self.push_object(VmObject.from(block));
+                    try self.push_object(self_object);
 
-                    // Get the items slice from the stack
-                    const items_count = info.number_of_items;
-                    const len = self.stack.objects.len;
-                    const items_start_idx = len - items_count;
-                    const items: []VmObject = self.stack.objects[items_start_idx..len];
+                    // Send the error message to `self` that is currently on the top of the stack.
+                    try self.send_message(SymbolsManager.comptime_id_of("escapedBlock:"));
 
-                    for (items) |item| {
-                        if (item.as_block()) |block| {
-                            @branchHint(.cold);
-                            block.add_to_escaping_blocks_list();
-                        }
-                    }
+                    // We are done with execution of this instruction
+                    continue :loop self.fetch_next_instruction();
+                }
 
-                    // Create the array object
-                    const array_object: VmObject = try types.Array.create_new(&self.heap, items);
-                    // NOTE(GC): It is important to not trigger a GC until we put `array_object` on the stack below
-
-                    // Pop all the objects that were copied into the new array
-                    self.stack.objects.len = items_start_idx;
-
-                    try self.push_object(array_object);
-                },
-                .load_global => |access| {
-                    const global_symbol_id: SymbolId = access.get(&self.decoder);
-
-                    const maybe_global_object: ?VmObject = self.globals.get(global_symbol_id);
-                    if (maybe_global_object) |global_object| {
-                        try self.push_object(global_object);
-                    } else {
-                        @branchHint(.unlikely);
-                        // We have to invoke `unknownGlobal:` method on the `self` object.
-                        const self_object: VmObject = self.top_frame().self_object_ptr().*;
-                        const global_name = VmObject.from_symbol(global_symbol_id);
-
-                        try self.push_object(global_name);
-                        try self.push_object(self_object);
-                        try self.send_message(SymbolsManager.comptime_id_of("unknownGlobal:"));
-                    }
-                },
-                .set_global => |access| {
-                    const global_symbol_id: SymbolId = access.get(&self.decoder);
-
-                    const object = self.top_stack_object();
-                    if (object.as_block()) |block| block.add_to_escaping_blocks_list();
-                    try self.globals.put(global_symbol_id, object.*);
-                },
-                .load_symbol => |access| {
-                    const symbol_id: SymbolId = access.get(&self.decoder);
-                    const object = VmObject.from_symbol(symbol_id);
-                    try self.push_object(object);
-                },
-                .load_nil => {
-                    try self.push_object(VmObject.nil);
-                },
-                .load_integer_i8 => |access| {
-                    const value: i8 = access.get(&self.decoder);
-                    try self.push_object(VmObject.from_integer(value));
-                },
-                .load_integer_i48 => |access| {
-                    const value: i48 = access.get(&self.decoder);
-                    try self.push_object(VmObject.from_integer(value));
-                },
-                .load_double => |access| {
-                    const value: f64 = access.get(&self.decoder);
-                    try self.push_object(VmObject.from_double(value));
-                },
-                .load_string => |access| {
-                    const string_literal_id: StringLiteralId = access.get(&self.decoder);
-                    const string_object: *types.String = self.statics.constants_manager.get_string(string_literal_id);
-                    try self.push_object(VmObject.from(string_object));
-                },
-                .load_block => |access| {
-                    const block_id: BlockDefinitionId = access.get(&self.decoder);
-                    const block_info: *const BlockDefinition = self.statics.constants_manager.get_block(block_id);
-                    const block_object: VmObject = try types.Block.create_new(&self.heap, block_info, self.top_frame());
-                    try self.push_object(block_object);
-                },
-                .resolved_method_call => |access| {
-                    const call_info = access.get(&self.decoder);
-                    const method_ptr: *const MethodDefinition = call_info.method_ptr.ptr();
-                    try self.call_method(method_ptr);
-                },
-                .invalid_super_send => |access| {
-                    const call_info = access.get(&self.decoder);
-                    try self.send_do_not_understand(null, call_info.selector);
-                },
-                .send_message => |access| {
-                    const send_info: Instruction.SendMessage = access.get(&self.decoder);
-                    try self.send_message(send_info.message_name);
-                },
-                .normal_return => {
-                    const return_value: VmObject = self.top_stack_object().*;
-
-                    if (return_value.as_block()) |block| {
-                        @branchHint(.cold);
-                        block.add_to_escaping_blocks_list();
-                    }
-
-                    // Leaves a spot at the top of the stack for the `return_value`
-                    const next_instruction = (try self.pop_frame()).next_instruction;
-                    if (self.stack.frames.len == 0) {
-                        @branchHint(.unlikely);
-                        // The program has ended
-                        return;
-                    }
-
-                    // Put the return value on the top of the stack
-                    self.top_stack_object().* = return_value;
-
-                    const bytecode = self.top_frame().get_bytecode();
-                    self.decoder.bytes = bytecode.bytes;
-                    self.decoder.set_id_of_the_next_instruction(next_instruction);
-                },
-                .non_local_return => {
-                    const return_value: VmObject = self.top_stack_object().*;
-
-                    // NOTE(GC): We might be popping multiple stack frame here.
-                    //           This might mean allocation of a new `Stack.Frame` on the heap,
-                    //           which could trigger a deallocation of the `return_value`.
-                    var p = try self.heap.protector_against_gc(.{ .number_of_planned_protections = 1 });
-                    defer p.unprotect_all();
-                    try p.protect(return_value);
-
-                    if (return_value.as_block()) |block| {
-                        @branchHint(.cold);
-                        block.add_to_escaping_blocks_list();
-                    }
-                    const wanted_frame: *Stack.Frame, const block = switch (self.top_frame().kind) {
-                        .method => unreachable, // We should never encounter a non local in a method
-                        .block => |block| .{ block.home_method_frame(), block },
-                    };
-
-                    const frame_is_still_on_stack = null != index_from_pointer(wanted_frame, self.stack.frames);
-                    if (!frame_is_still_on_stack) {
-                        @branchHint(.cold);
-                        // We have to send a message `escapedBlock:` to the current `self`.
-                        const self_object: VmObject = self.top_frame().self_object_ptr().*;
-
-                        // Put arguments on the top of the stack `self`.
-                        try self.push_object(VmObject.from(block));
-                        try self.push_object(self_object);
-
-                        // Send the error message to `self` that is currently on the top of the stack.
-                        try self.send_message(SymbolsManager.comptime_id_of("escapedBlock:"));
-
-                        break :switch_instruction; // We are done with execution of this instruction
-                    }
-
-                    // We know that we want to pop at least one frame (the block frame)
+                // We know that we want to pop at least one frame (the block frame)
+                _ = try self.pop_frame();
+                while (wanted_frame != self.top_frame()) {
                     _ = try self.pop_frame();
-                    while (wanted_frame != self.top_frame()) {
-                        _ = try self.pop_frame();
-                    }
+                }
 
-                    // Put the return value on the top of the stack
-                    self.top_stack_object().* = return_value;
+                // Put the return value on the top of the stack
+                self.top_stack_object().* = return_value;
 
-                    continue :switch_instruction .normal_return;
-                },
-            }
-            if (DO_DEBUG_TRACE) {
-                try self.debug_print_stack();
-                std.debug.print("\n", .{});
-            }
+                continue :loop .normal_return;
+            },
         }
-        unreachable;
+
+        @compileError(
+            \\ This compile error is triggered when there is a possibility
+            \\ of runtime control-flow falling out of the `loop` switch above.
+            \\
+            \\ This should not be possible, all branches of the switch should either
+            \\ end with a `return ...` or `continue :loop self.fetch_next_instruction()`.
+        );
+    }
+
+    pub fn fetch_next_instruction(self: *Self) InstructionDecoder.Fetch {
+        if (DO_DEBUG_TRACE) {
+            try self.debug_print_stack();
+            std.debug.print("\n", .{});
+        }
+
+        if (DO_DEBUG_TRACE) {
+            const instr_id = self.decoder.id_of_next_instruction();
+            const instruction: Instruction = self.decoder.next_instruction().?;
+            const formatter = codegen_module.InstructionFormatter{
+                .constants_manager = &self.statics.constants_manager,
+                .symbols_manager = &self.statics.symbols_manager,
+                .use_color = true,
+            };
+            std.debug.print("\nCurrently executing: [{d:04}]{f}", .{ instr_id.idx, formatter.fmt(instruction) });
+            self.decoder.set_id_of_the_next_instruction(instr_id);
+        }
+
+        const fetch: InstructionDecoder.Fetch = self.decoder.fetch_instruction().?;
+        return fetch;
     }
 
     pub fn print_object_no_newline(self: *Self, object: VmObject) Error!void {
