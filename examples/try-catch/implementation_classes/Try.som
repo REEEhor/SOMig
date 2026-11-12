@@ -1,0 +1,26 @@
+Try = (
+    --------
+    | maybe_handlers |
+
+    new = (
+        self error: 'This class does not have instances - it should just work as a namespace or a singleton.'
+    )
+
+    get_handlers = (
+        maybe_handlers ifNil: [ maybe_handlers := Vector new ].
+        ^ maybe_handlers.
+    )
+
+    do: body catch: catchBlock = (
+        | handler_stack result |
+        handler_stack := self get_handlers.
+
+        handler_stack append: [ :e | ^ catchBlock value: e ].
+
+        result := body value.
+
+        handler_stack remove.
+
+        ^ result.
+    )
+)

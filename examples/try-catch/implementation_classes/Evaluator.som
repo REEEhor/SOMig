@@ -1,0 +1,11 @@
+Evaluator = (
+    ----
+    evaluate: op lhs: lhs rhs: rhs = (
+        | result | 
+        result := lhs perform: op withArguments: #(rhs).
+        ((rhs = 0) and: op = #'//') ifTrue: [
+            Throw exception: ('Invalid operation: ' + lhs + ' / ' + rhs).
+        ].
+        ^ result.
+    )
+)

@@ -1,0 +1,45 @@
+TryCatchDemo = (
+    run = (
+        | result |
+        '=========================================================' println.
+        '  \x1b[32mCalculator demo using *\x1b[34;1muserland-defined\x1b[0m\x1b[32m* try-catch :)\x1b[0m' println.
+        '=========================================================' println. '' println.
+
+        result := Try do: [
+            | lhs rhs result op lhs_rhs_pair |
+
+            lhs_rhs_pair := self get_numbers.
+            lhs := lhs_rhs_pair at: 1.
+            rhs := lhs_rhs_pair at: 2.
+            ('Got lhs: ' + lhs) println.
+            ('Got rhs: ' + rhs) println.
+            op := Input get_op.
+            result := Evaluator evaluate: op lhs: lhs rhs: rhs.
+
+        ] catch: [ :ex |
+            ('Caught exception: >\x1b[31m' + ex + '\x1b[0m<') println.
+            system exit: 1.
+        ].
+
+        ('Everything worked, the result is: \x1b[32;1m' + result + '\x1b[0m') println.
+        '\x1b[32mHint:\x1b[0m You can try inputting invalid arguments next time ;)' println.
+    )
+
+    get_numbers = (
+        | lhs rhs |
+        lhs := Try do: [
+            lhs := Input get_number: 'lhs'.
+        ] catch: [ :ex |
+            Throw exception: 'Could not read lhs: ' + ex.
+        ].
+
+        rhs := Try do: [
+            rhs := Input get_number: 'rhs'.
+        ] catch: [ :ex |
+            Throw exception: 'Could not read rhs: ' + ex.
+        ].
+
+        ^ Array with: lhs with: rhs.
+    )
+
+)

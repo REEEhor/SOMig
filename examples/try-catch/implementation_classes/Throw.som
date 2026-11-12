@@ -1,0 +1,19 @@
+Throw = (
+    --------
+    new = (
+        self error: 'This class does not have instances - it should just work as a namespace or a singleton.'
+    )
+
+    exception: ex = (
+        | handler_stack handler |
+        handler_stack := Try get_handlers.
+
+        handler_stack isEmpty ifTrue: [
+            self error: ('Unhandeled exception: ' + ex)
+        ].
+
+        handler := handler_stack remove.
+
+        handler value: ex
+    )
+)

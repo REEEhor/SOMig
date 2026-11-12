@@ -1,0 +1,40 @@
+Input = (
+    -----
+    get_number: name = (
+        | line number |
+        ('Please provide the number ' + name + ': ') print.
+        line := self read_line.
+        number := self parse_number: line. 
+
+        ^ number.
+    )
+
+    parse_number: string = (
+        | number |
+        number := Double fromString: string.
+        
+        (number = number) ifFalse: [ " number is NaN "
+            Throw exception: 'Could not parse a number from the string "' + string + '"'
+        ].
+
+        ^ number.
+    )
+    
+    read_line = (
+        | line |
+        line := system getLine.
+        line ifNil: [ Throw exception: 'Could not read line'. ]. 
+        ^ line.
+    )
+
+    get_op = (
+        | line |
+        'Specify operation (+, -, *, /): ' print.
+        line := self read_line.
+        line = '+' ifTrue: [ ^ line asSymbol ]. 
+        line = '-' ifTrue: [ ^ line asSymbol ]. 
+        line = '*' ifTrue: [ ^ line asSymbol ]. 
+        line = '/' ifTrue: [ ^ #'//' ]. 
+        Throw exception: 'Invalid operator: "' + line + '"'.
+    )
+)

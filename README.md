@@ -68,6 +68,9 @@ Run some of the provided examples:
 ```bash
 ./somig --recursively-include Smalltalk:examples  --  EchoArgs 10 20 hello 30
 ```
+```bash
+./somig --recursively-include Smalltalk:examples  --  TryCatchDemo
+```
 
 Run all tests: 
 ```bash
