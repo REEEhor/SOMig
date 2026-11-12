@@ -4,7 +4,22 @@
 
 This repository is an implementation of a virtual machine for SOM in the [Zig programming language](https://ziglang.org/).
 
-SOMig is a bachelor's thesis. Click [here](https://gitlab.fit.cvut.cz/rehorja8/paper-part-of-somig) to go to the repository for the paper part of the thesis.
+_SOMig is my bachelor's thesis_. Click [here](https://hdl.handle.net/10467/184074) to see the paper part of the thesis, its results and reviews (please note that the site can take a minute to load).
+
+---
+
+Mascot of SOMig (a reference to the polish word [chomik](https://pl.wikipedia.org/wiki/Chomik_europejski) for a hamster. The hamster is biting the logo of [SOM](https://som-st.github.io/)).
+<p align="center">
+  <img width="300" alt="image" src="https://github.com/user-attachments/assets/4523a1ee-c3a9-4968-a5a4-53302b0aa4dc" />
+</p>
+
+
+---
+Performance comparison of SOMig against CSOM (SOM VM written in C) and SOM++. SOM++ is the fastest non-jitting SOM VM implementation written in C++:
+
+<p align="center">
+  <img width="450" alt="image" src="https://github.com/user-attachments/assets/5336aff3-4b57-479e-a831-22f0efc5f62a" />
+</p>
 
 ---
 THE FOLDERS `Smalltalk/` AND `test/AreWeFastYetCoreLib/` ARE VENDORED FROM [https://github.com/SOM-st/SOM.git](). SEE `thirdparty/` FOR LICENSE AND AUTHORS FILES.
@@ -17,12 +32,21 @@ Most of the tests in `test/integration_tests/` are a modified copy integration t
 Requirements: **Zig 0.15.1**.
 ```bash
 # Build with optimizations
-zig build -Doptimize=ReleaseFast
+zig build  -Doptimize=ReleaseFast
 ```
 
-Run example:
+Run some of the provided examples:
 ```bash
-./somig -ir Smalltalk:examples -- GameOfLife glider
+./somig --recursively-include Smalltalk:examples  --  GameOfLife glider
+```
+```bash
+./somig --recursively-include Smalltalk:examples  --  GameOfLife examples/game-of-life/inputs/glider-gun.txt 0
+```
+```bash
+./somig --recursively-include Smalltalk:examples  --  Calculator
+```
+```bash
+./somig --recursively-include Smalltalk:examples  --  EchoArgs 10 20 hello 30
 ```
 
 Run all tests: 
@@ -33,35 +57,36 @@ zig build test
 ### Explanation of the interpreter arguments
 In general, the structure is as follows:
 ```bash 
-./somig (RUNTIME-SETTINGS...) -- (ARGUMENTS-FOR-ENTRY-VM-POINT...)
+./somig RUNTIME-SETTINGS -- ARGUMENTS-FOR-ENTRY-VM-POINT
 ```
-It will almost always look like:
+It will almost always look similar to:
 ```bash 
 ./somig -i Smalltalk:someDir -- NameOfEntryPointClass (maybe-other-arguments...)
 ```
 
 - `RUNTIME-SETTINGS` include:
 
-  - `-i` or `--import <DIR1:DIR2:DIR3:...>` - paths to directories (separated by `:`) which the runtime should look into when searching for `.som` class definitions (this option also has an alias `-cp` to be compatible with other SOM VMs).
+  - `-i` or `--include DIR1:DIR2:DIR3:...` - paths to directories (separated by `:`) which the runtime should look into when searching for `.som` class definitions (this option also has an alias `-cp` to be compatible with other SOM VMs).
+    - This flag is used upon every conventional start of the VM, as the standard library in the `Smalltalk/` directory must be included via `-i Smalltalk`. SOM has a lot of stuff defined in user-land, including definitions of booleans for example.
   
-  - `-r`, `-ri`, `-ir`, or `--recursively-include <DIR1:DIR2:DIR3:...>` same as `--import`, but allows the runtime to search the directories recursively.
+  - `-r`, `-ri`, `-ir`, or `--recursively-include DIR1:DIR2:DIR3:...` same as `--include`, but allows the runtime to search the directories recursively.
 
   - `--no-color` - do not use ANSI for colored output of errors and warnings.
 
   - `--no-bs` (*no bootstrapping*) - makes it so that the entrypoint of the program is not the `initialize:` method of class `System` as it complicates the startup. The VM will do the work of this method by itself. This is useful for debugging as it simplifies the execution and makes the call-stack smaller.
 
-  - `--object-stack <SIZE>` - sets the object-stack's size to `SIZE`. Defaults to `1000`.
+  - `--object-stack SIZE` - sets the object-stack's size to `SIZE`. Defaults to `1000`. SOMig has a stack-based interpreter. The operational stack is called object-stack.
   
-  - `--frame-stack <SIZE>` - sets the frame-stack's size to `SIZE`. Defaults to `1000`.
+  - `--frame-stack SIZE` - sets the frame-stack's size to `SIZE`. Defaults to `1000`. The frame-stack is a function callstack in the VM.
 
-The `ARGUMENTS-FOR-ENTRY-VM-POINT` are strings which will be passed into the runtime's entry point, which is by default the `initialize:` method on the class `System`. This method expects there to be at least one argument, which is the name of the class to run. Rest of the arguments are then passed into the `run:` method of the entry point class. The class can also only define the `run` method. See the `Smalltalk/System` class for more information.
+- `ARGUMENTS-FOR-ENTRY-VM-POINT` are strings which will be passed into the runtime's entry point, which is by default the `initialize:` method on the class `System` (which be found in `Smalltalk/System.som`). This method expects there to be at least one argument, which is the name of the class to run. Rest of the arguments are then passed into the `run:` method of the entry point class. The class can also only define the `run` method. See the `Smalltalk/System.som` class for more information.
 
 It is also possible to specify the entry point class like this:
 ```bash
-./somig -i Smalltalk path/to/NameOfEntryPointClass.som  (maybe-other-arguments...)
+./somig -i Smalltalk path/to/dir/NameOfEntryPointClass.som   (maybe-other-arguments...)
 ```
 which de-sugars to:
 ```bash
-./somig -i Smalltalk:path/to/ -- NameOfEntryPointClass  (maybe-other-arguments...)
+./somig -i Smalltalk:path/to/dir/ -- NameOfEntryPointClass   (maybe-other-arguments...)
 ```
-This is implemented to be again compatible with other SOM VM implementations.
+This 'de-sugaration' is implemented to be compatible with other SOM VM implementations.
