@@ -4,17 +4,37 @@
 
 This repository is an implementation of a virtual machine for SOM in the [Zig programming language](https://ziglang.org/).
 
-_SOMig is my bachelor's thesis_. Click [here](https://hdl.handle.net/10467/184074) to see the paper part of the thesis, its results and reviews (please note that the site can take a minute to load).
+**SOMig is my bachelor's thesis**. Click [here](https://hdl.handle.net/10467/184074) to see the paper part of the thesis, its results and reviews (please note that the site can take a minute to load).
 
 ---
 
-Mascot of SOMig (a reference to the polish word [chomik](https://pl.wikipedia.org/wiki/Chomik_europejski) for a hamster. The hamster is biting the logo of [SOM](https://som-st.github.io/)).
-<p align="center">
-  <img width="300" alt="image" src="https://github.com/user-attachments/assets/4523a1ee-c3a9-4968-a5a4-53302b0aa4dc" />
-</p>
+Mascot of SOMig is a hamster which is biting on the logo of [SOM](https://som-st.github.io/) (a reference to the polish word [chomik](https://pl.wikipedia.org/wiki/Chomik_europejski) for a hamster).
 
 
----
+<table>
+<tr>
+<td valign="top" width="300">
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/4523a1ee-c3a9-4968-a5a4-53302b0aa4dc" />
+</td>
+<td valign="top">
+
+General overview of this VM:
+
+- Traditional frontend: lexing tokens -> parsing into AST -> generate bytecode
+  - Note: the bytecode is type-safe, without sacrificing performance nor memory.
+  - See `src/bytecode/decoder.zig` for more info.
+- Stack-based interpreter
+- Mark-sweep garbage collector
+- NaN boxing
+- Lazy-loading of classes
+- Symbol interning
+- Calls to 'super' are statically resolved and therefore skip dynamic dispatch at runtime
+- In many cases, the call-stack frames are not allocated on the heap of the VM (which is uncommon in other SOM VMs)
+
+</td>
+</tr>
+</table>
+
 Performance comparison of SOMig against CSOM (SOM VM written in C) and SOM++. SOM++ is the fastest non-jitting SOM VM implementation written in C++:
 
 <p align="center">
@@ -27,9 +47,9 @@ Most of the tests in `test/integration_tests/` are a modified copy integration t
 
 ---
 
-## How to build and run
+# How to build and run
 
-Requirements: **Zig 0.15.1**.
+### Requirements: `Zig 0.15.1`
 ```bash
 # Build with optimizations
 zig build  -Doptimize=ReleaseFast
